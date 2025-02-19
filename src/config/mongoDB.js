@@ -9,7 +9,7 @@ const connectMongoDB = async () => {
 
         await mongoose.connect(mongoURI);
 
-        console.log('MongoDB에 성공적으로 연결되었습니다....');
+        console.log('MongoDB에 성공적으로 연결되었습니다...');
 
     } catch (error) {
 
