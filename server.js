@@ -1,7 +1,13 @@
-const express =require("express") //자바스크립트 끼리 파일 임포트가 됩니다.
-const app = express()
-app.use(express.json())
+import express from 'express';
+import connectMongoDB from './src/config/mongoDB.js'; // 경로 수정
 
-app.listen(8000,() => {
-    console.log("test message")
-})
+const app = express();
+const PORT = 3000;
+
+app.use(express.json());
+
+connectMongoDB();
+
+app.listen(8000, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
