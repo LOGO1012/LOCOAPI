@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 const { Schema, model } = mongoose;
 
-/**
+/**ll
  * ChatRoom 스키마
  * - 채팅방 이용자(chatUsers): 채팅방에 참여하는 사용자들의 ID 배열 (User 컬렉션 참조)
  * - capacity: 랜덤 채팅방의 경우, 클라이언트에서 선택한 채팅방 정원 (예: 2, 3, 4, 5명)
