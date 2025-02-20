@@ -163,6 +163,11 @@ const userSchema = new Schema({
         type: Date,             // 마지막 로그인 시간
         default: null
     },
+    // 신고 누적 횟수
+    numofreport: {
+        type: Number,
+        default: 0
+    }
     // lastActive: {
     //     type: Date,             // 마지막 활동 시간 (예: 채팅, 페이지 방문 등)
     //     default: null
