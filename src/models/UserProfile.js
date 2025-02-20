@@ -1,5 +1,5 @@
 
-
+//PASS 받아오는거 어디넣을지
 const mongoose = require('mongoose'); // mongoose 모듈 불러오기
 const { Schema } = mongoose; // Schema 생성자 추출
 
@@ -16,7 +16,7 @@ const userSchema = new Schema({
     },
     gender: {
         type: String,           // 성별: 사용자의 성별
-        enum: ['male', 'female', 'other'], // 허용 값: 남성, 여성, 기타
+        enum: ['male', 'female'], // 허용 값: 남성, 여성, 기타
         default: 'other'        // 기본값은 'other'
     },
     // 추가 연락처 정보
@@ -139,10 +139,10 @@ const userSchema = new Schema({
         type: Date,             // 마지막 로그인 시간
         default: null
     },
-    lastActive: {
-        type: Date,             // 마지막 활동 시간 (예: 채팅, 페이지 방문 등)
-        default: null
-    },
+    // lastActive: {
+    //     type: Date,             // 마지막 활동 시간 (예: 채팅, 페이지 방문 등)
+    //     default: null
+    // },
 
     // // 사용자 환경 설정 (옵션)
     // preferences: {
