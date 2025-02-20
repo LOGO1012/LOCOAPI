@@ -12,7 +12,9 @@ const userSchema = new Schema({
     },
     nickname: {
         type: String,           // 닉네임: 사용자가 표시할 별명
-        required: true          // 필수 항목
+        required: true,         // 필수 항목
+        unique: true,           // 닉네임 유니크 설정(중복제거)
+        trim: true               // 공백 제거
     },
     gender: {
         type: String,           // 성별: 사용자의 성별
@@ -32,6 +34,7 @@ const userSchema = new Schema({
     },
     plan: {
         type: String,           // 플랜 구독 종류: 사용자가 가입한 구독 플랜 (예: 'free', 'premium' 등)
+        enum: ['free', 'premium', 'vip'],
         default: 'free'         // 기본값은 'free'
     },
     coinleft: {
@@ -40,6 +43,18 @@ const userSchema = new Schema({
     },
     accountlink: {
         type: String,           // 연동된 계정: 소셜 로그인 등 외부 계정 정보(예: provider의 식별자)
+        kakao: {
+            type: String,
+            default: null
+        },                       // 카카오 연동
+        liot: {
+            type: String,
+            default: null
+        },                      // 라이엇 연동
+        nexon: {
+            type: String,
+            default: null
+        },                      // 넥슨 연동
         default: ''             // 기본값은 빈 문자열
     },
     // 소셜 로그인 정보 (추가 선택 사항)
@@ -58,8 +73,8 @@ const userSchema = new Schema({
         }
     },
     photo: {
-        type: String,           // 이미지: 프로필 사진 URL
-        default: ''             // 기본값은 빈 문자열
+        type: [String],  // 문자열 배열로 여러 이미지 URL을 저장
+        default: [],  // 기본값은 빈 배열
     },
     info: {
         type: String,           // 자기소개: 사용자의 소개글
@@ -89,6 +104,7 @@ const userSchema = new Schema({
     // 유저 등급 및 권한 정보
     userlv: {
         type: Number,           // 유저 등급: 일반 사용자(예: 1)부터 관리자(더 높은 값) 등급 구분
+        enum: [1, 2, 3],        // 1 = 유저 , 2 = 관리자, 3 = 우리(개발자)
         default: 1              // 기본값은 1 (일반 사용자)
     },
 
