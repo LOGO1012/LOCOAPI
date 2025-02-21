@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const { Schema } = mongoose;
+const { Schema, model } = mongoose;
 
 // 댓글 스키마 정의 (게시물의 하위 문서로 사용)
 const commentSchema = new Schema({
