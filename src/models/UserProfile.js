@@ -19,7 +19,7 @@ const userSchema = new Schema({
     gender: {
         type: String,           // 성별: 사용자의 성별
         enum: ['male', 'female'], // 허용 값: 남성, 여성, 기타
-        default: 'other'        // 기본값은 'other'
+        default: ''
     },
     // 추가 연락처 정보
     phone: {
@@ -31,19 +31,6 @@ const userSchema = new Schema({
         type: Date,             // 생년월일: 사용자의 생년월일 정보
         default: null,
         required: true // 기본값은 null
-    },
-    // coinleft: {
-    //     type: Number,           // 남은 재화: 사용자가 보유한 코인 또는 재화 수량
-    //     default: 0              // 기본값은 0
-    // },
-    // plan: {
-    //     type: String,           // 플랜 구독 종류: 사용자가 가입한 구독 플랜 (예: 'free', 'premium' 등)
-    //     default: 'free'         // 기본값은 'free'
-    // },
-    plan: {
-        type: String,           // 플랜 구독 종류: 사용자가 가입한 구독 플랜 (예: 'free', 'premium' 등)
-        enum: ['free', 'premium', 'vip'],
-        default: 'free'         // 기본값은 'free'
     },
     coinleft: {
         type: Number,           // 남은 재화: 사용자가 보유한 코인 또는 재화 수량
@@ -75,10 +62,6 @@ const userSchema = new Schema({
             type: String,         // 제공자로부터 받은 고유 ID
             default: ''
         },
-        accessToken: {
-            type: String,         // 액세스 토큰 (선택 사항)
-            default: ''
-        }
     },
     photo: {
         type: [String],  // 문자열 배열로 여러 이미지 URL을 저장
@@ -115,49 +98,6 @@ const userSchema = new Schema({
         enum: [1, 2, 3],        // 1 = 유저 , 2 = 관리자, 3 = 우리(개발자)
         default: 1              // 기본값은 1 (일반 사용자)
     },
-
-    // // 계정 제재/정지 관련 정보 (현재 상태를 빠르게 조회하기 위한 필드들)
-    // status: {
-    //     type: String,           // 계정 상태: 'active'(정상), 'banned'(영구 정지), 'suspended'(일시 정지), 'warning'(경고 상태)
-    //     enum: ['active', 'banned', 'suspended', 'warning'],
-    //     default: 'active'       // 기본값은 'active'
-    // },
-    // banReason: {
-    //     type: String,           // 정지/제재 사유: 관리자가 부여한 정지나 제재의 사유
-    //     default: ''             // 기본값은 빈 문자열
-    // },
-    // banUntil: {
-    //     type: Date,             // 정지 기간: 계정이 일시 정지된 경우, 정지가 해제되는 시각
-    //     default: null          // 기본값은 null (영구 정지가 아니라면)
-    // },
-    // warningCount: {
-    //     type: Number,           // 경고 횟수: 누적된 경고 횟수 (경고 한 번당 1씩 증가)
-    //     default: 0              // 기본값은 0
-    // },
-    //
-    // // 제재(정지, 경고 등) 내역을 저장할 수 있는 배열 (과거 이력을 보관)
-    // sanctions: [
-    //     {
-    //         action: {
-    //             type: String,       // 제재 종류: 'ban', 'suspend', 'warning'
-    //             enum: ['ban', 'suspend', 'warning'],
-    //             required: true      // 필수 항목
-    //         },
-    //         reason: {
-    //             type: String,       // 제재 사유: 해당 제재가 부여된 이유
-    //             required: true      // 필수 항목
-    //         },
-    //         date: {
-    //             type: Date,         // 제재 일시: 제재가 부여된 날짜 및 시간
-    //             default: Date.now   // 기본값은 현재 시간
-    //         },
-    //         duration: {
-    //             type: Number,       // 제재 기간: 일시 정지 등의 경우 몇 시간 동안 적용되는지 (영구 정지인 경우 0 또는 null)
-    //             default: 0
-    //         }
-    //     }
-    // ],
-
     // 접속 및 활동 기록
     lastLogin: {
         type: Date,             // 마지막 로그인 시간

@@ -1,4 +1,4 @@
-import mongoose from 'mongoose'; // mongoose 모듈 불러오기
+import mongoose, {model} from 'mongoose'; // mongoose 모듈 불러오기
 const { Schema } = mongoose;         // Schema 생성자 추출
 
 // 신고 내역 스키마 정의
@@ -80,4 +80,4 @@ const reportSchema = new Schema({
 });
 
 // Report 모델을 'Report' 컬렉션으로 생성 및 내보내기
-module.exports = mongoose.model('Report', reportSchema);
+export const Report = model('Report', reportSchema);

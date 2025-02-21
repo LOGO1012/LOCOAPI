@@ -4,20 +4,20 @@ const { Schema } = mongoose;
 
 // 문의 스키마 정의
 const qnaSchema = new Schema({
-    qnatitle: {
+    qnaTitle: {
         type: String,
         required: true,  // 문의 제목
         trim: true
     },
-    qnacontents: {
+    qnaContents: {
         type: String,
         required: true,  // 문의 내용
     },
-    qnaanswer: {
+    qnaAnswer: {
         type: String,
         default: null,  // 답변 내용, 기본값은 null
     },
-    qnastatus: {
+    qnaStatus: {
         type: String,
         required: true,
         enum: ['Pending', 'Answered'],  // 문의 상태: 'Pending'(답변 대기중), 'Answered'(답변 완료)
@@ -33,13 +33,13 @@ const qnaSchema = new Schema({
         ref: 'User',  // User 모델을 참조
         default: null,  // 답변자가 없으면 null
     },
-    qnaregdate: {
+    qnaRegdate: {
         type: Date,
         default: Date.now,  // 문의 등록 날짜, 기본값은 현재 날짜
     },
 }, { timestamps: true });  // 생성일과 수정일 자동으로 기록
 
 // 모델 생성
-const Qna = mongoose.model('Qna', qnaSchema);
+export const Qna = mongoose.model('Qna', qnaSchema);
 
-export default Qna;
+
