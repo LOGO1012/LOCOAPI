@@ -4,7 +4,7 @@ const { Schema } = mongoose;
 /**
  * Conversation 스키마ll
  * - 랜덤채팅의 경우, 채팅방은 임시로 생성되고 금방 소멸할 수 있으므로,
- *   필요한 최소한의 정보만 담습니다.
+ *   필요한 최소한의 정보만 담습니다..
  */
 const conversationSchema = new Schema({
     participants: [
