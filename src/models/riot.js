@@ -66,7 +66,7 @@ const lolStatsSchema = new Schema({
  * - recent20WinRate: 최근 20게임 승률 (%)
  * - gameTier: 게임 티어 (예: "Silver")
  * - recentMatches: 최근 경기 내역 배열 (예: 최근 10경기 승패 기록)
- * - _id: false 옵션으로 별도의 _id 생성 방지
+ * - _id: false 옵션으로 별도의 _id 생성 방지.
  */
 const tftStatsSchema = new Schema({
 
