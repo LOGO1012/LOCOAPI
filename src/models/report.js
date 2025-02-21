@@ -80,4 +80,4 @@ const reportSchema = new Schema({
 });
 
 // Report 모델을 'Report' 컬렉션으로 생성 및 내보내기
-module.exports = mongoose.model('Report', reportSchema);
+export const Report = model('Report', reportSchema);

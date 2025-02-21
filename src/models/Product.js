@@ -6,7 +6,7 @@ const { Schema, model } = mongoose;
  * - productName: 상품 이름 (예: 'Premium Plan', 'Coin Pack 1000')
  * - productType: 'subscription'(구독) 또는 'coin'(재화)로 구분
  * - description: 상품 설명
- * - price: 상품 가격
+ * - productPrice: 상품 가격
  * - durationInDays: 구독 상품의 경우 유효 기간 (예: 30일, 365일) - coin 상품은 null
  * - coinAmount: 코인 상품의 경우 제공되는 코인 수 - subscription은 null
  * - active: 상품 판매 여부
@@ -27,7 +27,7 @@ const productSchema = new Schema({
         type: String,
         default: '',
     },
-    price: {
+    productPrice: {
         type: Number,
         required: true,
     },

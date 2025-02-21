@@ -3,17 +3,18 @@ const { Schema, model } = mongoose;
 
 /**
  * Payment 스키마
- * - user: 결제를 요청한 사용자의 ID (User 컬렉션 참조)
+ * - userId: 결제를 요청한 사용자의 ID (User 컬렉션 참조)
  * - product: 결제할 상품(Product) ID (Product 컬렉션 참조)
  * - paymentMethod: 결제 방식 (예: 'card', 'toss', 'bank_transfer')
- * - amount: 결제 금액
+ * - payPolicy: 결제 약관 동의
+ * - payPrice: 결제 금액
  * - status: 결제 상태 ('pending', 'completed', 'failed')
- * - transactionId: 결제 게이트웨이에서 발급받은 거래 ID (임시 또는 빈 문자열)
- * - createdAt: 결제 요청 시각
+ * - payId: 결제 게이트웨이에서 발급받은 거래 ID (임시 또는 빈 문자열)
+ * - productDate: 결제 요청 시각
  */
 
 const paymentSchema = new Schema({
-    user: {
+    userId: {
         type: Schema.Types.ObjectId,
         ref: 'User',
         required: true,
@@ -25,25 +26,31 @@ const paymentSchema = new Schema({
     },
     paymentMethod: {
         type: String,
-        enum: ['card', 'toss', 'bank_transfer'],
+        enum: ['card', 'toss'],
         required: true,
     },
-    amount: {
+    payPolicy: {
+        type: Boolean,          // 약관 동의: 사용자가 약관에 동의했는지 여부 (true: 동의, false: 미동의)
+        default: false
+    },
+    payPrice: {
         type: Number,
         required: true,
     },
-    status: {
+    payStatus: {
         type: String,
         enum: ['pending', 'completed', 'failed'],
         default: 'pending',
     },
-    transactionId: {
+    payId: {
         type: String,
         default: '',
     },
-    createdAt: {
+    productDate: {
         type: Date,
-        default: Date.now,
+        default: function () {
+            return this.status === 'completed' ? new Date() : null;
+        }
     },
 }, { timestamps: true });
 

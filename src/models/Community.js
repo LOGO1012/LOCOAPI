@@ -70,6 +70,4 @@ const communitySchema = new Schema({
 
 
 // 모델 생성
-const Community = mongoose.model('Community', communitySchema);
-
-export default Community;
+export const Community = mongoose.model('Community', communitySchema);
