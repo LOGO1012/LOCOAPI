@@ -1,6 +1,6 @@
 
 //PASS 받아오는거 어디넣을지
-const mongoose = require('mongoose'); // mongoose 모듈 불러오기
+import mongoose from "mongoose"; // mongoose 모듈 불러오기
 const { Schema, model } = mongoose; // Schema 생성자 추출
 
 // User 스키마 정의
@@ -140,4 +140,4 @@ const userSchema = new Schema({
 });
 
 // User 모델을 'User' 컬렉션으로 생성 및 내보내기
-module.exports = mongoose.model('User', userSchema);
+export const User = mongoose.model('User', userSchema);

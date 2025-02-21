@@ -40,6 +40,6 @@ const qnaSchema = new Schema({
 }, { timestamps: true });  // 생성일과 수정일 자동으로 기록
 
 // 모델 생성
-export const Qna = mongoose.model('Qna', qnaSchema);
+export const Qna = model('Qna', qnaSchema);
 
 
