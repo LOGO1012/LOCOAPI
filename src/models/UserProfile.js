@@ -1,7 +1,7 @@
 
 //PASS 받아오는거 어디넣을지
 const mongoose = require('mongoose'); // mongoose 모듈 불러오기
-const { Schema } = mongoose; // Schema 생성자 추출
+const { Schema, model } = mongoose; // Schema 생성자 추출
 
 // User 스키마 정의
 const userSchema = new Schema({
