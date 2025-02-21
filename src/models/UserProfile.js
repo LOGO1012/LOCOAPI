@@ -140,4 +140,4 @@ const userSchema = new Schema({
 });
 
 // User 모델을 'User' 컬렉션으로 생성 및 내보내기
-export const User = mongoose.model('User', userSchema);
+export const User = model('User', userSchema);
