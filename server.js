@@ -1,13 +1,33 @@
 import express from 'express';
-import connectMongoDB from './src/config/mongoDB.js'; // 경로 수정
+import connectMongoDB from './src/config/mongoDB.js';
+import chatRoutes from "./src/routes/chatRoutes.js";
+import http from "http";
+import { initializeSocket } from "./src/socket/socketIO.js";
+import cors from "cors";
+import userRoutes from "./src/routes/userRoutes.js";
 
 const app = express();
-const PORT = 3000;
+const server = http.createServer(app);
 
-app.use(express.json());
+// ✅ CORS 설정 추가
+app.use(cors({
+    origin: "http://localhost:5173", // React 프론트엔드 도메인 허용
+    credentials: true, // 쿠키 포함 요청 허용 (필요 시)
+}));
 
+// MongoDB 연결
 connectMongoDB();
 
-app.listen(8000, () => {
+// Socket.IO 초기화
+const io = initializeSocket(server);
+
+app.use(express.json());
+// 라우트 설정
+app.use('/api/chat', chatRoutes);
+app.use("/api", userRoutes);
+
+
+const PORT = 3000;
+server.listen(3000, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });

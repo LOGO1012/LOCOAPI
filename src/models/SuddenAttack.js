@@ -1,5 +1,7 @@
 
 import mongoose from "mongoose";
+import { User }from './UserProfile.js';
+
 const { Schema, model } = mongoose;
 
 //서든어택 통합 전적 스키마

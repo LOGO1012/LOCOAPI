@@ -18,8 +18,8 @@ const userSchema = new Schema({
     },
     gender: {
         type: String,           // 성별: 사용자의 성별
-        enum: ['male', 'female'], // 허용 값: 남성, 여성, 기타
-        default: ''
+        enum: ['male', 'female','select'], // 허용 값: 남성, 여성, 기타
+        default: 'select'
     },
     // 추가 연락처 정보
     phone: {
@@ -32,11 +32,11 @@ const userSchema = new Schema({
         default: null,
         required: true // 기본값은 null
     },
-    coinleft: {
+    coinLeft: {
         type: Number,           // 남은 재화: 사용자가 보유한 코인 또는 재화 수량
         default: 0              // 기본값은 0
     },
-    accountlink: {
+    accountLink: {
         type: String,           // 연동된 계정: 소셜 로그인 등 외부 계정 정보(예: provider의 식별자)
         kakao: {
             type: String,
@@ -77,11 +77,11 @@ const userSchema = new Schema({
     },
 
     // 채팅 관련 정보
-    numofchat: {
+    numOfChat: {
         type: Number,           // 채팅 횟수: 사용자가 채팅한 총 횟수
         default: 0              // 기본값은 0
     },
-    chattimer: {
+    chatTimer: {
         type: Date,             // 채팅 충전 타이머: 다음 채팅 이용권 충전이 가능한 시각
         default: null          // 기본값은 null (설정되지 않음)
     },
@@ -91,9 +91,8 @@ const userSchema = new Schema({
         type: Number,           // 별점 누적: 사용자가 받은 매너 별의 누적 점수 (한 번에 1씩 증가)
         default: 0              // 기본값은 0
     },
-
     // 유저 등급 및 권한 정보
-    userlv: {
+    userLv: {
         type: Number,           // 유저 등급: 일반 사용자(예: 1)부터 관리자(더 높은 값) 등급 구분
         enum: [1, 2, 3],        // 1 = 유저 , 2 = 관리자, 3 = 우리(개발자)
         default: 1              // 기본값은 1 (일반 사용자)
@@ -104,40 +103,49 @@ const userSchema = new Schema({
         default: null
     },
     // 신고 누적 횟수
-    numofreport: {
+    numOfReport: {
         type: Number,
         default: 0
-    }
-    // lastActive: {
-    //     type: Date,             // 마지막 활동 시간 (예: 채팅, 페이지 방문 등)
-    //     default: null
-    // },
-
-    // // 사용자 환경 설정 (옵션)
-    // preferences: {
-    //     theme: {
-    //         type: String,         // 테마: 'light', 'dark' 등
-    //         default: 'light'
-    //     },
-    //     language: {
-    //         type: String,         // 언어 설정
-    //         default: 'ko'
-    //     }
-    //     // 추가적인 환경 설정 항목들 추가 가능
-    // },
-
-    // // 보안 관련 (로그인 시도 관리)
-    // loginAttempts: {
-    //     type: Number,           // 로그인 실패 횟수
-    //     default: 0
-    // },
-    // lockUntil: {
-    //     type: Date,             // 계정이 잠긴 시각 (로그인 실패가 누적되면 잠금 해제 시각)
-    //     default: null
-    // }
+    },
+    friends: [
+        {
+            type: Schema.Types.ObjectId,          // 각 친구는 User 컬렉션의 ObjectId를 참조
+            ref: 'User'                           // 'User' 모델을 참조합니다.
+        }
+    ]
 }, {
     timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
 });
 
 // User 모델을 'User' 컬렉션으로 생성 및 내보내기
 export const User = model('User', userSchema);
+
+
+
+// lastActive: {
+//     type: Date,             // 마지막 활동 시간 (예: 채팅, 페이지 방문 등)
+//     default: null
+// },
+
+// // 사용자 환경 설정 (옵션)
+// preferences: {
+//     theme: {
+//         type: String,         // 테마: 'light', 'dark' 등
+//         default: 'light'
+//     },
+//     language: {
+//         type: String,         // 언어 설정
+//         default: 'ko'
+//     }
+//     // 추가적인 환경 설정 항목들 추가 가능
+// },
+
+// // 보안 관련 (로그인 시도 관리)
+// loginAttempts: {
+//     type: Number,           // 로그인 실패 횟수
+//     default: 0
+// },
+// lockUntil: {
+//     type: Date,             // 계정이 잠긴 시각 (로그인 실패가 누적되면 잠금 해제 시각)
+//     default: null
+// }

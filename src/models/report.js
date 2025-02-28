@@ -1,4 +1,6 @@
 import mongoose from 'mongoose'; // mongoose 모듈 불러오기
+import { User }from './UserProfile.js';
+
 const { Schema, model } = mongoose;         // Schema 생성자 추출
 
 // 신고 내역 스키마 정의
