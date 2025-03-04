@@ -1,4 +1,5 @@
 import { ChatRoom, ChatMessage } from '../models/chat.js';
+import {User} from "../models/UserProfile.js";
 
 /**
  * 새로운 채팅방 생성
@@ -63,6 +64,15 @@ export const addUserToRoom = async (roomId, userId) => {
  */
 export const saveMessage = async (chatRoom, sender, text) => {
     try {
+        // sender가 문자열(ID)일 경우, 사용자 정보 조회
+        if (typeof sender === 'string') {
+            const user = await User.findById(sender);
+            if (!user) {
+                throw new Error('사용자를 찾을 수 없습니다.');
+            }
+            sender = { _id: user._id, name: user.name };
+        }
+
         const newMessage = new ChatMessage({ chatRoom, sender, text });
         return await newMessage.save();
     } catch (error) {
