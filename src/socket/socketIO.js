@@ -9,9 +9,26 @@ export const initializeSocket = (server) => {
         console.log('🔗 새로운 클라이언트 연결됨:', socket.id);
 
         // 채팅방 참가
-        socket.on('joinRoom', (roomId) => {
+        socket.on('joinRoom', async (roomId) => {
             socket.join(roomId);
             console.log(`📌 클라이언트 ${socket.id}가 방 ${roomId}에 참가`);
+
+            try {
+                const chatRoom = await ChatRoom.findById(roomId);
+                if (!chatRoom) {
+                    console.log("채팅방을 찾을 수 없습니다.");
+                    return;
+                }
+
+                // 현재 채팅방의 인원 수와 최대 인원 수를 클라이언트에 전달
+                io.to(roomId).emit('roomJoined', {
+                    chatUsers: chatRoom.chatUsers,
+                    capacity: chatRoom.capacity,
+                });
+
+            } catch (error) {
+                console.error("채팅방 정보 가져오기 오류:", error);
+            }
         });
 
         // 메시지 전송 이벤트
