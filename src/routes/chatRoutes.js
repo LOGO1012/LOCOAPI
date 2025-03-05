@@ -6,6 +6,9 @@ const router = express.Router();
 // 채팅방 생성
 router.post('/rooms', chatController.createRoom);
 
+//친구와 채팅방 생성
+router.post("/friend/rooms", chatController.createFriendRoom);
+
 // 특정 채팅방 조회
 router.get('/rooms/:roomId', chatController.getRoomById);
 

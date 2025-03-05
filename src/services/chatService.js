@@ -17,6 +17,19 @@ export const createChatRoom = async (roomType, capacity, matchedGender) => {
     }
 };
 
+// 친구와 채팅방 생성
+export const createFriendRoom = async (roomType, capacity) => {
+    try {
+        const newChatRoom = new ChatRoom({
+            roomType,
+            capacity
+        });
+        return await newChatRoom.save();
+    } catch (error) {
+        throw new Error(error.message);
+    }
+}
+
 /**
  * 특정 채팅방 조회
  */

@@ -14,6 +14,17 @@ export const createRoom = async (req, res) => {
     }
 };
 
+//친구와 채팅방 생성
+export const createFriendRoom = async (req, res) => {
+    try {
+        const { roomType, capacity } = req.body;
+        const room = await chatService.createFriendRoom(roomType, capacity);
+        res.status(201).json(room);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
 /**
  * 특정 채팅방 조회 컨트롤러
  */
