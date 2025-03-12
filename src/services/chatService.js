@@ -4,12 +4,13 @@ import {User} from "../models/UserProfile.js";
 /**
  * 새로운 채팅방 생성
  */
-export const createChatRoom = async (roomType, capacity, matchedGender) => {
+export const createChatRoom = async (roomType, capacity, matchedGender, ageGroup) => {
     try {
         const newChatRoom = new ChatRoom({
             roomType,
             capacity,
             matchedGender,
+            ageGroup
         });
         return await newChatRoom.save();
     } catch (error) {

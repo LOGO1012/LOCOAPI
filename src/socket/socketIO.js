@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import * as chatService from '../services/chatService.js';
 import {ChatRoom} from "../models/chat.js";
+import * as userService from "../services/userService.js";
 
 export const initializeSocket = (server) => {
     const io = new Server(server, { cors: { origin: '*' } });
@@ -32,25 +33,34 @@ export const initializeSocket = (server) => {
         });
 
         // 메시지 전송 이벤트
-        socket.on('sendMessage', async ({ chatRoom, sender, text }, callback) => {
-            console.log('📨 메시지 전송 요청:', { chatRoom, sender, text }); // 메시지 수신 로그 추가
+        socket.on('sendMessage', async ({chatRoom, sender, text}, callback) => {
+            console.log('📨 메시지 전송 요청:', {chatRoom, sender, text});
 
             try {
-                // 메시지 저장
-                const message = await chatService.saveMessage(chatRoom, sender, text);
-                console.log('💬 저장된 메시지:', message); // 저장된 메시지 확인
+                const senderUser = await userService.getUserById(sender);
+                const senderName = senderUser ? senderUser.name : "알 수 없음";
 
-                // 채팅방에 메시지 전송
-                io.to(chatRoom).emit('receiveMessage', message);
+                const message = await chatService.saveMessage(chatRoom, sender, text);
+                console.log('💬 저장된 메시지:', message);
+
+                // ✅ name을 포함한 메시지 객체 생성
+                const messageWithName = {
+                    ...message.toObject(),
+                    sender: { id: sender, name: senderName }
+                };
+
+                // ✅ 중복 방지: 한 번만 emit
+                io.to(chatRoom).emit('receiveMessage', messageWithName);
                 console.log(`📤 방 ${chatRoom}에 메시지 전송됨`);
 
-                // 클라이언트에 응답
-                callback({ success: true, message });
+                callback({ success: true, message: messageWithName });
             } catch (error) {
                 console.error('❌ 메시지 저장 오류:', error.message);
                 callback({ success: false, error: error.message });
             }
         });
+
+
 
         socket.on("deleteMessage", ({ messageId, roomId }) => {
             // 해당 방의 모든 클라이언트에게 삭제 이벤트 전송

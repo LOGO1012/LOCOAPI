@@ -6,8 +6,8 @@ import {leaveChatRoomService} from "../services/chatService.js";
  */
 export const createRoom = async (req, res) => {
     try {
-        const { roomType, capacity, matchedGender } = req.body;
-        const room = await chatService.createChatRoom(roomType, capacity, matchedGender);
+        const { roomType, capacity, matchedGender, ageGroup } = req.body;
+        const room = await chatService.createChatRoom(roomType, capacity, matchedGender, ageGroup);
         res.status(201).json(room);
     } catch (error) {
         res.status(500).json({ error: error.message });

@@ -48,6 +48,13 @@ const chatRoomSchema = new Schema({
         enum: ['waiting', 'active'],
         default: 'waiting'
     },
+    // 성인과 미성년자 채팅방 구분을 위한 필드 추가
+    // ageGroup 필드의 값이 "adult"이면 성인 채팅방, "minor"이면 미성년자 채팅방을 의미합니다.
+    ageGroup: {
+        type: String,
+        enum: ['adult', 'minor'],
+        required: function() { return this.roomType === 'random'; }
+    },
     createdAt: {
         type: Date,
         default: Date.now              // 채팅방 생성 시각
