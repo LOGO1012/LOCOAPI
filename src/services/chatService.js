@@ -1,4 +1,4 @@
-import { ChatRoom, ChatMessage } from '../models/chat.js';
+import {ChatRoom, ChatMessage, ChatRoomExit} from '../models/chat.js';
 import {User} from "../models/UserProfile.js";
 
 /**
@@ -125,35 +125,55 @@ export const softDeleteMessage = async (messageId) => {
  */
 export const leaveChatRoomService = async (roomId, userId) => {
     try {
+        // 이미 퇴장 기록이 있는지 확인
+        const existingExit = await ChatRoomExit.findOne({ chatRoom: roomId, user: userId });
+        if (!existingExit) {
+            await ChatRoomExit.create({ chatRoom: roomId, user: userId });
+        }
+
+        // 채팅방 정보 가져오기
         const chatRoom = await ChatRoom.findById(roomId);
         if (!chatRoom) {
             throw new Error("채팅방을 찾을 수 없습니다.");
         }
 
-        // chatUsers에서 해당 사용자 제거
-        chatRoom.chatUsers = chatRoom.chatUsers.filter(user => user._id.toString() !== userId);
+        // 채팅방의 총 사용자 수
+        const totalUsers = chatRoom.chatUsers.length;
 
-        // 채팅방이 비어 있으면 비활성화
-        if (chatRoom.chatUsers.length === 0) {
-            chatRoom.isActive = false;
-            chatRoom.status = 'waiting';
+        // 중복 없이 퇴장한 사용자 ID 목록 조회
+        const exitedUsers = await ChatRoomExit.distinct('user', { chatRoom: roomId });
 
-            // 채팅방에 남은 사용자가 없으면 해당 채팅방의 모든 메시지 삭제
-            await ChatMessage.updateMany({ chatRoom: roomId, isDeleted: false }, { $set: { isDeleted: true } });
-
-            // 채팅방 삭제
+        // 모든 사용자가 퇴장했다면
+        if (exitedUsers.length >= totalUsers) {
+            await ChatMessage.updateMany(
+                { chatRoom: roomId, isDeleted: false },
+                { $set: { isDeleted: true } }
+            );
             await ChatRoom.deleteOne({ _id: roomId });
         }
 
-        // 버전 오류를 피하기 위해 updateOne 사용
-        await ChatRoom.updateOne({ _id: roomId }, { $set: { chatUsers: chatRoom.chatUsers } });
-
         return { success: true, message: "채팅방에서 나갔습니다." };
     } catch (error) {
-        console.error('채팅방 나가기 중 오류:', error);  // 에러 로그 추가
-        throw error;  // 오류 다시 던지기
+        console.error('채팅방 나가기 중 오류:', error);
+        throw error;
     }
 };
+
+/**
+ * 사용자 exit 기록을 기반으로 종료한 채팅방 ID 목록 조회
+ * @param {string} userId - 사용자 ID
+ * @returns {Promise<Array>} - 종료한 채팅방 ID 배열
+ */
+export const getUserLeftRooms = async (userId) => {
+    try {
+        const leftRooms = await ChatRoomExit.distinct('chatRoom', { user: userId });
+        return leftRooms;
+    } catch (error) {
+        throw new Error(error.message);
+    }
+};
+
+
 
 
 

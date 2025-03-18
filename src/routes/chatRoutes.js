@@ -30,4 +30,7 @@ router.put('/messages/:messageId', chatController.deleteMessage);
 // 채팅방에서 사용자 제거
 router.delete('/rooms/:roomId/:userId', chatController.leaveChatRoom);
 
+// 사용자 종료한 채팅방 ID 목록 조회
+router.get('/leftRooms/:userId', chatController.getLeftRooms);
+
 export default router;

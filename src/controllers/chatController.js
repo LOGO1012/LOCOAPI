@@ -121,6 +121,19 @@ export const leaveChatRoom = async (req, res) => {
     }
 };
 
+/**
+ * 사용자 종료한 채팅방 ID 목록 조회 컨트롤러
+ */
+export const getLeftRooms = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const leftRooms = await chatService.getUserLeftRooms(userId);
+        res.status(200).json({ leftRooms });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 
 
 
