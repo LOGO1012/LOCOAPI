@@ -95,5 +95,25 @@ const chatMessageSchema = new Schema({
     }
 }, { timestamps: true });          // createdAt, updatedAt 필드를 자동 생성
 
+
+const chatRoomExitSchema = new Schema({
+    chatRoom: {
+        type: Schema.Types.ObjectId,
+        ref: 'ChatRoom',
+        required: true
+    },
+    user: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    leftAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+export const ChatRoomExit = model('ChatRoomExit', chatRoomExitSchema);
+
 export const ChatRoom = model('ChatRoom', chatRoomSchema);
 export const ChatMessage = model('ChatMessage', chatMessageSchema);
