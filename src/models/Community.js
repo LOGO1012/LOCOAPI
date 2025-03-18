@@ -71,4 +71,4 @@ const communitySchema = new Schema({
 
 
 // 모델 생성
-export const Community = mongoose.model('Community', communitySchema);
+export const Community = model('Community', communitySchema);

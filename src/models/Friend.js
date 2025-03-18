@@ -29,4 +29,4 @@ const friendSchema = new Schema({
     }
 },{timestamps: true});
 
-export const Friend = mongoose.model('Friend', friendSchema);
+export const Friend = model('Friend', friendSchema);
