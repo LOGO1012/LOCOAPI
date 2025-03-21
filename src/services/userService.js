@@ -19,11 +19,6 @@ import { User } from '../models/UserProfile.js'; // User 모델 임포트
  * @throws {Error} - DB 작업 중 오류 발생 시 에러를 던집니다.
  */
 export const findUserOrNoUser = async (kakaoUserData) => {
-// services/userService.js
-import { User } from "../models/UserProfile.js";
-
-// 유저 정보를 불러오는 서비스 함수
-export const getUserById = async (userId) => {
     try {
         // DB에서 'social.kakao.providerId' 필드를 기준으로 카카오 사용자 조회
         const normalizedBirthdate = normalizeBirthdate(kakaoUserData.birthyear, kakaoUserData.birthday);
@@ -130,14 +125,21 @@ export const findUserByNaver = async (naverUserData) => {
             return { status: 'noUser', ...naverUserData };
         }
         return existingUser;
+    } catch (error) {
+        console.error('User service error:', error.message);
+        throw error;
+    }
+};
+
+// 유저 정보를 불러오는 서비스 함수
+export const getUserById = async (userId) => {
+    try {
         const user = await User.findById(userId);
         if (!user) {
             throw new Error("사용자를 찾을 수 없습니다.");
         }
         return user;
     } catch (error) {
-        console.error('User service error:', error.message);
-        throw error;
         throw new Error(error.message);
     }
 };
@@ -162,5 +164,3 @@ export const rateUser = async (userId, rating) => {
 
     return user;
 };
-
-
