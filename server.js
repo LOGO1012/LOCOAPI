@@ -35,23 +35,50 @@ app.use(
         cookie: { secure: false }       // (추가) HTTPS 사용 시 secure: true로 설정
     })
 );
+import express from 'express';
+import connectMongoDB from './src/config/mongoDB.js';
+import chatRoutes from "./src/routes/chatRoutes.js";
+import http from "http";
+import { initializeSocket } from "./src/socket/socketIO.js";
+import cors from "cors";
+import userRoutes from "./src/routes/userRoutes.js";
 
+const app = express();
+const server = http.createServer(app);
 
 // '/api/auth' 경로로 들어오는 요청은 authRoutes로 라우팅
 app.use('/api/auth', authRoutes);
 // (추가): 회원가입 관련 API 라우팅, 예를 들어 '/api/user'
 app.use('/api/user', userRoutes);
 app.use('/api/product', productRoutes); // 상품 라우터 마운트
+// ✅ CORS 설정 추가
+app.use(cors({
+    origin: "http://localhost:5173", // React 프론트엔드 도메인 허용
+    credentials: true, // 쿠키 포함 요청 허용 (필요 시)
+}));
 
 // 결제 관련 라우트 등록
 app.use('/api/kakao-pay', kakaoPayRoutes);
 app.use('/api/naver-pay', naverPayRoutes);
+// MongoDB 연결
+connectMongoDB();
 
 // 서버 포트 설정: 환경 변수 PORT가 없으면 기본값 3000 사용
 const PORT = process.env.PORT || 3000;
 
 // Express 서버 실행: 지정된 포트에서 앱 실행, 성공 시 콘솔 메시지 출력
 app.listen(PORT, () => {
+// Socket.IO 초기화
+const io = initializeSocket(server);
+
+app.use(express.json());
+// 라우트 설정
+app.use('/api/chat', chatRoutes);
+app.use("/api", userRoutes);
+
+
+const PORT = 3000;
+server.listen(3000, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });
 

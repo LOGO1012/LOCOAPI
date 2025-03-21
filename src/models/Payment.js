@@ -1,4 +1,7 @@
 import mongoose from 'mongoose';
+import { User }from './UserProfile.js';
+import { Product } from './Product.js';
+
 const { Schema, model } = mongoose;
 
 /**

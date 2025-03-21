@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 const { Schema, model } = mongoose;
+import { User }from './UserProfile.js';
 
 /**ll
  * ChatRoom 스키마
@@ -32,6 +33,27 @@ const chatRoomSchema = new Schema({
         type: String,
         enum: ['friend', 'random'],    // 채팅 종류: 'friend'(친구 채팅), 'random'(랜덤 채팅)
         required: true
+    },
+    gameType: {
+        type: String,
+        enum: ['lol', 'sudden']
+    },
+    matchedGender: {
+        type: String,
+        enum: ['opposite', 'any', 'same'],  // 이성만 매칭할 경우 'opposite', 무관하면 'any', 동성 매칭 'same'
+        default: 'any'
+    },
+    status: {
+        type: String,
+        enum: ['waiting', 'active'],
+        default: 'waiting'
+    },
+    // 성인과 미성년자 채팅방 구분을 위한 필드 추가
+    // ageGroup 필드의 값이 "adult"이면 성인 채팅방, "minor"이면 미성년자 채팅방을 의미합니다.
+    ageGroup: {
+        type: String,
+        enum: ['adult', 'minor'],
+        required: function() { return this.roomType === 'random'; }
     },
     createdAt: {
         type: Date,
@@ -66,8 +88,32 @@ const chatMessageSchema = new Schema({
         type: Date,
         default: Date.now             // 메시지 전송 시각을 별도로 기록 (timestamps 외에 추가 정보로 활용 가능)
         //index: true                   // 생성 시각 인덱스 (TTL 인덱스 설정 가능)
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false                // 기본적으로 삭제되지 않은 상태
     }
 }, { timestamps: true });          // createdAt, updatedAt 필드를 자동 생성
+
+
+const chatRoomExitSchema = new Schema({
+    chatRoom: {
+        type: Schema.Types.ObjectId,
+        ref: 'ChatRoom',
+        required: true
+    },
+    user: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    leftAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+export const ChatRoomExit = model('ChatRoomExit', chatRoomExitSchema);
 
 export const ChatRoom = model('ChatRoom', chatRoomSchema);
 export const ChatMessage = model('ChatMessage', chatMessageSchema);

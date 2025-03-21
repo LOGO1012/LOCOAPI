@@ -1,4 +1,7 @@
 import mongoose from 'mongoose';
+import { User }from './UserProfile.js';
+import { Payment } from "./Payment.js";
+
 const { Schema, model } = mongoose;
 
 /**
