@@ -40,6 +40,18 @@ const paymentHistorySchema = new Schema({
         required: true,
         default: '' // 결제 실패 시 빈 값 처리
     },
+    // 정기 결제의 SID (옵션)
+    sid: {
+        type: String,
+        default: ''
+    },
+    // 결제 금액 세부 내역, 카드 정보 등을 저장 (옵션)
+    amountDetails: {
+        type: Schema.Types.Mixed
+    },
+    cardInfo: {
+        type: Schema.Types.Mixed
+    },
 }, { timestamps: true });
 
 export const PaymentHistory = model('PaymentHistory', paymentHistorySchema);
