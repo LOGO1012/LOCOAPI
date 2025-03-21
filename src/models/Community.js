@@ -1,74 +1,120 @@
+// src/models/Community.js
 import mongoose from 'mongoose';
-import { User }from './UserProfile.js';
+import { User } from './UserProfile.js';
 
 const { Schema, model } = mongoose;
 
-// 댓글 스키마 정의 (게시물의 하위 문서로 사용)
+// 대대댓글 스키마
+const subReplySchema = new Schema({
+    userId: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+    },
+    commentContents: {
+        type: String,
+        required: true,
+    },
+    subReplyImage: {
+        type: String,
+        default: null,
+    },
+    commentRegDate: {
+        type: Date,
+        default: Date.now,
+    },
+}, { timestamps: true });
+
+// 대댓글 스키마 (대대댓글 포함)
+const replySchema = new Schema({
+    userId: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+    },
+    commentContents: {
+        type: String,
+        required: true,
+    },
+    replyImage: {
+        type: String,
+        default: null,
+    },
+    commentRegDate: {
+        type: Date,
+        default: Date.now,
+    },
+    // 대대댓글 배열 추가
+    subReplies: [subReplySchema],
+}, { timestamps: true });
+
+// 댓글 스키마 (대댓글 포함) – 댓글에 사진 첨부 지원
 const commentSchema = new Schema({
     userId: {
         type: Schema.Types.ObjectId,
         ref: 'User',
-        required: true,  // 댓글 작성자 ID
-        trim: true
+        required: true,
     },
     commentContents: {
         type: String,
-        required: true,  // 댓글 내용
+        required: true,
+    },
+    commentImage: {
+        type: String,
+        default: null,
     },
     commentRegDate: {
         type: Date,
-        default: Date.now,  // 댓글 등록 날짜는 기본값으로 현재 날짜
+        default: Date.now,
     },
-}, { timestamps: true });  // 댓글 생성, 수정 날짜 자동 추가
+    replies: [replySchema],
+}, { timestamps: true });
 
-// 게시물 스키마 정의
+// 게시물 스키마
 const communitySchema = new Schema({
-    //게시글 작성자
     userId: {
         type: Schema.Types.ObjectId,
         ref: 'User',
         required: true,
-        trim: true  // 유저 정보와 연동
     },
-    //게시글 제목
     communityTitle: {
         type: String,
         required: true,
-        trim: true
     },
-    //게시글 내용
     communityContents: {
         type: String,
-        required: true
+        required: true,
     },
-    //카테고리
     communityCategory: {
         type: String,
         required: true,
-        enum: ['자유', '유머', '질문', '사건사고', '전적인증'], // 카테고리 종류
+        enum: ['자유', '유머', '질문', '사건사고', '전적인증'],
     },
-    //게시글 등록 날짜
     communityRegDate: {
         type: Date,
-        default: Date.now,  // 게시물 등록 날짜는 기본값으로 현재 날짜
+        default: Date.now,
     },
-    //게시글 이미지
     communityImage: {
-        type: String,  // 이미지 URL을 저장
-        default: null
+        type: String,
+        default: null,
     },
-    //게시글 추천 따봉
     recommended: {
         type: Number,
-        default: 0  // 추천 수
+        default: 0,
     },
-    comments: [commentSchema],  // 댓글 필드 (배열로 댓글들 저장)
+    recommendedUsers: [{
+        type: Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    communityViews: {
+        type: Number,
+        default: 0,
+    },
+    comments: [commentSchema],
     commentCount: {
         type: Number,
-        default: 0  // 댓글 수
+        default: 0,
     },
 }, { timestamps: true });
 
-
-// 모델 생성
 export const Community = model('Community', communitySchema);
