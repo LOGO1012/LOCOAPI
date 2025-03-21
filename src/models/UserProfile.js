@@ -1,6 +1,6 @@
 
 //PASS 받아오는거 어디넣을지
-import mongoose from "mongoose"; // mongoose 모듈 불러오기
+import mongoose from "mongoose";
 const { Schema, model } = mongoose; // Schema 생성자 추출
 
 // User 스키마 정의
@@ -8,7 +8,7 @@ const userSchema = new Schema({
     // 기본 프로필 정보
     name: {
         type: String,           // 이름: 사용자의 전체 이름
-        required: true          // 필수 항목
+        // required: true          // 필수 항목
     },
     nickname: {
         type: String,           // 닉네임: 사용자가 표시할 별명
@@ -25,12 +25,16 @@ const userSchema = new Schema({
     phone: {
         type: String,           // 전화번호: 사용자의 휴대폰 번호
         default: '',             // 기본값은 빈 문자열
-        required: true
+        // required: true
+    },
+    pass: {
+        type: String,
+        required: false // 실제로 비밀번호를 저장할 계획이라면 required: true 로 설정하고, 해시 처리를 고려하세요.
     },
     birthdate: {
-        type: Date,             // 생년월일: 사용자의 생년월일 정보
+        type: String,             // 생년월일: 사용자의 생년월일 정보
         default: null,
-        required: true // 기본값은 null
+        // required: true // 기본값은 null
     },
     coinleft: {
         type: Number,           // 남은 재화: 사용자가 보유한 코인 또는 재화 수량
@@ -54,14 +58,65 @@ const userSchema = new Schema({
     },
     // 소셜 로그인 정보 (추가 선택 사항)
     social: {
-        provider: {
-            type: String,         // 소셜 로그인 제공자 (예: 'riot', 'google', 'kakao')
-            default: ''
+        kakao: {
+            providerId: {                   // 카카오에서 발급받은 고유 ID (예: 1234567890)
+                type: String,
+                default: ''
+            },
+            name: {                     // 카카오에서 받아온 닉네임
+                type: String,
+                default: ''
+            },
+            phoneNumber: {                        // 카카오에서 제공한 이메일
+                type: String,
+                default: ''
+            },
+            birthday: {                 // 카카오에서 받아온 프로필 이미지 URL
+                type: Number,
+                default: ''
+            },
+            birthyear: {                 // 카카오에서 받아온 프로필 이미지 URL
+                type: Number,
+                default: ''
+            },
+            gender: {                 // 카카오에서 받아온 프로필 이미지 URL
+                type: String,           // 성별: 사용자의 성별
+                enum: ['male', 'female', ''], // 허용 값: 남성, 여성, 기타
+                default: ''
+            }
+        },
+        naver: {
+            providerId: {                   // 네이버에서 발급받은 고유 ID
+                type: String,
+                default: ''
+            },
+            name: {                         // 네이버에서 받아온 이름
+                type: String,
+                default: ''
+            },
+            phoneNumber: {                  // 네이버에서 받아온 전화번호 (필요 시)
+                type: String,
+                default: ''
+            },
+            birthday: {                     // 네이버에서 받아온 생일 (MMDD 형식, 필요 시)
+                type: String,
+                default: ''
+            },
+            birthyear: {                    // 네이버에서 받아온 출생년도 (필요 시)
+                type: Number,
+                default: ''
+            },
+            gender: {                       // 네이버에서 받아온 성별
+                type: String,
+                enum: ['M', 'F', ''],
+                default: ''
+            }
         },
         providerId: {
             type: String,         // 제공자로부터 받은 고유 ID
             default: ''
         },
+
     },
     photo: {
         type: [String],  // 문자열 배열로 여러 이미지 URL을 저장
