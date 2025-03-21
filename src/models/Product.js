@@ -3,12 +3,13 @@ const { Schema, model } = mongoose;
 
 /**
  * Product 스키마
- * - productName: 상품 이름 (예: 'Premium Plan', 'Coin Pack 1000')
+ * - productName: 상품 이름 (예: 'Basic Subscription', 'Standard Subscription', 'Premium Subscription')
  * - productType: 'subscription'(구독) 또는 'coin'(재화)로 구분
+ * - subscriptionTier: 구독 상품의 티어 (subscription인 경우 필수; basic, standard, premium)
  * - description: 상품 설명
  * - productPrice: 상품 가격
- * - durationInDays: 구독 상품의 경우 유효 기간 (예: 30일, 365일) - coin 상품은 null
- * - coinAmount: 코인 상품의 경우 제공되는 코인 수 - subscription은 null
+ * - durationInDays: 구독 상품의 유효 기간 (예: 30일, 365일) – 코인 상품은 null
+ * - coinAmount: 코인 상품의 경우 제공되는 코인 수 – subscription은 null
  * - active: 상품 판매 여부
  */
 
@@ -22,6 +23,14 @@ const productSchema = new Schema({
         type: String,
         enum: ['subscription', 'coin'],
         required: true,
+    },
+    // 구독 상품일 경우 티어 추가
+    subscriptionTier: {
+        type: String,
+        enum: ['basic', 'standard', 'premium'],
+        required: function () {
+            return this.productType === 'subscription';
+        }
     },
     description: {
         type: String,
