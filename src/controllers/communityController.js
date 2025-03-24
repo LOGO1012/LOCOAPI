@@ -1,15 +1,21 @@
-// src/controllers/communityController.js
+import PageRequestDTO from '../../src/dto/common/PageRequestDTO.js'; // 파일 경로를 실제 경로에 맞게 수정하세요.
 import * as communityService from '../services/communityService.js';
 
-// 전체 커뮤니티 목록 조회
 export const getCommunities = async (req, res) => {
     try {
-        const communities = await communityService.getAllCommunities();
-        res.status(200).json(communities);
+        // 쿼리 파라미터에서 page와 size 값을 가져옵니다. (기본값: page 1, size 10)
+        const page = req.query.page ? parseInt(req.query.page) : 1;
+        const size = req.query.size ? parseInt(req.query.size) : 10;
+        const pageRequestDTO = new PageRequestDTO(page, size);
+
+        // 페이징 처리를 위한 커뮤니티 목록 조회
+        const pageResult = await communityService.getCommunitiesPage(pageRequestDTO);
+        res.status(200).json(pageResult);
     } catch (error) {
         res.status(500).json({ message: '커뮤니티 목록 조회에 실패했습니다.', error });
     }
 };
+
 
 // 단일 커뮤니티 상세 조회 (조회수 증가 포함)
 export const getCommunity = async (req, res) => {

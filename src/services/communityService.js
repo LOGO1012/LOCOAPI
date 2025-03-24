@@ -1,9 +1,23 @@
 import { Community } from '../models/Community.js';
+import PageResponseDTO from '../../src/dto/common/PageResponseDTO.js'; // 파일 경로를 실제 경로에 맞게 수정하세요.
 
-// 전체 커뮤니티 목록 조회
-export const getAllCommunities = async () => {
-    return await Community.find().sort({ createdAt: -1 });
+export const getCommunitiesPage = async (pageRequestDTO) => {
+    const { page, size } = pageRequestDTO;
+    const skip = (page - 1) * size;
+
+    // 전체 커뮤니티 수 조회
+    const totalCount = await Community.countDocuments();
+
+    // 페이징 처리된 커뮤니티 목록 조회 (최신순 정렬)
+    const communities = await Community.find()
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(size);
+
+    // PageResponseDTO를 통해 페이징 정보와 목록 데이터를 함께 반환
+    return new PageResponseDTO(communities, pageRequestDTO, totalCount);
 };
+
 
 // 단일 커뮤니티 조회 (ID 기준)
 export const getCommunityById = async (id) => {
