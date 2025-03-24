@@ -135,3 +135,43 @@ export const addSubReply = async (req, res) => {
         res.status(500).json({ message: '대대댓글 추가에 실패했습니다.', error });
     }
 };
+
+export const deleteComment = async (req, res) => {
+    try {
+        const { id, commentId } = req.params;
+        const updatedCommunity = await communityService.deleteComment(id, commentId);
+        if (!updatedCommunity) {
+            return res.status(404).json({ message: '댓글을 찾을 수 없습니다.' });
+        }
+        res.status(200).json(updatedCommunity);
+    } catch (error) {
+        res.status(500).json({ message: '댓글 삭제에 실패했습니다.', error });
+    }
+};
+
+export const deleteReply = async (req, res) => {
+    try {
+        const { id, commentId, replyId } = req.params;
+        const updatedCommunity = await communityService.deleteReply(id, commentId, replyId);
+        if (!updatedCommunity) {
+            return res.status(404).json({ message: '대댓글을 찾을 수 없습니다.' });
+        }
+        res.status(200).json(updatedCommunity);
+    } catch (error) {
+        res.status(500).json({ message: '대댓글 삭제에 실패했습니다.', error });
+    }
+};
+
+export const deleteSubReply = async (req, res) => {
+    try {
+        const { id, commentId, replyId, subReplyId } = req.params;
+        const updatedCommunity = await communityService.deleteSubReply(id, commentId, replyId, subReplyId);
+        if (!updatedCommunity) {
+            return res.status(404).json({ message: '대대댓글을 찾을 수 없습니다.' });
+        }
+        res.status(200).json(updatedCommunity);
+    } catch (error) {
+        res.status(500).json({ message: '대대댓글 삭제에 실패했습니다.', error });
+    }
+};
+

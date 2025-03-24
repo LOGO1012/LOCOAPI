@@ -53,13 +53,13 @@ export const recommendCommunity = async (id, userId) => {
 
 // 댓글 추가: 댓글 데이터를 community.comments 배열에 추가하고, commentCount 1 증가
 export const addComment = async (communityId, commentData) => {
-    return await Community.findByIdAndUpdate(
+    return Community.findByIdAndUpdate(
         communityId,
         {
-            $push: { comments: commentData },
-            $inc: { commentCount: 1 }
+            $push: {comments: commentData},
+            $inc: {commentCount: 1}
         },
-        { new: true }
+        {new: true}
     );
 };
 
@@ -88,4 +88,41 @@ export const addSubReply = async (communityId, commentId, replyId, subReplyData)
         }
     );
 };
+
+// 댓글 삭제: comments 배열에서 특정 댓글을 삭제하고 commentCount를 1 감소
+export const deleteComment = async (communityId, commentId) => {
+    return await Community.findByIdAndUpdate(
+        communityId,
+        {
+            $pull: { comments: { _id: commentId } },
+            $inc: { commentCount: -1 }
+        },
+        { new: true }
+    );
+};
+
+// 대댓글 삭제: 특정 댓글 내의 replies 배열에서 해당 대댓글 삭제
+export const deleteReply = async (communityId, commentId, replyId) => {
+    return await Community.findOneAndUpdate(
+        { _id: communityId, "comments._id": commentId },
+        { $pull: { "comments.$.replies": { _id: replyId } } },
+        { new: true }
+    );
+};
+
+// 대대댓글 삭제: 특정 댓글의 대댓글 내부 subReplies 배열에서 해당 대대댓글 삭제 (arrayFilters 사용)
+export const deleteSubReply = async (communityId, commentId, replyId, subReplyId) => {
+    return await Community.findOneAndUpdate(
+        { _id: communityId },
+        { $pull: { "comments.$[c].replies.$[r].subReplies": { _id: subReplyId } } },
+        {
+            new: true,
+            arrayFilters: [
+                { "c._id": commentId },
+                { "r._id": replyId }
+            ]
+        }
+    );
+};
+
 
