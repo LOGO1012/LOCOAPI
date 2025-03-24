@@ -33,4 +33,14 @@ router.post('/:id/comments/:commentId/replies', upload.single('replyImage'), com
 // **대대댓글 추가 엔드포인트 (subReply 사진 업로드 처리)**
 router.post('/:id/comments/:commentId/replies/:replyId/subreplies', upload.single('subReplyImage'), communityController.addSubReply);
 
+// 댓글 삭제: DELETE /api/communities/:id/comments/:commentId
+router.delete('/:id/comments/:commentId', communityController.deleteComment);
+
+// 대댓글 삭제: DELETE /api/communities/:id/comments/:commentId/replies/:replyId
+router.delete('/:id/comments/:commentId/replies/:replyId', communityController.deleteReply);
+
+// 대대댓글 삭제: DELETE /api/communities/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId
+router.delete('/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId', communityController.deleteSubReply);
+
+
 export default router;
