@@ -1,15 +1,22 @@
-// src/controllers/communityController.js
+import PageRequestDTO from '../../src/dto/common/PageRequestDTO.js'; // 파일 경로를 실제 경로에 맞게 수정하세요.
 import * as communityService from '../services/communityService.js';
 
-// 전체 커뮤니티 목록 조회
 export const getCommunities = async (req, res) => {
     try {
-        const communities = await communityService.getAllCommunities();
-        res.status(200).json(communities);
+        // 쿼리 파라미터에서 page, size, 그리고 category 값을 가져옵니다.
+        const page = req.query.page ? parseInt(req.query.page) : 1;
+        const size = req.query.size ? parseInt(req.query.size) : 10;
+        const category = req.query.category ? req.query.category : '전체';
+        const pageRequestDTO = new PageRequestDTO(page, size);
+
+        // 카테고리 필터를 포함하여 페이징 처리된 커뮤니티 목록 조회
+        const pageResult = await communityService.getCommunitiesPage(pageRequestDTO, category);
+        res.status(200).json(pageResult);
     } catch (error) {
         res.status(500).json({ message: '커뮤니티 목록 조회에 실패했습니다.', error });
     }
 };
+
 
 // 단일 커뮤니티 상세 조회 (조회수 증가 포함)
 export const getCommunity = async (req, res) => {
@@ -174,4 +181,25 @@ export const deleteSubReply = async (req, res) => {
         res.status(500).json({ message: '대대댓글 삭제에 실패했습니다.', error });
     }
 };
+
+// 최다 조회 목록 API 엔드포인트
+export const getTopViewed = async (req, res) => {
+    try {
+        const topViewed = await communityService.getTopViewedCommunities();
+        res.status(200).json(topViewed);
+    } catch (error) {
+        res.status(500).json({ message: "최다 조회 목록을 불러오는 데 실패했습니다.", error });
+    }
+};
+
+// 최다 댓글 목록 API 엔드포인트
+export const getTopCommented = async (req, res) => {
+    try {
+        const topCommented = await communityService.getTopCommentedCommunities();
+        res.status(200).json(topCommented);
+    } catch (error) {
+        res.status(500).json({ message: "최다 댓글 목록을 불러오는 데 실패했습니다.", error });
+    }
+};
+
 

@@ -11,6 +11,10 @@ router.get('', communityController.getCommunities);
 // 클라이언트는 'communityImage' 필드명으로 파일을 전송합니다.
 router.post('', upload.single('communityImage'), communityController.createCommunity);
 
+// 최다 조회 및 최다 댓글 엔드포인트 추가
+router.get('/top-viewed', communityController.getTopViewed);
+router.get('/top-commented', communityController.getTopCommented);
+
 // 단일 커뮤니티 상세 조회 (조회수 증가 포함)
 router.get('/:id', communityController.getCommunity);
 
