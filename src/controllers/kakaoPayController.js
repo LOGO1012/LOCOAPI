@@ -13,7 +13,8 @@ const KAKAO_SUBSCRIPTION_CID = process.env.KAKAO_CID || 'TCSUBSCRIP';
 export const kakaoPaySubscribeReady = async (req, res) => {
     console.log("kakaoPaySubscribeReady 호출됨. 요청 본문:", req.body);
 
-    const { productId, amount, partnerUserId } = req.body;
+    const { productId, amount } = req.body;
+    const userId = req.userId;
 
     // productId로 상품 정보를 DB에서 조회
     let product;
@@ -35,7 +36,7 @@ export const kakaoPaySubscribeReady = async (req, res) => {
     let newPayment;
     try {
         newPayment = new Payment({
-            userId: partnerUserId,
+            userId: userId,
             product: productId,
             paymentMethod: 'kakaopay',
             payPrice: amount,
@@ -52,7 +53,7 @@ export const kakaoPaySubscribeReady = async (req, res) => {
     const data = {
         cid: KAKAO_SUBSCRIPTION_CID,           // 가맹점 코드, 10자 (테스트: "TC0ONETIME")
         partner_order_id: productId,           // 가맹점 주문번호 (예: 상품 ID)
-        partner_user_id: partnerUserId,        // 가맹점 회원 id
+        partner_user_id: userId,               // 가맹점 회원 id
         item_name: productName,                // 상품명, 최대 100자
         quantity: quantity,                    // 상품 수량 (정수)
         total_amount: Number(amount),          // 상품 총액 (정수)
