@@ -1,7 +1,10 @@
 // src/routes/authRoutes.js
 import express from 'express'; // Express 모듈 불러오기
+import jwt from 'jsonwebtoken';
 import { kakaoCallback } from '../controllers/authController.js'; // 카카오 콜백 컨트롤러 함수 불러오기
 import naverAuthRoutes from "./naverAuthRoutes.js";
+import { User } from '../models/UserProfile.js';
+
 const router = express.Router(); // Express 라우터 인스턴스 생성
 
 // 1. 카카오 OAuth 콜백 엔드포인트 등록
@@ -17,4 +20,25 @@ router.get('/kakao-data', (req, res) => {                     // (추가)
     // (추가) 세션에 저장된 kakaoUserData를 JSON으로 반환 (없으면 빈 객체)
     res.json(req.session.kakaoUserData || {});                // (추가)
 });
+
+router.get('/me', async (req, res) => {
+    const token = req.cookies.token;
+    if (!token) {
+        return res.status(401).json({ message: "Unauthorized" });
+    }
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        // 실제 DB 조회
+        const user = await User.findById(decoded.userId).lean();
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        return res.status(200).json({ user });
+    } catch (err) {
+        return res.status(401).json({ message: "Invalid token" });
+    }
+});
+
+
+
 export default router; // 라우터 내보내기

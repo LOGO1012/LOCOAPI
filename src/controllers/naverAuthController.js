@@ -46,11 +46,32 @@ export const naverCallback = async (req, res, next) => {
             { expiresIn: '1d' }
         );
         console.log('JWT 토큰 발급 성공:', token);
+
+        res.cookie("token", token, {
+            httpOnly: true,
+            secure: false,
+            // secure: process.env.NODE_ENV === "production",
+            sameSite: "none",   // 크로스 사이트 허용
+            //sameSite: "lax",
+            // sameSite: "strict",
+            maxAge: 86400000, // 1일
+        });
+
+        // 로그 추가
+        console.log("Set-Cookie header set for 'token' with options:", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            // sameSite: "lax",
+            sameSite: "none",   // 크로스 사이트 허용
+            maxAge: 86400000,
+        });
+
+
         return res.status(200).json({
             message: '네이버 로그인 성공',
             status: "success",
             user,
-            token
+            // token
         });
     } catch (err) {
         console.error('네이버 콜백 컨트롤러 에러:', err.message);

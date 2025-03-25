@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import session from 'express-session';
 import http from 'http';
 import path from 'path';
+import cookieParser from "cookie-parser";
 
 import authRoutes from './src/routes/authRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
@@ -29,7 +30,21 @@ app.use(cors({
     origin: "http://localhost:5173",
     credentials: true,
 }));
+app.use(cookieParser()); // 쿠키 파서를 추가
+
+// 미들웨어 추가: res.cookie() 호출 시 로그 출력
+app.use((req, res, next) => {
+    const originalCookie = res.cookie;
+    res.cookie = function(name, value, options) {
+        console.log(`Setting cookie: ${name}`, value, options);
+        return originalCookie.call(this, name, value, options);
+    }
+    next();
+});
+
 app.use(express.json());
+
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'your_session_secret',
     resave: false,
