@@ -11,6 +11,10 @@ router.get('', communityController.getCommunities);
 // 클라이언트는 'communityImage' 필드명으로 파일을 전송합니다.
 router.post('', upload.single('communityImage'), communityController.createCommunity);
 
+// 최다 조회 및 최다 댓글 엔드포인트 추가
+router.get('/top-viewed', communityController.getTopViewed);
+router.get('/top-commented', communityController.getTopCommented);
+
 // 단일 커뮤니티 상세 조회 (조회수 증가 포함)
 router.get('/:id', communityController.getCommunity);
 
@@ -32,5 +36,15 @@ router.post('/:id/comments/:commentId/replies', upload.single('replyImage'), com
 
 // **대대댓글 추가 엔드포인트 (subReply 사진 업로드 처리)**
 router.post('/:id/comments/:commentId/replies/:replyId/subreplies', upload.single('subReplyImage'), communityController.addSubReply);
+
+// 댓글 삭제: DELETE /api/communities/:id/comments/:commentId
+router.delete('/:id/comments/:commentId', communityController.deleteComment);
+
+// 대댓글 삭제: DELETE /api/communities/:id/comments/:commentId/replies/:replyId
+router.delete('/:id/comments/:commentId/replies/:replyId', communityController.deleteReply);
+
+// 대대댓글 삭제: DELETE /api/communities/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId
+router.delete('/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId', communityController.deleteSubReply);
+
 
 export default router;
