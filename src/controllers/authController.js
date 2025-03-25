@@ -66,6 +66,9 @@ export const kakaoCallback = async (req, res, next) => {
         const user = result;
         console.log('DB에서 사용자 처리 결과:', user);
 
+
+
+
         // JWT 토큰 생성: 사용자 _id, 카카오 id, 이름을 payload로 포함하여 서명
         const token = jwt.sign(
             { userId: user._id, kakaoId: user.social.kakao.providerId, name: user.name },
@@ -74,12 +77,34 @@ export const kakaoCallback = async (req, res, next) => {
         );
         console.log('JWT 토큰 발급 성공:', token);
 
+
+
+
+        res.cookie("token", token, {
+            httpOnly: true,
+            secure: false,
+            // secure: process.env.NODE_ENV === "production", //배포환경에서 변경,
+            // sameSite: "lax", //sameSite: "strict"
+            sameSite: "none",   // 크로스 사이트 허용
+            maxAge: 86400000, // 1일 (밀리초)
+        });
+
+        // 로그 추가: 쿠키 설정 정보 출력
+        console.log("Set-Cookie header set for 'token' with options:", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "none",   // 크로스 사이트 허용
+            // sameSite: "lax",
+            maxAge: 86400000,
+        });
+
+
         // 로그인 성공 응답: JWT 토큰과 사용자 정보를 JSON 형태로 반환
         return res.status(200).json({
             message: '카카오 로그인 성공',
             status: "success",
             user,
-            token
+            // token
         });
     } catch (err) {
         // 예외 발생 시 에러 메시지를 로그에 출력하고, next()로 에러를 전파
