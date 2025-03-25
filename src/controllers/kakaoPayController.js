@@ -142,7 +142,7 @@ export const kakaoPaySubscribeApprove = async (req, res) => {
             cid: KAKAO_SUBSCRIPTION_CID,
             tid: paymentRecord.payId,  // 여기에는 Payment 생성 시 저장한 tid 값을 사용해야 합니다.
             partner_order_id: partner_order_id,
-            partner_user_id: paymentRecord.userId, // 실제 partner_user_id 값을 사용
+            partner_user_id: paymentRecord.toString(), // 실제 partner_user_id 값을 사용
             pg_token: pg_token
         };
 

@@ -1,9 +1,17 @@
-// backend/routes/naverPayRoutes.js
+// src/routes/naverPayRoutes.js
 import express from 'express';
-import { naverPayReady } from '../controllers/naverPayController.js'; // .js 확장자도 필요합니다.
+import {
+    naverPayReady,
+    naverPayApprove,
+    naverPayCancel,
+    naverPayFail
+} from '../controllers/naverPayController.js';
 
 const router = express.Router();
 
 router.post('/ready', naverPayReady);
+router.get('/approve', naverPayApprove);
+router.get('/cancel', naverPayCancel);
+router.get('/fail', naverPayFail);
 
 export default router;

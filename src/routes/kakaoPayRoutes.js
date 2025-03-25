@@ -7,15 +7,15 @@ import {
     kakaoPaySubscribeCancel,
     kakaoPaySubscribeFail
 } from '../controllers/kakaoPayController.js';
-
+import { authenticate } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 // 최초 정기 결제 준비 (1회차)
 
-router.post('/subscribe/ready', kakaoPaySubscribeReady);
+router.post('/subscribe/ready', authenticate, kakaoPaySubscribeReady);
 
 // 2회 차 이후 정기 결제 요청 (SID 사용)
-router.post('/subscription', kakaoPaySubscription);
+router.post('/subscription', authenticate, kakaoPaySubscription);
 
 // 결제 승인, 취소, 실패 콜백 엔드포인트
 router.get('/subscribe/approve', kakaoPaySubscribeApprove);
