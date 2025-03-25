@@ -2,13 +2,27 @@ import { Community } from '../models/Community.js';
 import PageResponseDTO from '../../src/dto/common/PageResponseDTO.js';
 import cron from "node-cron"; // 파일 경로를 실제 경로에 맞게 수정하세요.
 
-export const getCommunitiesPage = async (pageRequestDTO, category) => {
+export const getCommunitiesPage = async (pageRequestDTO, category, userId) => {
     const { page, size } = pageRequestDTO;
     const skip = (page - 1) * size;
 
-    // category가 '전체'가 아니라면 필터 조건에 추가
     let filter = {};
-    if (category && category !== '전체') {
+    if (category === '전체') {
+        // filter remains {}
+    } else if (category === '내 글') {
+        // 현재 사용자가 작성한 글만 조회
+        if (!userId) {
+            throw new Error('내 글 필터링을 위해 사용자 정보가 필요합니다.');
+        }
+        filter.userId = userId;
+    } else if (category === '내 댓글') {
+        // 댓글 배열 중 해당 사용자가 존재하는 커뮤니티만 조회
+        if (!userId) {
+            throw new Error('내 댓글 필터링을 위해 사용자 정보가 필요합니다.');
+        }
+        filter["comments.userId"] = userId;
+    } else {
+        // 나머지 카테고리 (자유, 유머 등) - communityCategory 필터 적용
         filter.communityCategory = category;
     }
 
@@ -23,6 +37,7 @@ export const getCommunitiesPage = async (pageRequestDTO, category) => {
 
     return new PageResponseDTO(communities, pageRequestDTO, totalCount);
 };
+
 
 
 // 단일 커뮤니티 조회 (ID 기준)
