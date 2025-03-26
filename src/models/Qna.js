@@ -21,8 +21,8 @@ const qnaSchema = new Schema({
     qnaStatus: {
         type: String,
         required: true,
-        enum: ['Pending', 'Answered'],  // 문의 상태: 'Pending'(답변 대기중), 'Answered'(답변 완료)
-        default: 'Pending',  // 기본 상태는 'Pending'
+        enum: ['답변대기', '답변완료'],  // 문의 상태: 'Pending'(답변 대기중), 'Answered'(답변 완료)
+        default: '답변대기',  // 기본 상태는 'Pending'
     },
     userId: {
         type: Schema.Types.ObjectId,  // 실제 User 모델의 ObjectId 참조
