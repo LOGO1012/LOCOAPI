@@ -1,5 +1,7 @@
+// seed.js
 import connectMongoDB from './src/config/mongoDB.js'; // mongoDB 연결 함수
 import { Community } from './src/models/Community.js'; // Community 모델
+import { Qna } from './src/models/Qna.js'; // Qna 모델
 import mongoose from 'mongoose';
 
 // 더미 커뮤니티 데이터
@@ -50,19 +52,55 @@ const dummyCommunities = [
     }
 ];
 
+// 더미 QnA 데이터
+const dummyQnas = [
+    {
+        qnaTitle: "첫 번째 문의 제목",
+        qnaContents: "첫 번째 문의 내용입니다. 이 내용은 문의에 대한 상세한 설명입니다.",
+        qnaAnswer: null,
+        qnaStatus: "Pending",
+        userId: new mongoose.Types.ObjectId("67bc2846c9d62c1110715d89"),
+        answerUserId: null,
+    },
+    {
+        qnaTitle: "두 번째 문의 제목",
+        qnaContents: "두 번째 문의 내용입니다. 사용자가 문의한 내용에 대한 추가 정보입니다.",
+        qnaAnswer: "두 번째 문의에 대한 답변입니다.",
+        qnaStatus: "Answered",
+        userId: new mongoose.Types.ObjectId("67bc2846c9d62c1110715d8a"),
+        answerUserId: new mongoose.Types.ObjectId("67bc2846c9d62c1110715d8b"),
+    },
+    {
+        qnaTitle: "세 번째 문의 제목",
+        qnaContents: "세 번째 문의 내용입니다. 추가 설명이 포함된 문의입니다.",
+        qnaAnswer: null,
+        qnaStatus: "Pending",
+        userId: new mongoose.Types.ObjectId("67bea7c29118c00aca0d5f1c"),
+        answerUserId: null,
+    }
+];
+
 const seedData = async () => {
     try {
         // MongoDB 연결
         await connectMongoDB();
         console.log("MongoDB 연결 성공");
 
-        // 기존 커뮤니티 데이터 삭제 (옵션)
+        // 기존 커뮤니티 데이터 삭제
         await Community.deleteMany({});
         console.log("기존 커뮤니티 데이터 삭제 완료");
 
         // 더미 커뮤니티 데이터 삽입
         await Community.insertMany(dummyCommunities);
         console.log("커뮤니티 더미 데이터 삽입 완료");
+
+        // 기존 QnA 데이터 삭제
+        await Qna.deleteMany({});
+        console.log("기존 QnA 데이터 삭제 완료");
+
+        // 더미 QnA 데이터 삽입
+        await Qna.insertMany(dummyQnas);
+        console.log("QnA 더미 데이터 삽입 완료");
 
         // 연결 종료
         await mongoose.connection.close();
@@ -73,6 +111,7 @@ const seedData = async () => {
 
 // 더미 데이터 삽입 실행
 seedData();
+
 
 
 
