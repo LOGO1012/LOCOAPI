@@ -3,10 +3,13 @@ import { Payment } from '../models/Payment.js';
 import dotenv from 'dotenv';
 import { kakaoPayReadyApi, kakaoPaySubscriptionApi, kakaoPayApproveApi } from "../services/kakaoPayApi.js";
 import { updatePaymentRecord, createPaymentHistoryRecord } from "../services/kakaoPaymentService.js";
+import {updateUserPlan} from "./planController.js";
+
 
 dotenv.config();
 const KAKAO_SECRET_KEY = process.env.KAKAO_SECRET_KEY
 const KAKAO_SUBSCRIPTION_CID = process.env.KAKAO_CID || 'TCSUBSCRIP';
+
 /**
  * 최초 정기 결제(1회차) 준비
  */
@@ -171,6 +174,9 @@ export const kakaoPaySubscribeApprove = async (req, res) => {
         const updatedPaymentRecord  = await updatePaymentRecord(approveResponse.data, partner_order_id);
         await createPaymentHistoryRecord(updatedPaymentRecord, approveResponse.data);
 
+        // 결제 성공 후, 유저 구독 정보 업데이트 (구독 기간은 상품의 durationInDays 기준)
+        await updateUserPlan(paymentRecord.userId, partner_order_id);
+
         // 결제 성공 후, 클라이언트에서 읽을 수 있는 쿠키를 설정 (예: 30초 동안 유지)
         res.cookie('paymentSuccess', 'true', { maxAge: 30000, httpOnly: false });
         // 결제 승인 후 프론트엔드의 구독 성공 페이지로 리다이렉트 (모달로 구독 완료 메시지 표시)
@@ -194,5 +200,7 @@ export const kakaoPaySubscribeCancel = async (req, res) => {
  */
 export const kakaoPaySubscribeFail = async (req, res) => {
     console.log("kakaoPaySubscribeFail 호출됨. 요청 쿼리:", req.query);
-    res.send("구독 결제 실패");
+    // 결제 실패 시, 프론트에서 읽을 수 있도록 쿠키 설정 (예: 30초 유지)
+    res.cookie('paymentFailure', 'true', { maxAge: 30000, httpOnly: false });
+    return res.redirect(`${process.env.BASE_URL_FRONT}/products`);
 };

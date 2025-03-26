@@ -167,7 +167,30 @@ const userSchema = new Schema({
             type: Schema.Types.ObjectId,          // 각 친구는 User 컬렉션의 ObjectId를 참조
             ref: 'User'                           // 'User' 모델을 참조합니다.
         }
-    ]
+    ],
+
+    plan: {
+        planType: {
+            type: String,
+            enum: ['basic', 'standard', 'premium'],
+            default: ''
+        },
+        isPlan: {
+            type: Boolean,
+            default: false
+        },
+        startDate: {
+            type: Date,
+            default: null
+        },
+        endDate: {
+            type: Date,
+            default: null
+        }
+    }
+
+
+
 }, {
     timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
 });
