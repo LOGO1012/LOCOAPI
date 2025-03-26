@@ -17,6 +17,7 @@ import communityRoutes from './src/routes/communityRoutes.js';
 import { initializeSocket } from './src/socket/socketIO.js';
 import connectMongoDB from './src/config/mongoDB.js';
 import './src/scheduler/recurringSubscriptions.js'; // 스케줄러
+import qnaRoutes from "./src/routes/qnaRoutes.js";
 
 dotenv.config(); // 환경 변수 로드
 
@@ -63,6 +64,7 @@ app.use('/api/kakao-pay', kakaoPayRoutes);
 app.use('/api/naver-pay', naverPayRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/communities', communityRoutes);
+app.use('/api/qna', qnaRoutes);
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
