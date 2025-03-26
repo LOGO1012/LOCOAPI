@@ -14,7 +14,7 @@ export const kakaoPaySubscribeReady = async (req, res) => {
     console.log("kakaoPaySubscribeReady 호출됨. 요청 본문:", req.body);
 
     const { productId, amount } = req.body;
-    const userId = req.userId;
+    const userId = req.userId;  // 인증 미들웨어를 통해 설정된 값 사용
 
     // productId로 상품 정보를 DB에서 조회
     let product;
@@ -89,15 +89,29 @@ export const kakaoPaySubscription = async (req, res) => {
     console.log("kakaoPaySubscription 호출됨. 요청 본문:", req.body);
 
     // 2회 차 결제 시에는 이전에 발급받은 SID를 사용합니다.
-    const { sid, productId, amount, partnerUserId } = req.body;
-    const productName = "예시 구독 상품명";
+    const { sid, productId, amount } = req.body;        //, partnerUserId
+    const userId = req.userId;
+
+    // DB에서 상품 정보를 조회하여 실제 상품명을 사용
+    let product;
+    try {
+        product = await Product.findById(productId);
+        if (!product) {
+            return res.status(404).json({ error: "상품을 찾을 수 없습니다." });
+        }
+    } catch (err) {
+        console.error("상품 조회 중 오류:", err.message);
+        return res.status(500).json({ error: "상품 조회 중 오류 발생" });
+    }
+
+    const productName = product.productName;
     const quantity = 1;
 
     const data = {
         cid: KAKAO_SUBSCRIPTION_CID,
         sid: sid,  // 최초 결제 후 발급받은 SID (서버에 저장되어 있어야 함)
         partner_order_id: productId,
-        partner_user_id: partnerUserId,
+        partner_user_id: userId,                   //partnerUserId,
         item_name: productName,
         quantity: quantity,
         total_amount: Number(amount),
@@ -143,7 +157,7 @@ export const kakaoPaySubscribeApprove = async (req, res) => {
             cid: KAKAO_SUBSCRIPTION_CID,
             tid: paymentRecord.payId,  // 여기에는 Payment 생성 시 저장한 tid 값을 사용해야 합니다.
             partner_order_id: partner_order_id,
-            partner_user_id: paymentRecord.toString(), // 실제 partner_user_id 값을 사용
+            partner_user_id: paymentRecord.userId.toString(), // 실제 partner_user_id 값을 사용
             pg_token: pg_token
         };
 
@@ -157,8 +171,10 @@ export const kakaoPaySubscribeApprove = async (req, res) => {
         const updatedPaymentRecord  = await updatePaymentRecord(approveResponse.data, partner_order_id);
         await createPaymentHistoryRecord(updatedPaymentRecord, approveResponse.data);
 
+        // 결제 성공 후, 클라이언트에서 읽을 수 있는 쿠키를 설정 (예: 30초 동안 유지)
+        res.cookie('paymentSuccess', 'true', { maxAge: 30000, httpOnly: false });
         // 결제 승인 후 프론트엔드의 구독 성공 페이지로 리다이렉트 (모달로 구독 완료 메시지 표시)
-        return res.redirect(`${process.env.BASE_URL_FRONT}/subscription/success`);
+        return res.redirect(`${process.env.BASE_URL_FRONT}/`);
     } catch (error) {
         console.error("KakaoPay subscribe approve error:", error.response ? error.response.data : error.message);
         return res.status(500).send("결제 승인 처리 중 오류가 발생했습니다.");
