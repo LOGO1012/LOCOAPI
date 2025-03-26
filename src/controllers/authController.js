@@ -84,8 +84,8 @@ export const kakaoCallback = async (req, res, next) => {
             httpOnly: true,
             secure: false,
             // secure: process.env.NODE_ENV === "production", //배포환경에서 변경,
-            // sameSite: "lax", //sameSite: "strict"
-            sameSite: "none",   // 크로스 사이트 허용
+            sameSite: "lax", //sameSite: "strict"
+            // sameSite: "none",   // 크로스 사이트 허용
             maxAge: 86400000, // 1일 (밀리초)
         });
 
@@ -93,8 +93,8 @@ export const kakaoCallback = async (req, res, next) => {
         console.log("Set-Cookie header set for 'token' with options:", {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
-            sameSite: "none",   // 크로스 사이트 허용
-            // sameSite: "lax",
+            // sameSite: "none",   // 크로스 사이트 허용
+            sameSite: "lax",
             maxAge: 86400000,
         });
 
