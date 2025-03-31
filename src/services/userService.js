@@ -164,3 +164,20 @@ export const rateUser = async (userId, rating) => {
 
     return user;
 };
+
+/**
+ * 별칭을 이용하여 사용자를 조회하는 함수
+ * @param {string} nickname - 사용자의 별칭
+ * @returns {Promise<Object>} 해당 사용자의 UserProfile 문서
+ */
+export const getUserByNickname = async (nickname) => {
+    try {
+        const user = await User.findOne({ nickname });
+        if (!user) {
+            throw new Error("User not found.");
+        }
+        return user;
+    } catch (error) {
+        throw new Error(error.message);
+    }
+};
