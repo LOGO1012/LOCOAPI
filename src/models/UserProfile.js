@@ -173,7 +173,7 @@ const userSchema = new Schema({
         planType: {
             type: String,
             enum: ['basic', 'standard', 'premium'],
-            default: ''
+            default: 'basic'
         },
         isPlan: {
             type: Boolean,

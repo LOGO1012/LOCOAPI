@@ -77,20 +77,24 @@ export const deleteReport = async (id) => {
     }
 };
 
-// 신고에 답변 추가하기
-export const addReplyToReport = async (id, replyContent) => {
+// 신고에 답변 추가하기 (관리자 ID를 함께 저장)
+export const addReplyToReport = async (id, replyContent, adminId) => {
     try {
         const updatedReport = await Report.findByIdAndUpdate(
             id,
             {
                 reportAnswer: replyContent,
-                reportStatus: 'reviewed'  // 답변 후 상태를 reviewed로 업데이트
+                adminId: adminId,
+                reportStatus: 'reviewed'
             },
             { new: true }
-        );
+        )
+            .populate('reportErId', 'nickname')
+            .populate('offenderId', 'nickname');
         return updatedReport;
     } catch (error) {
         throw error;
     }
 };
+
 

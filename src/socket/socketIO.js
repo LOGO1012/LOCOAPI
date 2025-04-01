@@ -38,22 +38,22 @@ export const initializeSocket = (server) => {
 
             try {
                 const senderUser = await userService.getUserById(sender);
-                const senderName = senderUser ? senderUser.name : "알 수 없음";
+                const senderNickname = senderUser ? senderUser.nickname : "알 수 없음";
 
                 const message = await chatService.saveMessage(chatRoom, sender, text);
                 console.log('💬 저장된 메시지:', message);
 
                 // ✅ name을 포함한 메시지 객체 생성
-                const messageWithName = {
+                const messageWithNickname = {
                     ...message.toObject(),
-                    sender: { id: sender, name: senderName }
+                    sender: {id: sender, nickname: senderNickname}
                 };
 
                 // ✅ 중복 방지: 한 번만 emit
-                io.to(chatRoom).emit('receiveMessage', messageWithName);
+                io.to(chatRoom).emit('receiveMessage', messageWithNickname);
                 console.log(`📤 방 ${chatRoom}에 메시지 전송됨`);
 
-                callback({ success: true, message: messageWithName });
+                callback({ success: true, message: messageWithNickname });
             } catch (error) {
                 console.error('❌ 메시지 저장 오류:', error.message);
                 callback({ success: false, error: error.message });

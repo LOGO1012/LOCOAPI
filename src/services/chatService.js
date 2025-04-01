@@ -84,7 +84,7 @@ export const saveMessage = async (chatRoom, sender, text) => {
             if (!user) {
                 throw new Error('사용자를 찾을 수 없습니다.');
             }
-            sender = { _id: user._id, name: user.name };
+            sender = { _id: user._id, nickname: user.nickname };
         }
 
         const newMessage = new ChatMessage({ chatRoom, sender, text });
@@ -99,7 +99,7 @@ export const saveMessage = async (chatRoom, sender, text) => {
  */
 export const getMessagesByRoom = async (roomId) => {
     return await ChatMessage.find({ chatRoom: roomId, isDeleted: false })
-        .populate('sender', 'name')
+        .populate('sender', 'nickname')
         .exec();
 };
 
