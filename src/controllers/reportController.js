@@ -43,24 +43,39 @@ export const getReport = async (req, res) => {
  */
 export const getReports = async (req, res) => {
     try {
-        // 요청 쿼리에서 페이지 정보 추출 (기본값: page=1, size=10)
         const page = parseInt(req.query.page) || 1;
         const size = parseInt(req.query.size) || 10;
         const pageRequestDTO = new PageRequestDTO(page, size);
 
-        // page, size를 제외한 나머지 필터 조건 추출 (필요시 확장)
-        const { page: _page, size: _size, ...filters } = req.query;
+        // 필터 객체 생성
+        const filters = {};
 
-        // 서비스 함수를 호출하여 페이징된 결과와 전체 개수 조회
+        // 신고 구역 필터링: 허용된 값인지 확인 후 추가
+        const allowedAreas = ['friendChat', 'randomChat', 'community'];
+        if (req.query.reportArea && allowedAreas.includes(req.query.reportArea)) {
+            filters.reportArea = req.query.reportArea;
+        }
+
+        // 신고 카테고리 필터링: 허용된 값인지 확인 후 추가
+        const allowedCategories = [
+            '욕설, 모욕, 혐오발언',
+            '스팸, 도배, 거짓정보',
+            '부적절한 메세지(성인/도박/마약 등)',
+            '규칙에 위반되는 프로필/모욕성 닉네임'
+        ];
+        if (req.query.reportCategory && allowedCategories.includes(req.query.reportCategory)) {
+            filters.reportCategory = req.query.reportCategory;
+        }
+
         const { reports, totalCount } = await reportService.getReportsWithPagination(filters, page, size);
-
-        // PageResponseDTO를 이용해 페이징 정보를 포함한 응답 생성
         const pageResponseDTO = new PageResponseDTO(reports, pageRequestDTO, totalCount);
         res.status(200).json(pageResponseDTO);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };
+
+
 /**
  * 신고 업데이트 컨트롤러 함수
  * URL 파라미터의 id와 요청 본문의 데이터를 이용하여 신고를 수정합니다.
@@ -100,7 +115,12 @@ export const deleteReport = async (req, res) => {
 // 신고에 대한 답변 추가 컨트롤러
 export const replyToReport = async (req, res) => {
     try {
-        const updatedReport = await reportService.addReplyToReport(req.params.id, req.body.reportAnswer);
+        // req.body에서 reportAnswer와 adminId를 받아 서비스 함수에 전달합니다.
+        const updatedReport = await reportService.addReplyToReport(
+            req.params.id,
+            req.body.reportAnswer,
+            req.body.adminId
+        );
         if (!updatedReport) {
             return res.status(404).json({ message: 'Report not found' });
         }
