@@ -41,6 +41,9 @@ export const getReport = async (req, res) => {
 /**
  * 여러 신고 조회 및 페이징 컨트롤러 함수
  */
+/**
+ * 여러 신고 조회 및 페이징 컨트롤러 함수
+ */
 export const getReports = async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
@@ -65,6 +68,12 @@ export const getReports = async (req, res) => {
         ];
         if (req.query.reportCategory && allowedCategories.includes(req.query.reportCategory)) {
             filters.reportCategory = req.query.reportCategory;
+        }
+
+        // 신고 상태 필터링: 허용된 상태인지 확인 후 추가
+        const allowedStatuses = ['pending', 'reviewed', 'resolved', 'dismissed'];
+        if (req.query.reportStatus && allowedStatuses.includes(req.query.reportStatus)) {
+            filters.reportStatus = req.query.reportStatus;
         }
 
         const { reports, totalCount } = await reportService.getReportsWithPagination(filters, page, size);
