@@ -41,9 +41,6 @@ export const getReport = async (req, res) => {
 /**
  * 여러 신고 조회 및 페이징 컨트롤러 함수
  */
-/**
- * 여러 신고 조회 및 페이징 컨트롤러 함수
- */
 export const getReports = async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
@@ -124,11 +121,13 @@ export const deleteReport = async (req, res) => {
 // 신고에 대한 답변 추가 컨트롤러
 export const replyToReport = async (req, res) => {
     try {
-        // req.body에서 reportAnswer와 adminId를 받아 서비스 함수에 전달합니다.
+        const { reportAnswer, adminId, suspensionDays, stopDetail } = req.body;
         const updatedReport = await reportService.addReplyToReport(
             req.params.id,
-            req.body.reportAnswer,
-            req.body.adminId
+            reportAnswer,
+            adminId,
+            suspensionDays,
+            stopDetail
         );
         if (!updatedReport) {
             return res.status(404).json({ message: 'Report not found' });
@@ -138,3 +137,5 @@ export const replyToReport = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+

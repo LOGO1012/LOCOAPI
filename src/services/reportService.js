@@ -77,15 +77,36 @@ export const deleteReport = async (id) => {
     }
 };
 
-// 신고에 답변 추가하기 (관리자 ID를 함께 저장)
-export const addReplyToReport = async (id, replyContent, adminId) => {
+// 신고에 답변 추가하기 (관리자 ID와 제재 내용을 함께 저장)
+export const addReplyToReport = async (id, replyContent, adminId, suspensionDays, stopDetail) => {
     try {
+        const now = new Date();
+        let durUntil = null;
+        if (suspensionDays && parseInt(suspensionDays) > 0) {
+            durUntil = new Date(now.getTime() + parseInt(suspensionDays) * 24 * 60 * 60 * 1000);
+        }
+
+        // 기본 상태는 답변만 달린 경우 reviewed
+        let reportStatus = "reviewed";
+        // 정지 기간(또는 영구 정지) 적용 시 resolved
+        if ((stopDetail === "banned" || stopDetail === "suspended") || (suspensionDays && parseInt(suspensionDays) > 0)) {
+            reportStatus = "resolved";
+        }
+        // 경고만 준 경우 dismissed
+        else if (stopDetail === "warning") {
+            reportStatus = "dismissed";
+        }
+
         const updatedReport = await Report.findByIdAndUpdate(
             id,
             {
                 reportAnswer: replyContent,
                 adminId: adminId,
-                reportStatus: 'reviewed'
+                reportStatus: reportStatus,
+                // 클라이언트에서 stopDetail이 전달되면 우선 사용, 없으면 suspensionDays 기준으로 설정
+                stopDetail: stopDetail ? stopDetail : (suspensionDays && parseInt(suspensionDays) > 0 ? 'suspended' : 'active'),
+                stopDate: suspensionDays && parseInt(suspensionDays) > 0 ? now : null,
+                durUntil: suspensionDays && parseInt(suspensionDays) > 0 ? durUntil : null
             },
             { new: true }
         )
@@ -96,5 +117,7 @@ export const addReplyToReport = async (id, replyContent, adminId) => {
         throw error;
     }
 };
+
+
 
 
