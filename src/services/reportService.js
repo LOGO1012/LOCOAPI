@@ -1,5 +1,6 @@
 // Report 모델을 가져옵니다.
 import { Report } from '../models/report.js';
+import { User } from '../models/UserProfile.js';
 
 /**
  * 신고 생성 함수
@@ -77,24 +78,65 @@ export const deleteReport = async (id) => {
     }
 };
 
-// 신고에 답변 추가하기 (관리자 ID를 함께 저장)
-export const addReplyToReport = async (id, replyContent, adminId) => {
+/**
+ * 신고에 답변 추가하기 (관리자 ID와 제재 내용을 함께 저장)
+ */
+export const addReplyToReport = async (id, replyContent, adminId, suspensionDays, stopDetail) => {
     try {
+        const now = new Date();
+        let durUntil = null;
+        if (suspensionDays && parseInt(suspensionDays) > 0) {
+            durUntil = new Date(now.getTime() + parseInt(suspensionDays) * 24 * 60 * 60 * 1000);
+        }
+
+        // 기본 상태는 답변만 달린 경우 reviewed
+        let reportStatus = "reviewed";
+        // 정지(또는 영구 정지) 적용 시 resolved, 경고만 준 경우 dismissed
+        if ((stopDetail === "banned" || stopDetail === "suspended") || (suspensionDays && parseInt(suspensionDays) > 0)) {
+            reportStatus = "resolved";
+        } else if (stopDetail === "warning") {
+            reportStatus = "dismissed";
+        }
+
         const updatedReport = await Report.findByIdAndUpdate(
             id,
             {
                 reportAnswer: replyContent,
                 adminId: adminId,
-                reportStatus: 'reviewed'
+                reportStatus: reportStatus,
+                stopDetail: stopDetail ? stopDetail : (suspensionDays && parseInt(suspensionDays) > 0 ? 'suspended' : 'active'),
+                stopDate: suspensionDays && parseInt(suspensionDays) > 0 ? now : null,
+                durUntil: suspensionDays && parseInt(suspensionDays) > 0 ? durUntil : null
             },
             { new: true }
         )
             .populate('reportErId', 'nickname')
             .populate('offenderId', 'nickname');
+
+        // 신고당한(가해자) 사용자의 신고 횟수 증가 및 정지 상태 적용 (채팅 관련 필드는 업데이트하지 않음)
+        const offenderId = updatedReport.offenderId;
+        let updateFields = { $inc: { numOfReport: 1 } };
+
+        if (updatedReport.stopDetail === 'suspended' || updatedReport.stopDetail === 'banned') {
+            updateFields.$set = {
+                reportStatus: updatedReport.stopDetail, // 'suspended' 또는 'banned'로 업데이트
+                reportTimer: updatedReport.durUntil       // 정지 해제 시각으로 설정
+            };
+        } else {
+            updateFields.$set = {
+                reportStatus: 'active',
+                reportTimer: null
+            };
+        }
+
+        await User.findByIdAndUpdate(offenderId, updateFields);
+
         return updatedReport;
     } catch (error) {
         throw error;
     }
 };
+
+
 
 

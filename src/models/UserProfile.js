@@ -187,9 +187,16 @@ const userSchema = new Schema({
             type: Date,
             default: null
         }
+    },
+    reportStatus: {
+        type: String,
+        enum: ['active', 'banned', 'suspended'],
+        default: 'active'
+    },
+    reportTimer: {
+        type: Date,
+        default: null
     }
-
-
 
 }, {
     timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
