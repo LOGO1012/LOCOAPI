@@ -1,5 +1,5 @@
 // controllers/userController.js
-import {getUserById, getUserByNickname} from "../services/userService.js";
+import {decrementChatCount, getUserById, getUserByNickname} from "../services/userService.js";
 import { rateUser } from "../services/userService.js";
 
 // 사용자 정보를 가져오는 컨트롤러 함수
@@ -56,4 +56,20 @@ export const getUserByNicknameController = async (req, res) => {
     }
 };
 
+export const decrementChatCountController = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const updatedUser = await decrementChatCount(userId);
+        res.status(200).json({
+            success: true,
+            message: "Chat count decremented successfully.",
+            user: updatedUser,
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message,
+        });
+    }
+};
 
