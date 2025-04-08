@@ -18,6 +18,7 @@ import { initializeSocket } from './src/socket/socketIO.js';
 import connectMongoDB from './src/config/mongoDB.js';
 import './src/scheduler/recurringSubscriptions.js'; // 스케줄러
 import qnaRoutes from "./src/routes/qnaRoutes.js";
+import uploadRoutes from './src/routes/uploadRoutes.js';
 
 dotenv.config(); // 환경 변수 로드
 
@@ -28,7 +29,7 @@ const app = express();
 
 // 미들웨어 설정
 app.use(cors({
-    origin: "http://localhost:5173",
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",
     credentials: true,
 }));
 app.use(cookieParser()); // 쿠키 파서를 추가
@@ -50,7 +51,10 @@ app.use(session({
     secret: process.env.SESSION_SECRET || 'your_session_secret',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false }
+    cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true
+    }
 }));
 
 // 정적 파일 제공 (예: uploads 폴더)
@@ -65,6 +69,10 @@ app.use('/api/naver-pay', naverPayRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/communities', communityRoutes);
 app.use('/api/qna', qnaRoutes);
+
+app.use('/api/upload', uploadRoutes);
+
+
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
