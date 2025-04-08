@@ -1,12 +1,12 @@
 // src/routes/userRoutes.js
 import express from 'express';                     // Express 모듈 불러오기
 import { registerUserProfile } from '../controllers/userProfileController.js'; // 회원가입 컨트롤러 함수 불러오기
-import {getUserInfo, rateUserController, updateUserProfile } from "../controllers/userController.js";
 import {
     decrementChatCountController,
     getUserByNicknameController,
     getUserInfo,
-    rateUserController
+    rateUserController,
+    updateUserProfile
 } from "../controllers/userController.js";
 
 const router = express.Router();                   // Express 라우터 인스턴스 생성

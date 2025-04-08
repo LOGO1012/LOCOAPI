@@ -196,7 +196,6 @@ const userSchema = new Schema({
     reportTimer: {
         type: Date,
         default: null
-    }
     },
     //임시 후에 롤은 소셜로그인 할 것
     // 추가된 사용자 정보 필드들
