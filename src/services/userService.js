@@ -164,3 +164,33 @@ export const rateUser = async (userId, rating) => {
 
     return user;
 };
+
+/**
+ * 별칭을 이용하여 사용자를 조회하는 함수
+ * @param {string} nickname - 사용자의 별칭
+ * @returns {Promise<Object>} 해당 사용자의 UserProfile 문서
+ */
+export const getUserByNickname = async (nickname) => {
+    try {
+        const user = await User.findOne({ nickname });
+        if (!user) {
+            throw new Error("User not found.");
+        }
+        return user;
+    } catch (error) {
+        throw new Error(error.message);
+    }
+};
+
+// 채팅 횟수 감소
+export const decrementChatCount = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error("User not found.");
+    }
+    // numOfChat이 없을 경우 0으로 초기화 후 1 감소, 음수는 방지
+    user.numOfChat = (user.numOfChat || 0) - 1;
+    if (user.numOfChat < 0) user.numOfChat = 0;
+    await user.save();
+    return user;
+};

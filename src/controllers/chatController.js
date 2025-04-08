@@ -39,11 +39,12 @@ export const getRoomById = async (req, res) => {
 };
 
 /**
- * 모든 채팅방 조회 컨트롤러
+ * 모든 채팅방 조회 컨트롤러 (필터링 및 페이징 지원)
  */
 export const getAllRooms = async (req, res) => {
     try {
-        const rooms = await chatService.getAllChatRooms();
+        // req.query를 그대로 전달하여 서버측 필터링 및 페이징을 적용
+        const rooms = await chatService.getAllChatRooms(req.query);
         res.status(200).json(rooms);
     } catch (error) {
         res.status(500).json({ error: error.message });

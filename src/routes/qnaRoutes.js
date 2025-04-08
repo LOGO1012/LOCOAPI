@@ -8,7 +8,7 @@ const router = express.Router();
 router.post('/', QnaController.createQna);
 
 // GET / - 전체 QnA 목록 조회
-router.get('/', QnaController.getAllQnas);
+router.get('/', QnaController.getQnaListPage);
 
 // GET /:id - 특정 QnA 문서 조회
 router.get('/:id', QnaController.getQnaById);

@@ -39,10 +39,29 @@ export const getChatRoomById = async (roomId) => {
 };
 
 /**
- * 모든 채팅방 목록 조회
+ * 모든 채팅방 목록 조회 (서버측 필터링 및 페이징 적용)
+ * @param {object} filters - 쿼리 파라미터 객체 (roomType, capacity, matchedGender, ageGroup, status, page, limit 등)
  */
-export const getAllChatRooms = async () => {
-    return await ChatRoom.find().populate('chatUsers');
+export const getAllChatRooms = async (filters) => {
+    const query = {};
+
+    if (filters.roomType) query.roomType = filters.roomType;
+    if (filters.capacity) query.capacity = parseInt(filters.capacity);
+    if (filters.matchedGender) query.matchedGender = filters.matchedGender;
+    if (filters.ageGroup) query.ageGroup = filters.ageGroup;
+    // if (filters.status) query.status = filters.status;
+
+    // 기본 페이지 처리: page와 limit 값이 없으면 기본값 사용
+    const page = parseInt(filters.page) || 1;
+    const limit = parseInt(filters.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const rooms = await ChatRoom.find(query)
+        .populate('chatUsers')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit);
+    return rooms;
 };
 
 /**
@@ -84,7 +103,7 @@ export const saveMessage = async (chatRoom, sender, text) => {
             if (!user) {
                 throw new Error('사용자를 찾을 수 없습니다.');
             }
-            sender = { _id: user._id, name: user.name };
+            sender = { _id: user._id, nickname: user.nickname };
         }
 
         const newMessage = new ChatMessage({ chatRoom, sender, text });
@@ -99,7 +118,7 @@ export const saveMessage = async (chatRoom, sender, text) => {
  */
 export const getMessagesByRoom = async (roomId) => {
     return await ChatMessage.find({ chatRoom: roomId, isDeleted: false })
-        .populate('sender', 'name')
+        .populate('sender', 'nickname')
         .exec();
 };
 

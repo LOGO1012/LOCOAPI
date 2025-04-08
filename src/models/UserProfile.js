@@ -173,7 +173,7 @@ const userSchema = new Schema({
         planType: {
             type: String,
             enum: ['basic', 'standard', 'premium'],
-            default: ''
+            default: 'basic'
         },
         isPlan: {
             type: Boolean,
@@ -187,6 +187,16 @@ const userSchema = new Schema({
             type: Date,
             default: null
         }
+    },
+    reportStatus: {
+        type: String,
+        enum: ['active', 'banned', 'suspended'],
+        default: 'active'
+    },
+    reportTimer: {
+        type: Date,
+        default: null
+    }
     },
     //임시 후에 롤은 소셜로그인 할 것
     // 추가된 사용자 정보 필드들
