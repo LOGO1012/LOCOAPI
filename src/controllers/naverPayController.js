@@ -1,115 +1,475 @@
-// src/controllers/naverPayController.js
-import axios from 'axios';
-import { Payment } from '../models/Payment.js';
 import { Product } from '../models/Product.js';
+import { Payment } from '../models/Payment.js';
 import dotenv from 'dotenv';
-import { naverPayReadyApi, naverPayApproveApi } from '../services/naverPayApi.js';
-import { updatePaymentRecord, createPaymentHistoryRecord } from '../services/kakaoPaymentService.js'; // Payment 업데이트 로직은 공통으로 사용 가능
+import { v4 as uuidv4 } from 'uuid';
+import { naverPayApproveApi } from '../services/naverPayApi.js';
+import { updatePaymentRecord, createPaymentHistoryRecord } from '../services/naverPaymentService.js';
+import { updateUserPlan } from './planController.js';
+
 dotenv.config();
+const NAVER_PAY_CID = process.env.NAVER_PAY_CID || 'TCNAVERPAY';
 
-export const naverPayReady = async (req, res) => {
-    console.log("naverPayReady 호출됨. 요청 본문:", req.body);
-    const { productId, amount, partnerUserId } = req.body;
+// 공통 에러 응답 함수
+const sendError = (res, status, message) => {
+    return res.status(status).json({ success: false, error: message });
+};
 
-    // 상품 조회
+export const reserveOrder = async (req, res) => {
+    console.log("===== reserveOrder 호출 =====");
+    console.log("요청 본문:", req.body);
+
+    const { productId, amount } = req.body;
+    // 필수 파라미터 검증
+    if (!productId || !amount) {
+        return sendError(res, 400, "필수 파라미터(productId, amount)가 누락되었습니다.");
+    }
+    const userId = req.userId;
+    if (!userId) {
+        console.error("User ID 없음");
+        return sendError(res, 400, "User ID가 필요합니다.");
+    }
+
     let product;
     try {
         product = await Product.findById(productId);
         if (!product) {
-            return res.status(404).json({ error: "상품을 찾을 수 없습니다." });
+            console.error("상품을 찾을 수 없음:", productId);
+            return sendError(res, 404, "상품을 찾을 수 없습니다.");
         }
     } catch (err) {
         console.error("상품 조회 오류:", err.message);
-        return res.status(500).json({ error: "상품 조회 오류" });
+        return sendError(res, 500, "상품 조회 오류");
     }
-    const productName = product.productName;
-    const quantity = 1;
 
-    // 첫 결제를 위해 Payment 레코드 생성 (pending 상태)
-    let newPayment;
+    const merchantPayKey = uuidv4();
+    console.log("생성된 merchantPayKey:", merchantPayKey);
+
     try {
-        newPayment = new Payment({
-            userId: partnerUserId,
+        const newPayment = new Payment({
+            userId: userId,
             product: productId,
             paymentMethod: 'naverpay',
             payPrice: amount,
             payStatus: 'pending',
-            partner_order_id: productId,  // 예시로 상품 ID를 주문번호로 사용
+            partner_order_id: merchantPayKey,
         });
         await newPayment.save();
+        console.log("Payment 저장 성공:", newPayment);
+        return res.json({ success: true, orderId: merchantPayKey });
     } catch (err) {
         console.error("Payment 생성 오류:", err.message);
-        return res.status(500).json({ error: "결제 기록 생성 오류" });
-    }
-
-    // 네이버페이 준비 요청 데이터 구성
-    const data = {
-        productId: productId,
-        productName: productName,
-        amount: amount,
-        orderId: productId,
-        returnUrl: `${process.env.BASE_URL}/api/naver-pay/approve?orderId=${productId}`,
-        cancelUrl: `${process.env.BASE_URL}/api/naver-pay/cancel`,
-        // 추가 필드가 필요하면 여기에 작성
-    };
-
-    console.log("Naver Pay API에 보낼 JSON 데이터:", JSON.stringify(data));
-
-    try {
-        const response = await naverPayReadyApi(data);
-        console.log("Naver Pay API 응답:", response.data);
-        // 네이버페이의 응답에서 tid와 유사한 값을 Payment 레코드에 저장
-        newPayment.payId = response.data.tid; // 실제 네이버 응답 키에 맞게 수정
-        await newPayment.save();
-        res.json(response.data);
-    } catch (error) {
-        console.error("NaverPay ready error:", error.response ? error.response.data : error.message);
-        res.status(500).json({ error: 'NaverPay 준비 실패' });
+        return sendError(res, 500, "결제 기록 생성 오류");
     }
 };
 
 export const naverPayApprove = async (req, res) => {
-    console.log("naverPayApprove 호출됨. 요청 쿼리:", req.query);
-    const { orderId, pg_token } = req.query;
+    console.log("===== naverPayApprove 호출 =====");
+    console.log("요청 쿼리:", req.query);
 
-    // Payment 레코드 조회
-    const paymentRecord = await Payment.findOne({
-        partner_order_id: orderId,
-        payStatus: 'pending'
-    });
-    if (!paymentRecord) {
-        return res.status(404).json({ error: 'Payment record not found' });
+    // pg_token 관련 부분 삭제됨
+    const { merchantPayKey, resultCode, resultMessage, paymentId } = req.query;
+    if (!merchantPayKey || !paymentId) {
+        return sendError(res, 400, "필수 쿼리 파라미터가 누락되었습니다.");
+    }
+    console.log("merchantPayKey:", merchantPayKey);
+    console.log("resultCode:", resultCode);
+    console.log("resultMessage:", resultMessage);
+    console.log("paymentId (쿼리):", paymentId);
+
+    if (resultCode !== "Success") {
+        console.error("결제 실패 - resultCode:", resultCode, "resultMessage:", resultMessage);
+        return sendError(res, 400, "결제 실패: " + (resultMessage || "알 수 없는 오류"));
+    }
+
+    let paymentRecord;
+    try {
+        paymentRecord = await Payment.findOne({
+            partner_order_id: merchantPayKey,
+            payStatus: 'pending'
+        });
+        if (!paymentRecord) {
+            console.error("Payment record not found for merchantPayKey:", merchantPayKey);
+            return sendError(res, 404, 'Payment record not found');
+        }
+    } catch (err) {
+        console.error("Payment 조회 오류:", err.message);
+        return sendError(res, 500, "Payment 조회 오류");
     }
 
     try {
         const approvalData = {
-            orderId: orderId,
-            tid: paymentRecord.payId,
-            partner_user_id: paymentRecord.userId,
-            pg_token: pg_token
+            // cid 제거됨
+            tid: paymentId, // 네이버페이 결제번호
+            // partner_order_id: merchantPayKey,
+            // partner_user_id: paymentRecord.userId.toString(),
+            // pg_token 제거됨
         };
-
         console.log("Naver Pay 승인 요청 데이터:", approvalData);
 
         const approveResponse = await naverPayApproveApi(approvalData);
         console.log("Naver Pay 승인 응답:", approveResponse.data);
 
-        const updatedPaymentRecord = await updatePaymentRecord(approveResponse.data, orderId);
-        await createPaymentHistoryRecord(updatedPaymentRecord, approveResponse.data);
+        if (approveResponse.data.code !== "Success") {
+            console.error("승인 API 실패:", approveResponse.data.message);
+            return sendError(res, 400, "승인 API 오류: " + approveResponse.data.message);
+        }
 
-        return res.redirect(`${process.env.BASE_URL_FRONT}/subscription/success`);
+        // 승인 응답에서 detail 정보 추출
+        const detail =
+            approveResponse.data.body && approveResponse.data.body.detail
+                ? approveResponse.data.body.detail
+                : approveResponse.data;
+        const updatedPaymentRecord = await updatePaymentRecord(detail, merchantPayKey);
+        console.log("업데이트된 Payment 기록:", updatedPaymentRecord);
+
+        await createPaymentHistoryRecord(updatedPaymentRecord, detail);
+        console.log("PaymentHistory 생성 완료");
+
+        await updateUserPlan(paymentRecord.userId, merchantPayKey);
+        console.log("User plan 업데이트 완료");
+
+        return res.json({ success: true, message: "결제 승인 처리 완료" });
     } catch (error) {
-        console.error("NaverPay approve error:", error.response ? error.response.data : error.message);
-        return res.status(500).send("결제 승인 처리 중 오류가 발생했습니다.");
+        console.error(
+            "NaverPay approve error:",
+            error.response ? error.response.data : error.message
+        );
+        return sendError(res, 500, "결제 승인 처리 중 오류가 발생했습니다.");
     }
 };
 
 export const naverPayCancel = (req, res) => {
-    console.log("NaverPay cancel 호출됨. 요청 쿼리:", req.query);
-    res.send("네이버 페이 결제 취소");
+    console.log("===== naverPayCancel 호출 =====");
+    console.log("요청 쿼리:", req.query);
+    return res.json({ success: false, message: "네이버 페이 결제 취소 기능 미구현" });
 };
 
 export const naverPayFail = (req, res) => {
-    console.log("NaverPay fail 호출됨. 요청 쿼리:", req.query);
-    res.send("네이버 페이 결제 실패");
+    console.log("===== naverPayFail 호출 =====");
+    console.log("요청 쿼리:", req.query);
+    return res.json({ success: false, message: "결제 실패 처리" });
 };
+
+
+
+
+// import { Product } from '../models/Product.js';
+// import { Payment } from '../models/Payment.js';
+// import dotenv from 'dotenv';
+// import { v4 as uuidv4 } from 'uuid';
+// import { naverPayApproveApi } from '../services/naverPayApi.js';
+// import { updatePaymentRecord, createPaymentHistoryRecord } from '../services/naverPaymentService.js';
+// import { updateUserPlan } from './planController.js';
+//
+// dotenv.config();
+// const NAVER_PAY_CID = process.env.NAVER_PAY_CID || 'TCNAVERPAY';
+//
+// // 공통 에러 응답 함수
+// const sendError = (res, status, message) => {
+//     return res.status(status).json({ success: false, error: message });
+// };
+//
+// export const reserveOrder = async (req, res) => {
+//     console.log("===== reserveOrder 호출 =====");
+//     console.log("요청 본문:", req.body);
+//
+//     const { productId, amount } = req.body;
+//     // 필수 파라미터 검증
+//     if (!productId || !amount) {
+//         return sendError(res, 400, "필수 파라미터(productId, amount)가 누락되었습니다.");
+//     }
+//     const userId = req.userId;
+//     if (!userId) {
+//         console.error("User ID 없음");
+//         return sendError(res, 400, "User ID가 필요합니다.");
+//     }
+//
+//     let product;
+//     try {
+//         product = await Product.findById(productId);
+//         if (!product) {
+//             console.error("상품을 찾을 수 없음:", productId);
+//             return sendError(res, 404, "상품을 찾을 수 없습니다.");
+//         }
+//     } catch (err) {
+//         console.error("상품 조회 오류:", err.message);
+//         return sendError(res, 500, "상품 조회 오류");
+//     }
+//
+//     const merchantPayKey = uuidv4();
+//     console.log("생성된 merchantPayKey:", merchantPayKey);
+//
+//     try {
+//         const newPayment = new Payment({
+//             userId: userId,
+//             product: productId,
+//             paymentMethod: 'naverpay',
+//             payPrice: amount,
+//             payStatus: 'pending',
+//             partner_order_id: merchantPayKey,
+//         });
+//         await newPayment.save();
+//         console.log("Payment 저장 성공:", newPayment);
+//         return res.json({ success: true, orderId: merchantPayKey });
+//     } catch (err) {
+//         console.error("Payment 생성 오류:", err.message);
+//         return sendError(res, 500, "결제 기록 생성 오류");
+//     }
+// };
+//
+// export const naverPayApprove = async (req, res) => {
+//     console.log("===== naverPayApprove 호출 =====");
+//     console.log("요청 쿼리:", req.query);
+//
+//     // pg_token 관련 부분 삭제됨
+//     const { merchantPayKey, resultCode, resultMessage, paymentId } = req.query;
+//     if (!merchantPayKey || !paymentId) {
+//         return sendError(res, 400, "필수 쿼리 파라미터가 누락되었습니다.");
+//     }
+//     console.log("merchantPayKey:", merchantPayKey);
+//     console.log("resultCode:", resultCode);
+//     console.log("resultMessage:", resultMessage);
+//     console.log("paymentId (쿼리):", paymentId);
+//
+//     if (resultCode !== "Success") {
+//         console.error("결제 실패 - resultCode:", resultCode, "resultMessage:", resultMessage);
+//         return sendError(res, 400, "결제 실패: " + (resultMessage || "알 수 없는 오류"));
+//     }
+//
+//     let paymentRecord;
+//     try {
+//         paymentRecord = await Payment.findOne({
+//             partner_order_id: merchantPayKey,
+//             payStatus: 'pending'
+//         });
+//         if (!paymentRecord) {
+//             console.error("Payment record not found for merchantPayKey:", merchantPayKey);
+//             return sendError(res, 404, 'Payment record not found');
+//         }
+//     } catch (err) {
+//         console.error("Payment 조회 오류:", err.message);
+//         return sendError(res, 500, "Payment 조회 오류");
+//     }
+//
+//     try {
+//         const approvalData = {
+//             cid: NAVER_PAY_CID,
+//             tid: paymentId, // 네이버페이 결제번호
+//             partner_order_id: merchantPayKey,
+//             partner_user_id: paymentRecord.userId.toString(),
+//             // pg_token 제거됨
+//         };
+//         console.log("Naver Pay 승인 요청 데이터:", approvalData);
+//
+//         const approveResponse = await naverPayApproveApi(approvalData);
+//         console.log("Naver Pay 승인 응답:", approveResponse.data);
+//
+//         if (approveResponse.data.code !== "Success") {
+//             console.error("승인 API 실패:", approveResponse.data.message);
+//             return sendError(res, 400, "승인 API 오류: " + approveResponse.data.message);
+//         }
+//
+//         // 승인 응답에서 detail 정보 추출
+//         const detail =
+//             approveResponse.data.body && approveResponse.data.body.detail
+//                 ? approveResponse.data.body.detail
+//                 : approveResponse.data;
+//         const updatedPaymentRecord = await updatePaymentRecord(detail, merchantPayKey);
+//         console.log("업데이트된 Payment 기록:", updatedPaymentRecord);
+//
+//         await createPaymentHistoryRecord(updatedPaymentRecord, detail);
+//         console.log("PaymentHistory 생성 완료");
+//
+//         await updateUserPlan(paymentRecord.userId, merchantPayKey);
+//         console.log("User plan 업데이트 완료");
+//
+//         return res.json({ success: true, message: "결제 승인 처리 완료" });
+//     } catch (error) {
+//         console.error(
+//             "NaverPay approve error:",
+//             error.response ? error.response.data : error.message
+//         );
+//         return sendError(res, 500, "결제 승인 처리 중 오류가 발생했습니다.");
+//     }
+// };
+//
+// export const naverPayCancel = (req, res) => {
+//     console.log("===== naverPayCancel 호출 =====");
+//     console.log("요청 쿼리:", req.query);
+//     return res.json({ success: false, message: "네이버 페이 결제 취소 기능 미구현" });
+// };
+//
+// export const naverPayFail = (req, res) => {
+//     console.log("===== naverPayFail 호출 =====");
+//     console.log("요청 쿼리:", req.query);
+//     return res.json({ success: false, message: "결제 실패 처리" });
+// };
+//
+
+
+
+
+
+
+
+
+
+
+// import { Product } from '../models/Product.js';
+// import { Payment } from '../models/Payment.js';
+// import dotenv from 'dotenv';
+// import { v4 as uuidv4 } from 'uuid';
+// import { naverPayApproveApi } from '../services/naverPayApi.js';
+// import { updatePaymentRecord, createPaymentHistoryRecord } from '../services/naverPaymentService.js';
+// import { updateUserPlan } from './planController.js';
+//
+// dotenv.config();
+// const NAVER_PAY_CID = process.env.NAVER_PAY_CID || 'TCNAVERPAY';
+//
+// // 공통 에러 응답 함수 (개선사항 ③, ⑧)
+// const sendError = (res, status, message) => {
+//     return res.status(status).json({ success: false, error: message });
+// };
+//
+// export const reserveOrder = async (req, res) => {
+//     console.log("===== reserveOrder 호출 =====");
+//     console.log("요청 본문:", req.body);
+//
+//     const { productId, amount } = req.body;
+//     // 개선사항 ⑤: 필수 파라미터 검증
+//     if (!productId || !amount) {
+//         return sendError(res, 400, "필수 파라미터(productId, amount)가 누락되었습니다.");
+//     }
+//     const userId = req.userId;
+//     if (!userId) {
+//         console.error("User ID 없음");
+//         return sendError(res, 400, "User ID가 필요합니다.");
+//     }
+//
+//     let product;
+//     try {
+//         product = await Product.findById(productId);
+//         if (!product) {
+//             console.error("상품을 찾을 수 없음:", productId);
+//             return sendError(res, 404, "상품을 찾을 수 없습니다.");
+//         }
+//     } catch (err) {
+//         console.error("상품 조회 오류:", err.message);
+//         return sendError(res, 500, "상품 조회 오류");
+//     }
+//
+//     const merchantPayKey = uuidv4();
+//     console.log("생성된 merchantPayKey:", merchantPayKey);
+//
+//     try {
+//         const newPayment = new Payment({
+//             userId: userId,
+//             product: productId,
+//             paymentMethod: 'naverpay',
+//             payPrice: amount,
+//             payStatus: 'pending',
+//             partner_order_id: merchantPayKey,
+//         });
+//         await newPayment.save();
+//         console.log("Payment 저장 성공:", newPayment);
+//         return res.json({ success: true, orderId: merchantPayKey });
+//     } catch (err) {
+//         console.error("Payment 생성 오류:", err.message);
+//         return sendError(res, 500, "결제 기록 생성 오류");
+//     }
+// };
+//
+// export const naverPayApprove = async (req, res) => {
+//     console.log("===== naverPayApprove 호출 =====");
+//     console.log("요청 쿼리:", req.query);
+//
+//     const { merchantPayKey, pg_token, resultCode, resultMessage, paymentId } = req.query;
+//     // 개선사항 ⑤: 필수 쿼리 파라미터 검증
+//     if (!merchantPayKey || !pg_token) {
+//         return sendError(res, 400, "필수 쿼리 파라미터가 누락되었습니다.");
+//     }
+//     console.log("merchantPayKey:", merchantPayKey);
+//     console.log("pg_token:", pg_token);
+//     console.log("resultCode:", resultCode);
+//     console.log("resultMessage:", resultMessage);
+//     console.log("paymentId (쿼리):", paymentId);
+//
+//     if (resultCode !== "Success") {
+//         console.error("결제 실패 - resultCode:", resultCode, "resultMessage:", resultMessage);
+//         return sendError(res, 400, "결제 실패: " + (resultMessage || "알 수 없는 오류"));
+//     }
+//
+//     if (!paymentId) {
+//         console.error("paymentId 누락");
+//         return sendError(res, 400, "결제 승인에 필요한 paymentId가 누락되었습니다.");
+//     }
+//
+//     let paymentRecord;
+//     try {
+//         paymentRecord = await Payment.findOne({
+//             partner_order_id: merchantPayKey,
+//             payStatus: 'pending'
+//         });
+//         if (!paymentRecord) {
+//             console.error("Payment record not found for merchantPayKey:", merchantPayKey);
+//             return sendError(res, 404, 'Payment record not found');
+//         }
+//     } catch (err) {
+//         console.error("Payment 조회 오류:", err.message);
+//         return sendError(res, 500, "Payment 조회 오류");
+//     }
+//
+//     try {
+//         const approvalData = {
+//             cid: NAVER_PAY_CID,
+//             tid: paymentId,
+//             partner_order_id: merchantPayKey,
+//             partner_user_id: paymentRecord.userId.toString(),
+//             pg_token: pg_token,
+//             // idempotencyKey을 별도로 전달할 경우 여기에 포함할 수 있음
+//         };
+//         console.log("Naver Pay 승인 요청 데이터:", approvalData);
+//
+//         const approveResponse = await naverPayApproveApi(approvalData);
+//         console.log("Naver Pay 승인 응답:", approveResponse.data);
+//
+//         if (approveResponse.data.code !== "Success") {
+//             console.error("승인 API 실패:", approveResponse.data.message);
+//             return sendError(res, 400, "승인 API 오류: " + approveResponse.data.message);
+//         }
+//
+//         // 승인 응답에서 detail 정보 추출
+//         const detail =
+//             approveResponse.data.body && approveResponse.data.body.detail
+//                 ? approveResponse.data.body.detail
+//                 : approveResponse.data;
+//         const updatedPaymentRecord = await updatePaymentRecord(detail, merchantPayKey);
+//         console.log("업데이트된 Payment 기록:", updatedPaymentRecord);
+//
+//         await createPaymentHistoryRecord(updatedPaymentRecord, detail);
+//         console.log("PaymentHistory 생성 완료");
+//
+//         await updateUserPlan(paymentRecord.userId, merchantPayKey);
+//         console.log("User plan 업데이트 완료");
+//
+//         return res.json({ success: true, message: "결제 승인 처리 완료" });
+//     } catch (error) {
+//         console.error(
+//             "NaverPay approve error:",
+//             error.response ? error.response.data : error.message
+//         );
+//         return sendError(res, 500, "결제 승인 처리 중 오류가 발생했습니다.");
+//     }
+// };
+//
+// export const naverPayCancel = (req, res) => {
+//     console.log("===== naverPayCancel 호출 =====");
+//     console.log("요청 쿼리:", req.query);
+//     return res.json({ success: false, message: "네이버 페이 결제 취소 기능 미구현" });
+// };
+//
+// export const naverPayFail = (req, res) => {
+//     console.log("===== naverPayFail 호출 =====");
+//     console.log("요청 쿼리:", req.query);
+//     return res.json({ success: false, message: "결제 실패 처리" });
+// };
