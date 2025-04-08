@@ -67,8 +67,9 @@ export const initializeSocket = (server) => {
                             io.to(userId).emit('chatNotification', {
                                 chatRoom,
                                 message: messageWithNickname,
-                                notification: `${senderNickname}님의 새로운 메시지`
+                                notification: `${senderNickname}: ${text}`
                             });
+                            console.log(`🔔 알림 emit: ${senderNickname}님의 메시지를 사용자 ${userId}에게 전송함`);
                         }
                     });
                 }
