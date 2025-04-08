@@ -196,7 +196,28 @@ const userSchema = new Schema({
     reportTimer: {
         type: Date,
         default: null
+    },
+    //임시 후에 롤은 소셜로그인 할 것
+    // 추가된 사용자 정보 필드들
+    pubgNickname: {
+        type: String,
+        default: ''
+    },
+    suddenNickname: {
+        type: String,
+        default: ''
+    },
+    lolNickname: {
+        type: String,
+        default: ''
+    },
+    //qna는 나중에 스키마에서 땡겨올것
+    qnaHistory: {
+        type: [String], // 예를 들어 QnA 내역의 ID나 내용을 저장할 수 있습니다.
+        default: []
     }
+
+
 
 }, {
     timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
