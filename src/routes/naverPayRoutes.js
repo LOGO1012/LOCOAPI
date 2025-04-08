@@ -1,15 +1,10 @@
-// src/routes/naverPayRoutes.js
 import express from 'express';
-import {
-    naverPayReady,
-    naverPayApprove,
-    naverPayCancel,
-    naverPayFail
-} from '../controllers/naverPayController.js';
+import { authenticate } from '../middlewares/authMiddleware.js';
+import { reserveOrder, naverPayApprove, naverPayCancel, naverPayFail } from '../controllers/naverPayController.js';
 
 const router = express.Router();
 
-router.post('/ready', naverPayReady);
+router.post('/reserve', authenticate, reserveOrder);
 router.get('/approve', naverPayApprove);
 router.get('/cancel', naverPayCancel);
 router.get('/fail', naverPayFail);

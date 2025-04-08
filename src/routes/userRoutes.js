@@ -5,7 +5,8 @@ import {
     decrementChatCountController,
     getUserByNicknameController,
     getUserInfo,
-    rateUserController
+    rateUserController,
+    updateUserProfile
 } from "../controllers/userController.js";
 
 const router = express.Router();                   // Express 라우터 인스턴스 생성
@@ -15,7 +16,10 @@ router.post('/register', registerUserProfile);
 
 // 사용자 정보 가져오기
 router.get("/:userId", getUserInfo);
+// 유저 별점 업데이트 엔드포인트
 router.post("/:userId/rate", rateUserController);
+// 유저 프로필 업데이트 엔드포인트 (PATCH 메소드)
+router.patch("/:userId", updateUserProfile);
 
 // 별칭으로 사용자 정보 조회
 router.get("/nickname/:nickname", getUserByNicknameController);
