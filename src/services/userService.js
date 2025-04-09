@@ -1,7 +1,8 @@
 // src/services/userService.js
 import {normalizeBirthdate} from "../utils/normalizeBirthdate.js";
 import {normalizePhoneNumber} from "../utils/normalizePhoneNumber.js";
-import { User } from '../models/UserProfile.js'; // User 모델 임포트
+import { User } from '../models/UserProfile.js';
+import {FriendRequest} from "../models/FriendRequest.js"; // User 모델 임포트
 
 /**
  * findUserOrNoUser
@@ -193,4 +194,52 @@ export const decrementChatCount = async (userId) => {
     if (user.numOfChat < 0) user.numOfChat = 0;
     await user.save();
     return user;
+};
+
+export const acceptFriendRequestService = async (requestId) => {
+    // 해당 친구 요청 조회
+    const friendRequest = await FriendRequest.findById(requestId);
+    if (!friendRequest) {
+        throw new Error("친구 요청을 찾을 수 없습니다.");
+    }
+    if (friendRequest.status !== 'pending') {
+        throw new Error("이미 처리된 친구 요청입니다.");
+    }
+
+    // 친구 요청 상태 업데이트
+    friendRequest.status = 'accepted';
+    await friendRequest.save();
+
+    // 양쪽 사용자의 friends 배열에 서로의 ID 추가
+    await User.findByIdAndUpdate(friendRequest.sender, { $push: { friends: friendRequest.receiver } });
+    await User.findByIdAndUpdate(friendRequest.receiver, { $push: { friends: friendRequest.sender } });
+
+    return friendRequest;
+};
+// 친구 요청 보내기 함수
+export const sendFriendRequest = async (senderId, receiverId) => {
+    if (senderId === receiverId) {
+        throw new Error("자기 자신에게 친구 요청을 보낼 수 없습니다.");
+    }
+    // 이미 pending 상태의 요청이 존재하는지 확인
+    const existingRequest = await FriendRequest.findOne({
+        sender: senderId,
+        receiver: receiverId,
+        status: 'pending'
+    });
+    if (existingRequest) {
+        throw new Error("이미 친구 요청을 보냈습니다.");
+    }
+    const newRequest = new FriendRequest({ sender: senderId, receiver: receiverId });
+    await newRequest.save();
+    return newRequest;
+};
+
+// 친구 요청 목록 조회 함수 (수신한 pending 요청)
+export const getFriendRequests = async (receiverId) => {
+    const requests = await FriendRequest.find({
+        receiver: receiverId,
+        status: 'pending'
+    }).populate('sender', 'nickname name photo'); // 요청 보낸 사용자의 일부 정보 노출
+    return requests;
 };
