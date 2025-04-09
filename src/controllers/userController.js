@@ -1,5 +1,10 @@
 // controllers/userController.js
-import {decrementChatCount, getUserById, getUserByNickname} from "../services/userService.js";
+import {
+    acceptFriendRequestService,
+    decrementChatCount, getFriendRequests,
+    getUserById,
+    getUserByNickname, sendFriendRequest
+} from "../services/userService.js";
 import { rateUser } from "../services/userService.js";
 import { User } from "../models/UserProfile.js";
 
@@ -103,3 +108,55 @@ export const decrementChatCountController = async (req, res) => {
     }
 };
 
+export const acceptFriendRequestController = async (req, res) => {
+    const { requestId } = req.body; // 클라이언트에서 친구 요청 ID를 전달받음
+    try {
+        const result = await acceptFriendRequestService(requestId);
+        res.status(200).json({
+            success: true,
+            message: "친구 요청을 수락하였으며, 친구 목록에 추가되었습니다.",
+            data: result
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// 친구 요청 보내기 컨트롤러
+export const sendFriendRequestController = async (req, res) => {
+    // 클라이언트에서 senderId와 receiverId를 요청 본문으로 전달
+    const { senderId, receiverId } = req.body;
+    try {
+        const newRequest = await sendFriendRequest(senderId, receiverId);
+        res.status(200).json({
+            success: true,
+            message: "친구 요청을 보냈습니다.",
+            data: newRequest
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// 친구 요청 목록 조회 컨트롤러 (수신한 요청 목록)
+export const getFriendRequestsController = async (req, res) => {
+    const { userId } = req.params; // 수신자(현재 로그인 사용자) ID
+    try {
+        const requests = await getFriendRequests(userId);
+        res.status(200).json({
+            success: true,
+            data: requests
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};

@@ -1,30 +1,42 @@
 // src/routes/userRoutes.js
-import express from 'express';                     // Express 모듈 불러오기
-import { registerUserProfile } from '../controllers/userProfileController.js'; // 회원가입 컨트롤러 함수 불러오기
+import express from 'express';
+import { registerUserProfile } from '../controllers/userProfileController.js';
 import {
     decrementChatCountController,
     getUserByNicknameController,
     getUserInfo,
     rateUserController,
-    updateUserProfile
+    updateUserProfile,
+    acceptFriendRequestController, sendFriendRequestController, getFriendRequestsController  // 새로 추가
 } from "../controllers/userController.js";
 
-const router = express.Router();                   // Express 라우터 인스턴스 생성
+const router = express.Router();
 
-// POST /api/user/register - 회원가입 API 엔드포인트 등록
+// 회원가입
 router.post('/register', registerUserProfile);
 
 // 사용자 정보 가져오기
 router.get("/:userId", getUserInfo);
+
 // 유저 별점 업데이트 엔드포인트
 router.post("/:userId/rate", rateUserController);
-// 유저 프로필 업데이트 엔드포인트 (PATCH 메소드)
+
+// 프로필 업데이트
 router.patch("/:userId", updateUserProfile);
 
 // 별칭으로 사용자 정보 조회
 router.get("/nickname/:nickname", getUserByNicknameController);
 
-// 채팅 종료 후 채팅 횟수 감소 API 엔드포인트
+// 채팅 종료 후 채팅 횟수 감소
 router.post("/:userId/decrementChatCount", decrementChatCountController);
+
+// 친구 요청 수락 엔드포인트
+router.post("/:userId/friend-request/accept", acceptFriendRequestController);
+
+// 친구 요청 보내기 엔드포인트
+router.post("/:userId/friend-request", sendFriendRequestController);
+
+// 친구 요청 목록 조회 엔드포인트
+router.get("/:userId/friend-requests", getFriendRequestsController);
 
 export default router;

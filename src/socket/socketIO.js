@@ -39,16 +39,13 @@ export const initializeSocket = (server) => {
 
         // 메시지 전송 이벤트
         socket.on('sendMessage', async ({ chatRoom, sender, text }, callback) => {
-            console.log('📨 메시지 전송 요청:', { chatRoom, sender, text });
-
+            // ... 메시지 저장, sender 정보 등 처리 ...
             try {
+                // 메시지 저장 및 메시지 객체 생성 코드 (기존 코드 유지)
+                const message = await chatService.saveMessage(chatRoom, sender, text);
                 const senderUser = await userService.getUserById(sender);
                 const senderNickname = senderUser ? senderUser.nickname : "알 수 없음";
 
-                const message = await chatService.saveMessage(chatRoom, sender, text);
-                console.log('💬 저장된 메시지:', message);
-
-                // 이름 포함 메시지 객체 생성
                 const messageWithNickname = {
                     ...message.toObject(),
                     sender: { id: sender, nickname: senderNickname }
@@ -56,9 +53,8 @@ export const initializeSocket = (server) => {
 
                 // 채팅방 사용자에게 메시지 전송
                 io.to(chatRoom).emit('receiveMessage', messageWithNickname);
-                console.log(`📤 방 ${chatRoom}에 메시지 전송됨`);
 
-                // 실시간 채팅 알림: 채팅방의 모든 사용자에게 새 메시지 알림 전송 (보낸 사람 제외)
+                // 채팅 알림 전송: 알림에 roomType 추가
                 const chatRoomObj = await ChatRoom.findById(chatRoom);
                 if (chatRoomObj) {
                     const userIds = chatRoomObj.chatUsers.map(u => u.toString());
@@ -66,10 +62,10 @@ export const initializeSocket = (server) => {
                         if (userId !== sender) {
                             io.to(userId).emit('chatNotification', {
                                 chatRoom,
+                                roomType: chatRoomObj.roomType,  // roomType 정보 포함
                                 message: messageWithNickname,
                                 notification: `${senderNickname}: ${text}`
                             });
-                            console.log(`🔔 알림 emit: ${senderNickname}님의 메시지를 사용자 ${userId}에게 전송함`);
                         }
                     });
                 }
