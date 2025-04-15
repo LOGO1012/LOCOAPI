@@ -7,6 +7,7 @@ import {
 } from "../services/userService.js";
 import { rateUser } from "../services/userService.js";
 import { User } from "../models/UserProfile.js";
+import {io} from "../socket/socketIO.js";
 
 // 사용자 정보를 가져오는 컨트롤러 함수
 export const getUserInfo = async (req, res) => {
@@ -127,10 +128,17 @@ export const acceptFriendRequestController = async (req, res) => {
 
 // 친구 요청 보내기 컨트롤러
 export const sendFriendRequestController = async (req, res) => {
-    // 클라이언트에서 senderId와 receiverId를 요청 본문으로 전달
     const { senderId, receiverId } = req.body;
     try {
         const newRequest = await sendFriendRequest(senderId, receiverId);
+
+        // 친구 요청이 완료된 후, 해당 수신자에게 알림 이벤트 전송
+        // 연결된 클라이언트는 자신의 userId(=receiverId)로 가입되어 있으므로 이벤트를 받을 수 있음.
+        io.to(receiverId).emit('friendRequestNotification', {
+            message: "새로운 친구 요청이 도착했습니다.",
+            friendRequest: newRequest,
+        });
+
         res.status(200).json({
             success: true,
             message: "친구 요청을 보냈습니다.",

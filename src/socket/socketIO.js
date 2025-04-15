@@ -3,8 +3,10 @@ import * as chatService from '../services/chatService.js';
 import { ChatRoom } from "../models/chat.js";
 import * as userService from "../services/userService.js";
 
+export let io;
+
 export const initializeSocket = (server) => {
-    const io = new Server(server, { cors: { origin: '*' } });
+    io = new Server(server, { cors: { origin: '*' } });
 
     io.on('connection', (socket) => {
         console.log('🔗 새로운 클라이언트 연결됨:', socket.id);
