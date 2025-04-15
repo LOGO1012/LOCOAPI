@@ -1,6 +1,7 @@
 // Report 모델을 가져옵니다.
 import { Report } from '../models/report.js';
 import { User } from '../models/UserProfile.js';
+import {ReportNotification} from "../models/ReportNotification.js";
 
 /**
  * 신고 생성 함수
@@ -130,6 +131,23 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
         }
 
         await User.findByIdAndUpdate(offenderId, updateFields);
+
+        // --- 알림 생성 부분 추가 ---
+        // 신고자(신고를 한 사용자)에게 신고 답변 알림 생성
+        const reporterId = updatedReport.reportErId._id || updatedReport.reportErId;
+        await ReportNotification.create({
+            receiver: reporterId,
+            content: `신고 답변이 등록되었습니다: ${replyContent}`,
+            type: 'reportAnswer'
+        });
+
+        // 가해자에게 신고 제재 알림 생성 (정지 기간이 있다면 기간 정보 포함)
+        await ReportNotification.create({
+            receiver: offenderId,
+            content: `신고 제재가 적용되었습니다: ${updatedReport.stopDetail}${(suspensionDays && parseInt(suspensionDays) > 0) ? ` (${suspensionDays}일 정지)` : ''}`,
+            type: 'sanctionInfo'
+        });
+        // --- 알림 생성 부분 끝 ---
 
         return updatedReport;
     } catch (error) {
