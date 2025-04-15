@@ -7,7 +7,7 @@ import {
     getUserInfo,
     rateUserController,
     updateUserProfile,
-    acceptFriendRequestController, sendFriendRequestController, getFriendRequestsController  // 새로 추가
+    acceptFriendRequestController, sendFriendRequestController, getFriendRequestsController, deleteFriendController  // 새로 추가
 } from "../controllers/userController.js";
 
 const router = express.Router();
@@ -38,5 +38,8 @@ router.post("/:userId/friend-request", sendFriendRequestController);
 
 // 친구 요청 목록 조회 엔드포인트
 router.get("/:userId/friend-requests", getFriendRequestsController);
+
+// 친구 삭제
+router.delete("/:userId/friends/:friendId", deleteFriendController);
 
 export default router;
