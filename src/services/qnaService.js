@@ -8,28 +8,27 @@ const getQnaListPage = async (pageRequestDTO) => {
         const page = pageRequestDTO.page;
         const size = pageRequestDTO.size;
         const skip = (page - 1) * size;
-        // qnaStatus가 전달된 경우 필터 조건에 추가합니다.
         let filter = {};
         if (pageRequestDTO.qnaStatus) {
             filter.qnaStatus = pageRequestDTO.qnaStatus;
         }
-
+        // 검색 키워드가 있다면 텍스트 인덱스 기반 검색 사용
+        if (pageRequestDTO.keyword) {
+            filter.$text = { $search: pageRequestDTO.keyword };
+        }
         // 조건에 맞는 QnA 데이터 조회 (populate 옵션 포함)
         const dtoList = await Qna.find(filter)
             .populate('userId')
             .populate('answerUserId')
             .skip(skip)
             .limit(size);
-
-        // 조건에 맞는 전체 QnA 문서 수 조회
         const totalCount = await Qna.countDocuments(filter);
-
-        // PageResponseDTO를 생성하여 반환
         return new PageResponseDTO(dtoList, pageRequestDTO, totalCount);
     } catch (error) {
         throw new Error(error);
     }
 };
+
 /**
  * 새로운 QnA 문서를 생성합니다.
  * @param {Object} qnaData - QnA 생성에 필요한 데이터 (qnaTitle, qnaContents, userId 등)

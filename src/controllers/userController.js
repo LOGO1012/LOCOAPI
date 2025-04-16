@@ -1,6 +1,6 @@
 // controllers/userController.js
 import {
-    acceptFriendRequestService,
+    acceptFriendRequestService, declineFriendRequestService,
     decrementChatCount, deleteFriend, getFriendRequests,
     getUserById,
     getUserByNickname, sendFriendRequest
@@ -130,12 +130,14 @@ export const acceptFriendRequestController = async (req, res) => {
 export const sendFriendRequestController = async (req, res) => {
     const { senderId, receiverId } = req.body;
     try {
+        // 친구 요청 생성
         const newRequest = await sendFriendRequest(senderId, receiverId);
+        // 보낸 유저의 정보를 가져와 닉네임을 조회
+        const senderUser = await getUserById(senderId);
 
-        // 친구 요청이 완료된 후, 해당 수신자에게 알림 이벤트 전송
-        // 연결된 클라이언트는 자신의 userId(=receiverId)로 가입되어 있으므로 이벤트를 받을 수 있음.
+        // 보낸 유저의 닉네임을 포함하여 알림 전송
         io.to(receiverId).emit('friendRequestNotification', {
-            message: "새로운 친구 요청이 도착했습니다.",
+            message: `${senderUser.nickname}님이 친구 요청을 보냈습니다.`,
             friendRequest: newRequest,
         });
 
@@ -151,6 +153,7 @@ export const sendFriendRequestController = async (req, res) => {
         });
     }
 };
+
 
 // 친구 요청 목록 조회 컨트롤러 (수신한 요청 목록)
 export const getFriendRequestsController = async (req, res) => {
@@ -168,6 +171,26 @@ export const getFriendRequestsController = async (req, res) => {
         });
     }
 };
+
+// 친구 요청 거절 컨트롤러 함수
+export const declineFriendRequestController = async (req, res) => {
+    const { requestId } = req.body;   // 클라이언트에서 전송된 친구 요청 ID
+    try {
+        const result = await declineFriendRequestService(requestId);
+        res.status(200).json({
+            success: true,
+            message: result.message,
+            data: result,
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message,
+        });
+    }
+};
+
+
 // 친구 삭제 컨트롤러
 export const deleteFriendController = async (req, res) => {
     const { userId, friendId } = req.params;
