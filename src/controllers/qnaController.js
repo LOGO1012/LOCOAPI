@@ -11,16 +11,17 @@ const getQnaListPage = async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const size = parseInt(req.query.size) || 10;
-        // qnaStatus가 전달되면 해당 상태의 목록만 조회합니다.
         const qnaStatus = req.query.qnaStatus;
-        // PageRequestDTO에 qnaStatus 필드를 추가 (생성자 수정 필요)
-        const pageRequestDTO = new PageRequestDTO(page, size, qnaStatus);
+        const keyword = req.query.keyword;  // 추가: 검색 키워드
+        // PageRequestDTO에 qnaStatus와 keyword 필드를 함께 전달합니다.
+        const pageRequestDTO = new PageRequestDTO(page, size, qnaStatus, keyword);
         const pageResponseDTO = await QnaService.getQnaListPage(pageRequestDTO);
         return res.status(200).json(pageResponseDTO);
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
 };
+
 /**
  * 새로운 QnA를 생성하고 클라이언트에 생성된 문서를 반환합니다.
  * @param {Object} req - 요청 객체 (req.body에 QnA 데이터가 있음)
