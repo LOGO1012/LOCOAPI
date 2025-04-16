@@ -206,16 +206,19 @@ export const acceptFriendRequestService = async (requestId) => {
         throw new Error("이미 처리된 친구 요청입니다.");
     }
 
-    // 친구 요청 상태 업데이트
-    friendRequest.status = 'accepted';
-    await friendRequest.save();
-
     // 양쪽 사용자의 friends 배열에 서로의 ID 추가
     await User.findByIdAndUpdate(friendRequest.sender, { $push: { friends: friendRequest.receiver } });
     await User.findByIdAndUpdate(friendRequest.receiver, { $push: { friends: friendRequest.sender } });
 
-    return friendRequest;
+    // 친구 요청 문서를 DB에서 삭제
+    await FriendRequest.findByIdAndDelete(requestId);
+
+    return {
+        message: "친구 요청이 수락되어 삭제되었습니다.",
+        friendRequest: friendRequest
+    };
 };
+
 // 친구 요청 보내기 함수
 export const sendFriendRequest = async (senderId, receiverId) => {
     if (senderId === receiverId) {
