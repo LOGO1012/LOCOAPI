@@ -1,7 +1,7 @@
 // controllers/userController.js
 import {
     acceptFriendRequestService,
-    decrementChatCount, getFriendRequests,
+    decrementChatCount, deleteFriend, getFriendRequests,
     getUserById,
     getUserByNickname, sendFriendRequest
 } from "../services/userService.js";
@@ -165,6 +165,22 @@ export const getFriendRequestsController = async (req, res) => {
         res.status(400).json({
             success: false,
             message: error.message
+        });
+    }
+};
+// 친구 삭제 컨트롤러
+export const deleteFriendController = async (req, res) => {
+    const { userId, friendId } = req.params;
+    try {
+        const result = await deleteFriend(userId, friendId);
+        res.status(200).json({
+            success: true,
+            message: result.message,
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message,
         });
     }
 };

@@ -221,6 +221,21 @@ export const sendFriendRequest = async (senderId, receiverId) => {
     if (senderId === receiverId) {
         throw new Error("자기 자신에게 친구 요청을 보낼 수 없습니다.");
     }
+
+    // 보내는 사용자의 정보를 조회하여 이미 친구인지 확인
+    const senderUser = await User.findById(senderId);
+    if (!senderUser) {
+        throw new Error("보낸 사용자 정보를 찾을 수 없습니다.");
+    }
+
+    // 이미 친구인지 확인 (ObjectId는 문자열로 변환해서 비교)
+    const alreadyFriends = senderUser.friends.some(friendId =>
+        friendId.toString() === receiverId.toString()
+    );
+    if (alreadyFriends) {
+        throw new Error("이미 친구입니다.");
+    }
+
     // 이미 pending 상태의 요청이 존재하는지 확인
     const existingRequest = await FriendRequest.findOne({
         sender: senderId,
@@ -230,6 +245,8 @@ export const sendFriendRequest = async (senderId, receiverId) => {
     if (existingRequest) {
         throw new Error("이미 친구 요청을 보냈습니다.");
     }
+
+    // 새로운 친구 요청 생성
     const newRequest = new FriendRequest({ sender: senderId, receiver: receiverId });
     await newRequest.save();
     return newRequest;
@@ -243,3 +260,26 @@ export const getFriendRequests = async (receiverId) => {
     }).populate('sender', 'nickname name photo'); // 요청 보낸 사용자의 일부 정보 노출
     return requests;
 };
+
+// 친구 삭제 기능
+export const deleteFriend = async (userId, friendId) => {
+    // 요청 사용자가 존재하는지 확인
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error("사용자를 찾을 수 없습니다.");
+    }
+    // 삭제 대상 친구가 존재하는지 확인
+    const friend = await User.findById(friendId);
+    if (!friend) {
+        throw new Error("친구를 찾을 수 없습니다.");
+    }
+    // 친구 목록에 해당 친구가 있는지 확인
+    if (!user.friends.includes(friendId)) {
+        throw new Error("해당 사용자는 친구 목록에 존재하지 않습니다.");
+    }
+    // 사용자와 친구 양쪽에서 친구 id 제거
+    await User.findByIdAndUpdate(userId, { $pull: { friends: friendId } });
+    await User.findByIdAndUpdate(friendId, { $pull: { friends: userId } });
+    return { message: "친구가 삭제되었습니다." };
+};
+
