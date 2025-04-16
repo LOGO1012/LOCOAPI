@@ -144,31 +144,35 @@ export const softDeleteMessage = async (messageId) => {
  */
 export const leaveChatRoomService = async (roomId, userId) => {
     try {
-        // 이미 퇴장 기록이 있는지 확인
+        // 이미 퇴장 기록이 있는지 확인합니다.
         const existingExit = await ChatRoomExit.findOne({ chatRoom: roomId, user: userId });
         if (!existingExit) {
             await ChatRoomExit.create({ chatRoom: roomId, user: userId });
         }
 
-        // 채팅방 정보 가져오기
+        // 채팅방 정보를 가져옵니다.
         const chatRoom = await ChatRoom.findById(roomId);
         if (!chatRoom) {
             throw new Error("채팅방을 찾을 수 없습니다.");
         }
 
-        // 채팅방의 총 사용자 수
+        // 채팅방의 총 사용자 수를 계산합니다.
         const totalUsers = chatRoom.chatUsers.length;
 
-        // 중복 없이 퇴장한 사용자 ID 목록 조회
+        // 채팅방에서 이미 퇴장한 사용자 ID 목록을 조회합니다.
         const exitedUsers = await ChatRoomExit.distinct('user', { chatRoom: roomId });
 
-        // 모든 사용자가 퇴장했다면
+        // 모든 사용자가 퇴장한 경우
         if (exitedUsers.length >= totalUsers) {
+            // 채팅 메시지 삭제: isDeleted 플래그를 true로 업데이트합니다.
             await ChatMessage.updateMany(
                 { chatRoom: roomId, isDeleted: false },
                 { $set: { isDeleted: true } }
             );
+            // 채팅방 삭제
             await ChatRoom.deleteOne({ _id: roomId });
+            // 해당 채팅방의 모든 exit 기록 삭제
+            await ChatRoomExit.deleteMany({ chatRoom: roomId });
         }
 
         return { success: true, message: "채팅방에서 나갔습니다." };
