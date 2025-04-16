@@ -264,6 +264,31 @@ export const getFriendRequests = async (receiverId) => {
     return requests;
 };
 
+// 친구 요청 거절 기능: 요청 상태를 'declined'로 업데이트한 후, DB에서 삭제합니다.
+export const declineFriendRequestService = async (requestId) => {
+    // 해당 친구 요청 조회
+    const friendRequest = await FriendRequest.findById(requestId);
+    if (!friendRequest) {
+        throw new Error("친구 요청을 찾을 수 없습니다.");
+    }
+    // 이미 처리된 요청이면 에러 발생
+    if (friendRequest.status !== 'pending') {
+        throw new Error("이미 처리된 친구 요청입니다.");
+    }
+
+    // 상태를 'declined'로 업데이트한 후 저장 (로깅 등 필요할 경우 대비)
+    friendRequest.status = 'declined';
+    await friendRequest.save();
+
+    // DB에서 해당 친구 요청 알림 삭제
+    await FriendRequest.findByIdAndDelete(requestId);
+
+    return {
+        message: "친구 요청이 거절되어 삭제되었습니다.",
+        friendRequest
+    };
+};
+
 // 친구 삭제 기능
 export const deleteFriend = async (userId, friendId) => {
     // 요청 사용자가 존재하는지 확인

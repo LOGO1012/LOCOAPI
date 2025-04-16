@@ -1,6 +1,6 @@
 // controllers/userController.js
 import {
-    acceptFriendRequestService,
+    acceptFriendRequestService, declineFriendRequestService,
     decrementChatCount, deleteFriend, getFriendRequests,
     getUserById,
     getUserByNickname, sendFriendRequest
@@ -171,6 +171,26 @@ export const getFriendRequestsController = async (req, res) => {
         });
     }
 };
+
+// 친구 요청 거절 컨트롤러 함수
+export const declineFriendRequestController = async (req, res) => {
+    const { requestId } = req.body;   // 클라이언트에서 전송된 친구 요청 ID
+    try {
+        const result = await declineFriendRequestService(requestId);
+        res.status(200).json({
+            success: true,
+            message: result.message,
+            data: result,
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message,
+        });
+    }
+};
+
+
 // 친구 삭제 컨트롤러
 export const deleteFriendController = async (req, res) => {
     const { userId, friendId } = req.params;
