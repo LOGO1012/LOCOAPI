@@ -117,4 +117,9 @@ const communitySchema = new Schema({
     },
 }, { timestamps: true });
 
+communitySchema.index({
+    communityTitle: 'text',
+    communityContents: 'text'
+});
+
 export const Community = model('Community', communitySchema);
