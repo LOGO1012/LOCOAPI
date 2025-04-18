@@ -12,9 +12,11 @@ const getQnaListPage = async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const size = parseInt(req.query.size) || 10;
         const qnaStatus = req.query.qnaStatus;
-        const keyword = req.query.keyword;  // 추가: 검색 키워드
+        const keyword = req.query.keyword;
+        const searchType = req.query.searchType;
         // PageRequestDTO에 qnaStatus와 keyword 필드를 함께 전달합니다.
-        const pageRequestDTO = new PageRequestDTO(page, size, qnaStatus, keyword);
+        const pageRequestDTO = new PageRequestDTO(
+            page, size, qnaStatus, keyword, searchType);
         const pageResponseDTO = await QnaService.getQnaListPage(pageRequestDTO);
         return res.status(200).json(pageResponseDTO);
     } catch (error) {

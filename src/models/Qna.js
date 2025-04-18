@@ -43,6 +43,9 @@ const qnaSchema = new Schema({
 // 텍스트 인덱스 설정: qnaTitle 및 qnaContents 필드
 qnaSchema.index({ qnaTitle: "text", qnaContents: "text" });
 
+qnaSchema.index({ qnaTitle: 1 });
+qnaSchema.index({ qnaContents: 1 });
+
 // 모델 생성
 export const Qna = model('Qna', qnaSchema);
 
