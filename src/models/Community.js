@@ -117,7 +117,13 @@ const communitySchema = new Schema({
     },
 }, { timestamps: true });
 
-// 인덱스: communityTitle, communityContents, userId
-communitySchema.index({ communityTitle: "text", communityContents: "text", userId: "text" });
+communitySchema.index({
+    communityTitle: 'text',
+    communityContents: 'text'
+});
+// B‑Tree 인덱스: 정확 일치(zero‑scanned regex) 또는 anchored regex (접두사) 시 IXSCAN
+communitySchema.index({ communityTitle: 1 });
+communitySchema.index({ communityContents: 1 });
+communitySchema.index({ userId: 1 });
 
 export const Community = model('Community', communitySchema);

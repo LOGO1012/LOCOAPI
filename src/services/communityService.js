@@ -1,55 +1,69 @@
-// /src/services/communityService.js
 import { Community } from '../models/Community.js';
 import PageResponseDTO from '../../src/dto/common/PageResponseDTO.js';
-import cron from "node-cron"; // 파일 경로를 실제 경로에 맞게 수정하세요.
-//sort = '최신순', query = ''
-export const getCommunitiesPage = async (pageRequestDTO, category, userId, sort = '최신순') => {
+import cron from "node-cron";
+import {User} from "../models/UserProfile.js"; // 파일 경로를 실제 경로에 맞게 수정하세요.
+
+export const getCommunitiesPage = async (
+    pageRequestDTO,
+    category,
+    userId,
+    sort = '최신순',
+    keyword = '',
+    searchType = 'title+content'
+) => {
     const { page, size } = pageRequestDTO;
     const skip = (page - 1) * size;
-
     let filter = {};
 
-    // if (query && query.trim() !== '') {
-    //     // 제목 또는 내용을 검색어에 대해 대소문자 구분 없이 검색
-    //     filter.$or = [
-    //         { communityTitle: new RegExp(query, 'i') },
-    //         { communityContents: new RegExp(query, 'i') }
-    //     ];
-    // }
-
-
-    if (category === '전체') {
-        // filter remains {}
-    } else if (category === '내 글') {
-        if (!userId) {
-            throw new Error('내 글 필터링을 위해 사용자 정보가 필요합니다.');
-        }
+    // 카테고리 필터
+    if (category === '내 글') {
         filter.userId = userId;
     } else if (category === '내 댓글') {
-        if (!userId) {
-            throw new Error('내 댓글 필터링을 위해 사용자 정보가 필요합니다.');
-        }
-        filter["comments.userId"] = userId;
-    } else {
+        filter['comments.userId'] = userId;
+    } else if (category !== '전체') {
         filter.communityCategory = category;
     }
 
-    // 전체 조건에 맞는 커뮤니티 수 조회
-    const totalCount = await Community.countDocuments(filter);
-
-    // sort 값에 따라 정렬 기준 설정 ('인기순'이면 recommended, 그 외엔 최신순(createdAt))
-    let sortCriteria;
-    if (sort === '인기순') {
-        sortCriteria = { recommended: -1 };
-    } else {
-        sortCriteria = { createdAt: -1 };
+    // 키워드 검색
+    if (keyword) {
+        switch (searchType) {
+            case 'title':
+                // 제목만 부분 매칭
+                filter.communityTitle = { $regex: `^${keyword}$`, $options: 'i' };
+                break;
+            case 'content':
+                // 내용만 부분 매칭
+                filter.communityContents = { $regex: `^${keyword}$`, $options: 'i' };
+                break;
+            case 'author':
+                // 작성자 완전 일치 (대소문자 무시하고 싶으면 regex에 ^…$ 사용)
+                const matchedUsers = await User.find(
+                    { nickname: keyword },
+                    '_id'
+                );
+                filter.userId = { $in: matchedUsers.map(u => u._id) };
+                break;
+            default:
+                // 'title content' : 텍스트 인덱스로 제목 OR 내용 검색
+                filter.$text = { $search: keyword };
+        }
     }
 
-    // 조건에 맞는 커뮤니티 목록 조회 (전체 데이터셋에서 정렬 후 페이지네이션 적용)
+    const totalCount = await Community.countDocuments(filter);
+
+    const sortCriteria = sort === '인기순'
+        ? { recommended: -1 }
+        : { createdAt: -1 };
+
     const communities = await Community.find(filter)
-        .sort(sortCriteria)
+        .sort(
+            filter.$text
+                ? { score: { $meta: "textScore" }, ...sortCriteria }
+                : sortCriteria
+        )
         .skip(skip)
-        .limit(size);
+        .limit(size)
+        .lean();
 
     return new PageResponseDTO(communities, pageRequestDTO, totalCount);
 };

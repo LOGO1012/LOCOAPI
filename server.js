@@ -22,6 +22,7 @@ import './src/scheduler/recurringSubscriptions.js'; // 스케줄러
 import qnaRoutes from "./src/routes/qnaRoutes.js";
 import uploadRoutes from './src/routes/uploadRoutes.js';
 import reportRoutes from "./src/routes/reportRoutes.js";
+import reportNotificationRoutes from "./src/routes/reportNotificationRoutes.js";
 import prRoutes from "./src/routes/prRoutes.js";
 
 dotenv.config(); // 환경 변수 로드
@@ -74,7 +75,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/communities', communityRoutes);
 app.use('/api/qna', qnaRoutes);
 app.use('/api/report', reportRoutes);
-
+app.use('/api/reportNotification', reportNotificationRoutes)
 app.use('/api/upload', uploadRoutes);
 app.use("/api/pr", prRoutes);
 app.use('/api/developer', developerRoutes);
