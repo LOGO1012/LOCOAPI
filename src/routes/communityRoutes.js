@@ -1,3 +1,4 @@
+// src/routes/communityRoutes.js
 import express from 'express';
 import * as communityController from '../controllers/communityController.js';
 import upload from "../utils/upload.js";

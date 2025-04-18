@@ -7,6 +7,8 @@ import http from 'http';
 import path from 'path';
 import cookieParser from "cookie-parser";
 
+import developerRoutes from './src/routes/developerRoutes.js';
+
 import authRoutes from './src/routes/authRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import productRoutes from './src/routes/productRoutes.js';
@@ -21,6 +23,7 @@ import qnaRoutes from "./src/routes/qnaRoutes.js";
 import uploadRoutes from './src/routes/uploadRoutes.js';
 import reportRoutes from "./src/routes/reportRoutes.js";
 import reportNotificationRoutes from "./src/routes/reportNotificationRoutes.js";
+import prRoutes from "./src/routes/prRoutes.js";
 
 dotenv.config(); // 환경 변수 로드
 
@@ -74,6 +77,8 @@ app.use('/api/qna', qnaRoutes);
 app.use('/api/report', reportRoutes);
 app.use('/api/reportNotification', reportNotificationRoutes)
 app.use('/api/upload', uploadRoutes);
+app.use("/api/pr", prRoutes);
+app.use('/api/developer', developerRoutes);
 
 
 
