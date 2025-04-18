@@ -1,3 +1,4 @@
+// src/controllers/communityController.js
 import PageRequestDTO from '../../src/dto/common/PageRequestDTO.js'; // 파일 경로를 실제 경로에 맞게 수정하세요.
 import * as communityService from '../services/communityService.js';
 

@@ -40,8 +40,11 @@ const qnaSchema = new Schema({
     },
 }, { timestamps: true });  // 생성일과 수정일 자동으로 기록
 
-// 텍스트 인덱스 설정: qnaTitle 및 qnaContents 필드
-qnaSchema.index({ qnaTitle: "text", qnaContents: "text" });
+
+// 인덱스: qnaTitle, qnaContents, qnaAnswer, userId, answerUserId
+qnaSchema.index({ qnaTitle: "text", qnaContents: "text", qnaAnswer: "text", userId: "text", answerUserId: "text" });
+
+
 
 // 모델 생성
 export const Qna = model('Qna', qnaSchema);

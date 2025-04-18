@@ -57,4 +57,8 @@ const paymentHistorySchema = new Schema({
     },
 }, { timestamps: true });
 
+// 인덱스: payId, paymentMethod, userId, paymentId
+paymentHistorySchema.index({ payId: "text", paymentMethod: "text", userId: "text", paymentId: "text" });
+
+
 export const PaymentHistory = model('PaymentHistory', paymentHistorySchema);
