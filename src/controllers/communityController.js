@@ -1,3 +1,4 @@
+// src/controllers/communityController.js
 import PageRequestDTO from '../../src/dto/common/PageRequestDTO.js'; // 파일 경로를 실제 경로에 맞게 수정하세요.
 import * as communityService from '../services/communityService.js';
 
@@ -9,8 +10,9 @@ export const getCommunities = async (req, res) => {
         const userId = req.query.userId;
         // 쿼리 파라미터로 정렬 기준을 받아오고, 기본값은 '최신순'
         const sort = req.query.sort ? req.query.sort : '최신순';
+        const keyword = req.query.keyword || '';
 
-        const pageRequestDTO = new PageRequestDTO(page, size);
+        const pageRequestDTO = new PageRequestDTO(page, size,null, keyword);
 
         // 카테고리, 사용자 필터, 그리고 정렬 기준을 포함하여 페이징 처리된 커뮤니티 목록 조회
         const pageResult = await communityService.getCommunitiesPage(pageRequestDTO, category, userId, sort);
@@ -19,6 +21,29 @@ export const getCommunities = async (req, res) => {
         res.status(500).json({ message: '커뮤니티 목록 조회에 실패했습니다.', error });
     }
 };
+
+// export const getCommunities = async (req, res) => {
+//     try {
+//         const page = req.query.page ? parseInt(req.query.page) : 1;
+//         const size = req.query.size ? parseInt(req.query.size) : 10;
+//         const category = req.query.category ? req.query.category : '전체';
+//         const userId = req.query.userId;
+//         // 쿼리 파라미터로 정렬 기준을 받아오고, 기본값은 '최신순'
+//         const sort = req.query.sort ? req.query.sort : '최신순';
+//         const query = req.query.query; // 추가된 검색어 파라미터
+//
+//         const pageRequestDTO = new PageRequestDTO(page, size);
+//
+//         // 카테고리, 사용자 필터, 그리고 정렬 기준을 포함하여 페이징 처리된 커뮤니티 목록 조회
+//         const pageResult = await communityService.getCommunitiesPage(pageRequestDTO, category, userId, sort, query);
+//         res.status(200).json(pageResult);
+//     } catch (error) {
+//         res.status(500).json({ message: '커뮤니티 목록 조회에 실패했습니다.', error });
+//     }
+// };
+
+
+
 
 
 

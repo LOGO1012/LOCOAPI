@@ -1,12 +1,23 @@
+// /src/services/communityService.js
 import { Community } from '../models/Community.js';
 import PageResponseDTO from '../../src/dto/common/PageResponseDTO.js';
 import cron from "node-cron"; // 파일 경로를 실제 경로에 맞게 수정하세요.
-
+//sort = '최신순', query = ''
 export const getCommunitiesPage = async (pageRequestDTO, category, userId, sort = '최신순') => {
     const { page, size } = pageRequestDTO;
     const skip = (page - 1) * size;
 
     let filter = {};
+
+    // if (query && query.trim() !== '') {
+    //     // 제목 또는 내용을 검색어에 대해 대소문자 구분 없이 검색
+    //     filter.$or = [
+    //         { communityTitle: new RegExp(query, 'i') },
+    //         { communityContents: new RegExp(query, 'i') }
+    //     ];
+    // }
+
+
     if (category === '전체') {
         // filter remains {}
     } else if (category === '내 글') {
