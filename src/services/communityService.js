@@ -29,11 +29,11 @@ export const getCommunitiesPage = async (
         switch (searchType) {
             case 'title':
                 // 제목만 부분 매칭
-                filter.communityTitle = { $regex: `^${keyword}$`, $options: 'i' };
+                filter.communityTitle = { $regex: `${keyword}`, $options: 'i' };
                 break;
             case 'content':
                 // 내용만 부분 매칭
-                filter.communityContents = { $regex: `^${keyword}$`, $options: 'i' };
+                filter.communityContents = { $regex: `${keyword}`, $options: 'i' };
                 break;
             case 'author':
                 // 작성자 완전 일치 (대소문자 무시하고 싶으면 regex에 ^…$ 사용)

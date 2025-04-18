@@ -46,6 +46,9 @@ qnaSchema.index({ qnaTitle: "text", qnaContents: "text", qnaAnswer: "text", user
 
 
 
+qnaSchema.index({ qnaTitle: 1 });
+qnaSchema.index({ qnaContents: 1 });
+
 // 모델 생성
 export const Qna = model('Qna', qnaSchema);
 
