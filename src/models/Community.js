@@ -117,4 +117,7 @@ const communitySchema = new Schema({
     },
 }, { timestamps: true });
 
+// 인덱스: communityTitle, communityContents, userId
+communitySchema.index({ communityTitle: "text", communityContents: "text", userId: "text" });
+
 export const Community = model('Community', communitySchema);

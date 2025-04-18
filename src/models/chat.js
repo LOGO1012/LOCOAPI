@@ -96,6 +96,13 @@ const chatMessageSchema = new Schema({
 }, { timestamps: true });          // createdAt, updatedAt 필드를 자동 생성
 
 
+
+// 인덱스: chatRoom, sender, text
+chatMessageSchema.index({ chatRoom: "text", sender: "text", text: "text" });
+
+
+
+
 const chatRoomExitSchema = new Schema({
     chatRoom: {
         type: Schema.Types.ObjectId,

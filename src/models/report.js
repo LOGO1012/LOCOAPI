@@ -91,5 +91,9 @@ const reportSchema = new Schema({
     timestamps: true // createdAt, updatedAt 필드 자동 추가
 });
 
+// 인덱스: reportTitle, reportContants, reportErId, adminId, offenderId
+reportSchema.index({ reportTitle: "text", reportContants: "text", reportErId: "text", adminId: "text", offenderId: "text" });
+
+
 // Report 모델을 'Report' 컬렉션으로 생성 및 내보내기
 export const Report = model('Report', reportSchema);

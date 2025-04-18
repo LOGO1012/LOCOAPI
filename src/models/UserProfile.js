@@ -223,7 +223,10 @@ const userSchema = new Schema({
     timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
 });
 
-// User 모델을 'User' 컬렉션으로 생성 및 내보내기
+// 텍스트 인덱스
+userSchema.index({ name: "text", nickname: "text", phone: "text", gender: "text", birthdate: "text", userLv: "text" });
+
+//      모델을 'User' 컬렉션으로 생성 및 내보내기
 export const User = model('User', userSchema);
 
 
