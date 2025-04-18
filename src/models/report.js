@@ -70,6 +70,10 @@ const reportSchema = new Schema({
         ref: 'User',
         default: null
     },
+    adminNickname: {
+        type: String,
+        default: ''
+    },
     // 가해자(신고 대상) 고유 ID
     offenderId: {
         type: Schema.Types.ObjectId,
@@ -93,7 +97,10 @@ const reportSchema = new Schema({
 
 // 인덱스: reportTitle, reportContants, reportErId, adminId, offenderId
 reportSchema.index({ reportTitle: "text", reportContants: "text", reportErId: "text", adminId: "text", offenderId: "text" });
-
+reportSchema.index({ reportTitle:    1 });   // 제목 필드에 B‑Tree 인덱스
+reportSchema.index({ reportContants: 1 });  // 내용 필드에 B‑Tree 인덱스
+reportSchema.index({ offenderNickname: 1 });
+reportSchema.index({ adminNickname: 1 });
 
 // Report 모델을 'Report' 컬렉션으로 생성 및 내보내기
 export const Report = model('Report', reportSchema);

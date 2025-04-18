@@ -26,25 +26,20 @@ export const getCommunitiesPage = async (
 
     // 키워드 검색
     if (keyword) {
+        const regex = new RegExp(`^${keyword}`, 'i');  // 접두사 검색 앵커
         switch (searchType) {
             case 'title':
-                // 제목만 부분 매칭
-                filter.communityTitle = { $regex: `${keyword}`, $options: 'i' };
+                filter.communityTitle    = { $regex: regex };
                 break;
             case 'content':
-                // 내용만 부분 매칭
-                filter.communityContents = { $regex: `${keyword}`, $options: 'i' };
+                filter.communityContents = { $regex: regex };
                 break;
             case 'author':
-                // 작성자 완전 일치 (대소문자 무시하고 싶으면 regex에 ^…$ 사용)
-                const matchedUsers = await User.find(
-                    { nickname: keyword },
-                    '_id'
-                );
-                filter.userId = { $in: matchedUsers.map(u => u._id) };
+                // userNickname 스냅샷 필드로 바로 검색
+                filter.authorNickname = { $regex: regex };
                 break;
             default:
-                // 'title content' : 텍스트 인덱스로 제목 OR 내용 검색
+                // 'title content' 등은 full‑text 인덱스 사용
                 filter.$text = { $search: keyword };
         }
     }
@@ -78,12 +73,22 @@ export const getCommunityById = async (id) => {
 
 // 커뮤니티 생성
 export const createCommunity = async (data) => {
+    // 작성자 닉네임 스냅샷
+    if (data.userId) {
+        const author = await User.findById(data.userId, 'nickname');
+        data.userNickname = author?.nickname || '';
+    }
     const community = new Community(data);
     return await community.save();
 };
 
 // 커뮤니티 업데이트
 export const updateCommunity = async (id, data) => {
+    // userId가 변경되었거나 닉네임을 리프레시할 필요가 있을 때
+    if (data.userId) {
+        const author = await User.findById(data.userId, 'nickname');
+        data.userNickname = author?.nickname || '';
+    }
     return await Community.findByIdAndUpdate(id, data, { new: true });
 };
 

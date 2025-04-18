@@ -3,6 +3,7 @@ import * as reportService from '../services/reportService.js';
 import { Report } from '../models/report.js';
 import PageRequestDTO from "../dto/common/PageRequestDTO.js";
 import PageResponseDTO from "../dto/common/PageResponseDTO.js";
+import {User} from "../models/UserProfile.js";
 
 /**
  * 신고 생성 컨트롤러 함수
@@ -71,6 +72,36 @@ export const getReports = async (req, res) => {
         const allowedStatuses = ['pending', 'reviewed', 'resolved', 'dismissed'];
         if (req.query.reportStatus && allowedStatuses.includes(req.query.reportStatus)) {
             filters.reportStatus = req.query.reportStatus;
+        }
+        // ===== 키워드 검색 추가 =====
+        const { keyword, searchType = 'all' } = req.query;
+        if (keyword) {
+            const regex = new RegExp(keyword, 'i');
+            let orConditions = [];
+            switch (searchType) {
+                case 'title':
+                    orConditions = [{ reportTitle: { $regex: regex } }];
+                    break;
+                case 'content':
+                    orConditions = [{ reportContants: { $regex: regex } }];
+                    break;
+                case 'admin':
+                    orConditions = [{ adminNickname: { $regex: regex } }];
+                    break;
+                case 'offender':
+                    orConditions = [{ offenderNickname: { $regex: regex } }];
+                    break;
+                case 'all':
+                default: {
+                    orConditions = [
+                        { reportTitle:    { $regex: regex } },
+                        { reportContants: { $regex: regex } },
+                        { adminNickname:        { $regex: regex } },
+                        { offenderNickname:     { $regex: regex } }
+                    ];
+                }
+            }
+            filters.$or = orConditions;
         }
 
         const { reports, totalCount } = await reportService.getReportsWithPagination(filters, page, size);

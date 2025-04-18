@@ -77,6 +77,10 @@ const communitySchema = new Schema({
         ref: 'User',
         required: true,
     },
+    userNickname: {
+        type: String,
+        default: ''
+    },
     communityTitle: {
         type: String,
         required: true,
@@ -124,6 +128,6 @@ communitySchema.index({
 // B‑Tree 인덱스: 정확 일치(zero‑scanned regex) 또는 anchored regex (접두사) 시 IXSCAN
 communitySchema.index({ communityTitle: 1 });
 communitySchema.index({ communityContents: 1 });
-communitySchema.index({ userId: 1 });
+communitySchema.index({ authorNickname: 1 });
 
 export const Community = model('Community', communitySchema);
