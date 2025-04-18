@@ -29,10 +29,18 @@ const qnaSchema = new Schema({
         required: true,  // 문의를 작성한 유저 고유 ID
         ref: 'User',  // User 모델을 참조
     },
+    userNickname: {
+        type: String,
+        default: '',
+    },
     answerUserId: {
         type: Schema.Types.ObjectId,  // 답변을 작성한 관리자(또는 유저) ID
         ref: 'User',  // User 모델을 참조
         default: null,  // 답변자가 없으면 null
+    },
+    answerUserNickname: {
+        type: String,
+        default: '',
     },
     qnaRegdate: {
         type: Date,
@@ -48,6 +56,8 @@ qnaSchema.index({ qnaTitle: "text", qnaContents: "text", qnaAnswer: "text", user
 
 qnaSchema.index({ qnaTitle: 1 });
 qnaSchema.index({ qnaContents: 1 });
+qnaSchema.index({ userNickname: 1 });
+qnaSchema.index({ answerNickname: 1 });
 
 // 모델 생성
 export const Qna = model('Qna', qnaSchema);

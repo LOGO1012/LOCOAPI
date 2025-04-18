@@ -32,13 +32,11 @@ const getQnaListPage = async (pageRequestDTO) => {
                     ];
                     break;
                 case 'author': {
-                    const authorIds = await User.find({ nickname: regex }).distinct('_id');
-                    filter.userId = { $in: authorIds };
+                    filter.userNickname = { $regex: regex };
                     break;
                 }
                 case 'answerer': {
-                    const answerIds = await User.find({ nickname: regex }).distinct('_id');
-                    filter.answerUserId = { $in: answerIds };
+                    filter.answerUserNickname = { $regex: regex };
                     break;
                 }
                 default:
@@ -69,7 +67,12 @@ const getQnaListPage = async (pageRequestDTO) => {
  */
 const createQna = async (qnaData) => {
     try {
-        const newQna = await Qna.create(qnaData);
+        // 작성자 닉네임 스냅샷
+        const author = await User.findById(qnaData.userId, 'nickname');
+        const newQna = await Qna.create({
+            ...qnaData,
+            userNickname: author?.nickname || ''
+        });
         return newQna;
     } catch (error) {
         throw new Error(error);
@@ -121,6 +124,11 @@ const updateQna = async (id, updateData) => {
         // 답변 내용이 있다면 상태를 'Answered'로 설정
         if (updateData.qnaAnswer) {
             updateData.qnaStatus = '답변완료';
+            // 답변자 닉네임 스냅샷
+            if (updateData.answerUserId) {
+                const answerer = await User.findById(updateData.answerUserId, 'nickname');
+                updateData.answerUserNickname = answerer?.nickname || '';
+            }
         }
         const updatedQna = await Qna.findByIdAndUpdate(id, updateData, { new: true });
         return updatedQna;
