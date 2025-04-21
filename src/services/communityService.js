@@ -36,7 +36,7 @@ export const getCommunitiesPage = async (
                 break;
             case 'author':
                 // userNickname 스냅샷 필드로 바로 검색
-                filter.authorNickname = { $regex: regex };
+                filter.userNickname = { $regex: regex };
                 break;
             default:
                 // 'title content' 등은 full‑text 인덱스 사용
