@@ -311,3 +311,36 @@ export const deleteFriend = async (userId, friendId) => {
     return { message: "친구가 삭제되었습니다." };
 };
 
+/**
+ * 사용자 차단
+ */
+export const blockUserService = async (userId, targetId) => {
+    const user = await User.findById(userId);
+    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+    if (!user.blockedUsers.includes(targetId)) {
+        user.blockedUsers.push(targetId);
+        await user.save();
+    }
+    return user;
+};
+
+/**
+ * 차단 해제
+ */
+export const unblockUserService = async (userId, targetId) => {
+    const user = await User.findById(userId);
+    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+    user.blockedUsers = user.blockedUsers.filter(id => id.toString() !== targetId);
+    await user.save();
+    return user;
+};
+
+/**
+ * 차단 목록 조회
+ */
+export const getBlockedUsersService = async (userId) => {
+    const user = await User.findById(userId).populate('blockedUsers', 'nickname photo');
+    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+    return user.blockedUsers;
+};
+

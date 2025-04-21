@@ -168,7 +168,13 @@ const userSchema = new Schema({
             ref: 'User'                           // 'User' 모델을 참조합니다.
         }
     ],
-
+    // ——— 차단한 사용자 목록 ———
+    blockedUsers: [
+        {
+            type: Schema.Types.ObjectId,
+            ref: 'User'
+        }
+    ],
     plan: {
         planType: {
             type: String,
