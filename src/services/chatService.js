@@ -40,27 +40,34 @@ export const getChatRoomById = async (roomId) => {
 
 /**
  * 모든 채팅방 목록 조회 (서버측 필터링 및 페이징 적용)
- * @param {object} filters - 쿼리 파라미터 객체 (roomType, capacity, matchedGender, ageGroup, status, page, limit 등)
+ * filters.userId 를 넘기면, 해당 사용자가 차단한 사용자가 포함된 방을 제외합니다.
  */
 export const getAllChatRooms = async (filters) => {
     const query = {};
 
-    if (filters.roomType) query.roomType = filters.roomType;
-    if (filters.capacity) query.capacity = parseInt(filters.capacity);
-    if (filters.matchedGender) query.matchedGender = filters.matchedGender;
-    if (filters.ageGroup) query.ageGroup = filters.ageGroup;
-    // if (filters.status) query.status = filters.status;
+    // 차단된 사용자 포함 방 제외
+    if (filters.userId) {
+        const me = await User.findById(filters.userId).select('blockedUsers');
+        if (me && me.blockedUsers.length > 0) {
+            query.chatUsers = { $nin: me.blockedUsers };
+        }
+    }
 
-    // 기본 페이지 처리: page와 limit 값이 없으면 기본값 사용
-    const page = parseInt(filters.page) || 1;
+    if (filters.roomType)    query.roomType     = filters.roomType;
+    if (filters.capacity)    query.capacity     = parseInt(filters.capacity);
+    if (filters.matchedGender) query.matchedGender = filters.matchedGender;
+    if (filters.ageGroup)    query.ageGroup     = filters.ageGroup;
+
+    const page  = parseInt(filters.page)  || 1;
     const limit = parseInt(filters.limit) || 10;
-    const skip = (page - 1) * limit;
+    const skip  = (page - 1) * limit;
 
     const rooms = await ChatRoom.find(query)
         .populate('chatUsers')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit);
+
     return rooms;
 };
 

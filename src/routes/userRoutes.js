@@ -11,7 +11,7 @@ import {
     sendFriendRequestController,
     getFriendRequestsController,
     deleteFriendController,
-    declineFriendRequestController  // 새로 추가
+    declineFriendRequestController, blockUserController, unblockUserController, getBlockedUsersController
 } from "../controllers/userController.js";
 
 const router = express.Router();
@@ -48,5 +48,10 @@ router.post('/:userId/friend-request/decline', declineFriendRequestController);
 
 // 친구 삭제
 router.delete("/:userId/friends/:friendId", deleteFriendController);
+
+// 차단 기능
+router.post   ('/:userId/block/:targetUserId',   blockUserController);
+router.delete ('/:userId/block/:targetUserId',   unblockUserController);
+router.get    ('/:userId/blocked',               getBlockedUsersController);
 
 export default router;
