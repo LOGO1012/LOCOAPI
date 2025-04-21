@@ -2,27 +2,58 @@
 import { Qna } from '../models/Qna.js';
 
 import PageResponseDTO from '../dto/common/PageResponseDTO.js';
+import {User} from "../models/UserProfile.js";
 
 const getQnaListPage = async (pageRequestDTO) => {
     try {
-        const page = pageRequestDTO.page;
-        const size = pageRequestDTO.size;
+        const { page, size, qnaStatus, keyword, searchType } = pageRequestDTO;
         const skip = (page - 1) * size;
-        let filter = {};
-        if (pageRequestDTO.qnaStatus) {
-            filter.qnaStatus = pageRequestDTO.qnaStatus;
+
+        // 기본 필터: 상태
+        const filter = {};
+        if (qnaStatus) {
+            filter.qnaStatus = qnaStatus;
         }
-        // 검색 키워드가 있다면 텍스트 인덱스 기반 검색 사용
-        if (pageRequestDTO.keyword) {
-            filter.$text = { $search: pageRequestDTO.keyword };
+
+        // 검색어가 있으면 옵션에 따라 분기
+        if (keyword) {
+            const regex = new RegExp(keyword, 'i');
+            switch (searchType) {
+                case 'title':
+                    filter.qnaTitle = { $regex: regex };
+                    break;
+                case 'contents':
+                    filter.qnaContents = { $regex: regex };
+                    break;
+                case 'both':
+                    filter.$or = [
+                        { qnaTitle:    { $regex: regex } },
+                        { qnaContents: { $regex: regex } }
+                    ];
+                    break;
+                case 'author': {
+                    filter.userNickname = { $regex: regex };
+                    break;
+                }
+                case 'answerer': {
+                    filter.answerUserNickname = { $regex: regex };
+                    break;
+                }
+                default:
+                    // 'both' 기본 처리도 여기로 들어오므로 별도 처리 불필요
+                    break;
+            }
         }
-        // 조건에 맞는 QnA 데이터 조회 (populate 옵션 포함)
+
+        // 쿼리 실행
         const dtoList = await Qna.find(filter)
             .populate('userId')
             .populate('answerUserId')
             .skip(skip)
             .limit(size);
+
         const totalCount = await Qna.countDocuments(filter);
+
         return new PageResponseDTO(dtoList, pageRequestDTO, totalCount);
     } catch (error) {
         throw new Error(error);
@@ -36,7 +67,12 @@ const getQnaListPage = async (pageRequestDTO) => {
  */
 const createQna = async (qnaData) => {
     try {
-        const newQna = await Qna.create(qnaData);
+        // 작성자 닉네임 스냅샷
+        const author = await User.findById(qnaData.userId, 'nickname');
+        const newQna = await Qna.create({
+            ...qnaData,
+            userNickname: author?.nickname || ''
+        });
         return newQna;
     } catch (error) {
         throw new Error(error);
@@ -88,6 +124,11 @@ const updateQna = async (id, updateData) => {
         // 답변 내용이 있다면 상태를 'Answered'로 설정
         if (updateData.qnaAnswer) {
             updateData.qnaStatus = '답변완료';
+            // 답변자 닉네임 스냅샷
+            if (updateData.answerUserId) {
+                const answerer = await User.findById(updateData.answerUserId, 'nickname');
+                updateData.answerUserNickname = answerer?.nickname || '';
+            }
         }
         const updatedQna = await Qna.findByIdAndUpdate(id, updateData, { new: true });
         return updatedQna;

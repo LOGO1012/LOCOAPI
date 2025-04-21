@@ -10,12 +10,18 @@ import {ReportNotification} from "../models/ReportNotification.js";
  */
 export const createReport = async (data) => {
     try {
-        // 전달된 데이터를 기반으로 새로운 Report 인스턴스 생성
-        const report = new Report(data);
-        // 데이터베이스에 저장하고 생성된 객체를 반환
+        // 사용자 닉네임 조회
+        const offender = await User.findById(data.offenderId, 'nickname');
+        const reporter = await User.findById(data.reportErId, 'nickname');
+
+        // 스냅샷 필드에 닉네임 저장
+        const report = new Report({
+            ...data,
+            offenderNickname: offender?.nickname || '',
+            reportErNickname: reporter?.nickname  || ''
+        });
         return await report.save();
     } catch (error) {
-        // 에러 발생 시 상위로 전파
         throw error;
     }
 };
@@ -41,7 +47,8 @@ export const getReportsWithPagination = async (filters = {}, page = 1, size = 10
             .skip(skip)
             .limit(size)
             .populate('reportErId', 'nickname')
-            .populate('offenderId', 'nickname');
+            .populate('offenderId', 'nickname')
+            .populate('adminId',   'nickname');
         const countPromise = Report.countDocuments(filters);
         const [reports, totalCount] = await Promise.all([reportsPromise, countPromise]);
         return { reports, totalCount };
@@ -99,6 +106,7 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
             reportStatus = "dismissed";
         }
 
+        const admin = await User.findById(adminId, 'nickname');
         const updatedReport = await Report.findByIdAndUpdate(
             id,
             {
@@ -107,7 +115,9 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
                 reportStatus: reportStatus,
                 stopDetail: stopDetail ? stopDetail : (suspensionDays && parseInt(suspensionDays) > 0 ? 'suspended' : 'active'),
                 stopDate: suspensionDays && parseInt(suspensionDays) > 0 ? now : null,
-                durUntil: suspensionDays && parseInt(suspensionDays) > 0 ? durUntil : null
+                durUntil: suspensionDays && parseInt(suspensionDays) > 0 ? durUntil : null,
+                adminNickname:  admin.nickname,
+
             },
             { new: true }
         )
