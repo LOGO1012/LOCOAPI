@@ -26,7 +26,7 @@ export const getCommunitiesPage = async (
 
     // 키워드 검색
     if (keyword) {
-        const regex = new RegExp(`^${keyword}`, 'i');  // 접두사 검색 앵커
+        const regex = new RegExp(`${keyword}`, 'i');  // 접두사 검색 앵커
         switch (searchType) {
             case 'title':
                 filter.communityTitle    = { $regex: regex };
