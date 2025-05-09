@@ -83,7 +83,12 @@ export const sendMessage = async (req, res) => {
  */
 export const getMessages = async (req, res) => {
     try {
-        const messages = await chatService.getMessagesByRoom(req.params.roomId);
+        // 쿼리 파라미터 includeDeleted=true 면 히스토리 방 메시지도 모두 조회
+        const includeDeleted = req.query.includeDeleted === 'true';
+        const messages = await chatService.getMessagesByRoom(
+            req.params.roomId,
+            includeDeleted
+        );
         res.status(200).json(messages);
     } catch (error) {
         res.status(500).json({ error: error.message });

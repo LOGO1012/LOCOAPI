@@ -120,6 +120,7 @@ const chatRoomExitSchema = new Schema({
     }
 });
 
+
 export const ChatRoomExit = model('ChatRoomExit', chatRoomExitSchema);
 
 export const ChatRoom = model('ChatRoom', chatRoomSchema);

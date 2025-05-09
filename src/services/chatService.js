@@ -1,20 +1,22 @@
 import {ChatRoom, ChatMessage, ChatRoomExit} from '../models/chat.js';
 import {User} from "../models/UserProfile.js";
+import { ChatRoomHistory } from '../models/chatRoomHistory.js';
 
 /**
  * 새로운 채팅방 생성
  */
 export const createChatRoom = async (roomType, capacity, matchedGender, ageGroup) => {
     try {
-        const newChatRoom = new ChatRoom({
-            roomType,
-            capacity,
-            matchedGender,
-            ageGroup
-        });
-        return await newChatRoom.save();
+        // 1) 방 생성
+        const newChatRoom = new ChatRoom({ roomType, capacity, matchedGender, ageGroup });
+        const saved = await newChatRoom.save();
+
+
+        return saved;
     } catch (error) {
-        throw new Error(error.message);
+        // 에러 스택까지 찍어서 어디서 터졌는지 확인
+        console.error('[chatService.createChatRoom] error:', error);
+        throw error;
     }
 };
 
@@ -44,6 +46,9 @@ export const getChatRoomById = async (roomId) => {
  */
 export const getAllChatRooms = async (filters) => {
     const query = {};
+    if (filters.chatUsers) {
+        query.chatUsers = filters.chatUsers;
+    }
 
     if (filters.roomType) query.roomType = filters.roomType;
     if (filters.capacity) query.capacity = parseInt(filters.capacity);
@@ -83,10 +88,15 @@ export const addUserToRoom = async (roomId, userId) => {
         if (room.roomType === 'random' && room.chatUsers.length >= room.capacity) {
             room.isActive = true;
             room.status = 'active';  // 상태를 'active'로 변경
+
+            const saved = await room.save();
+
+
+            return saved;
         }
 
-        await room.save();  // 상태와 isActive 변경 후 저장
-        return room;
+        // 아직 capacity 미달인 경우엔 단순 저장만
+        return await room.save();
     } catch (error) {
         throw new Error(error.message);
     }
@@ -115,10 +125,14 @@ export const saveMessage = async (chatRoom, sender, text) => {
 
 /**
  * 특정 채팅방의 메시지 가져오기
+ * @param {boolean} includeDeleted - true면 isDeleted 플래그에 관계없이 모두 조회
  */
-export const getMessagesByRoom = async (roomId) => {
-    return await ChatMessage.find({ chatRoom: roomId, isDeleted: false })
-        .populate('sender', 'nickname')
+export const getMessagesByRoom = async (roomId, includeDeleted = false) => {
+    const filter = includeDeleted
+        ? { chatRoom: roomId }                    // 삭제 여부 무시
+        : { chatRoom: roomId, isDeleted: false }; // 기본: 삭제되지 않은 메시지만
+    return await ChatMessage.find(filter)
+        .populate('sender', 'nickname name')       // 닉네임·이름 모두 필요하면 name도 추가
         .exec();
 };
 
@@ -164,6 +178,20 @@ export const leaveChatRoomService = async (roomId, userId) => {
 
         // 모든 사용자가 퇴장한 경우
         if (exitedUsers.length >= totalUsers) {
+            // ==== 여기서 복사 로직 추가 ====
+            await ChatRoomHistory.create({
+                chatRoomId: chatRoom._id,
+                meta: {
+                    chatUsers:    chatRoom.chatUsers,
+                    capacity:     chatRoom.capacity,
+                    roomType:     chatRoom.roomType,
+                    matchedGender:chatRoom.matchedGender,
+                    ageGroup:     chatRoom.ageGroup,
+                    createdAt:    chatRoom.createdAt
+                }
+            });
+            // ============================
+
             // 채팅 메시지 삭제: isDeleted 플래그를 true로 업데이트합니다.
             await ChatMessage.updateMany(
                 { chatRoom: roomId, isDeleted: false },
