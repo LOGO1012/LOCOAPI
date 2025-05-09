@@ -26,7 +26,7 @@ export const getCommunitiesPage = async (
 
     // 키워드 검색
     if (keyword) {
-        const regex = new RegExp(`^${keyword}`, 'i');  // 접두사 검색 앵커
+        const regex = new RegExp(`${keyword}`, 'i');  // 접두사 검색 앵커
         switch (searchType) {
             case 'title':
                 filter.communityTitle    = { $regex: regex };
@@ -36,7 +36,7 @@ export const getCommunitiesPage = async (
                 break;
             case 'author':
                 // userNickname 스냅샷 필드로 바로 검색
-                filter.authorNickname = { $regex: regex };
+                filter.userNickname = { $regex: regex };
                 break;
             default:
                 // 'title content' 등은 full‑text 인덱스 사용
