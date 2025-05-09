@@ -25,6 +25,8 @@ import reportRoutes from "./src/routes/reportRoutes.js";
 import reportNotificationRoutes from "./src/routes/reportNotificationRoutes.js";
 import prRoutes from "./src/routes/prRoutes.js";
 
+import searchRouter from './src/routes/searchRouter.js';
+
 dotenv.config(); // 환경 변수 로드
 
 // MongoDB 연결 (실패/성공 메시지는 mongoDB.js에서 처리)
@@ -79,6 +81,8 @@ app.use('/api/reportNotification', reportNotificationRoutes)
 app.use('/api/upload', uploadRoutes);
 app.use("/api/pr", prRoutes);
 app.use('/api/developer', developerRoutes);
+
+app.use('/api/search', searchRouter);
 
 
 
