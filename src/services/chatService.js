@@ -125,7 +125,7 @@ export const saveMessage = async (chatRoom, sender, text) => {
  */
 export const getMessagesByRoom = async (roomId) => {
     return await ChatMessage.find({ chatRoom: roomId, isDeleted: false })
-        .populate('sender', 'nickname')
+        .populate('sender')
         .exec();
 };
 
