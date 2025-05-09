@@ -1,6 +1,5 @@
 import {ChatRoom, ChatMessage, ChatRoomExit} from '../models/chat.js';
 import {User} from "../models/UserProfile.js";
-import { ChatRoomHistory } from '../models/chatRoomHistory.js';
 
 /**
  * 새로운 채팅방 생성
@@ -50,22 +49,29 @@ export const getAllChatRooms = async (filters) => {
         query.chatUsers = filters.chatUsers;
     }
 
-    if (filters.roomType) query.roomType = filters.roomType;
-    if (filters.capacity) query.capacity = parseInt(filters.capacity);
-    if (filters.matchedGender) query.matchedGender = filters.matchedGender;
-    if (filters.ageGroup) query.ageGroup = filters.ageGroup;
-    // if (filters.status) query.status = filters.status;
+    // 차단된 사용자 포함 방 제외
+    if (filters.userId) {
+        const me = await User.findById(filters.userId).select('blockedUsers');
+        if (me && me.blockedUsers.length > 0) {
+            query.chatUsers = { $nin: me.blockedUsers };
+        }
+    }
 
-    // 기본 페이지 처리: page와 limit 값이 없으면 기본값 사용
-    const page = parseInt(filters.page) || 1;
+    if (filters.roomType)    query.roomType     = filters.roomType;
+    if (filters.capacity)    query.capacity     = parseInt(filters.capacity);
+    if (filters.matchedGender) query.matchedGender = filters.matchedGender;
+    if (filters.ageGroup)    query.ageGroup     = filters.ageGroup;
+
+    const page  = parseInt(filters.page)  || 1;
     const limit = parseInt(filters.limit) || 10;
-    const skip = (page - 1) * limit;
+    const skip  = (page - 1) * limit;
 
     const rooms = await ChatRoom.find(query)
         .populate('chatUsers')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit);
+
     return rooms;
 };
 
@@ -95,8 +101,8 @@ export const addUserToRoom = async (roomId, userId) => {
             return saved;
         }
 
-        // 아직 capacity 미달인 경우엔 단순 저장만
-        return await room.save();
+        await room.save();  // 상태와 isActive 변경 후 저장
+        return room;
     } catch (error) {
         throw new Error(error.message);
     }
@@ -132,7 +138,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false) => {
         ? { chatRoom: roomId }                    // 삭제 여부 무시
         : { chatRoom: roomId, isDeleted: false }; // 기본: 삭제되지 않은 메시지만
     return await ChatMessage.find(filter)
-        .populate('sender', 'nickname name')       // 닉네임·이름 모두 필요하면 name도 추가
+        .populate('sender')       // 닉네임·이름 모두 필요하면 name도 추가
         .exec();
 };
 
