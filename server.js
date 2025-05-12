@@ -27,6 +27,8 @@ import prRoutes from "./src/routes/prRoutes.js";
 import chatNotificationRoutes from "./src/routes/chatNotificationRoutes.js";
 import friendReqRoutes from './src/routes/friendRequestNotificationRoutes.js';
 
+import searchRouter from './src/routes/searchRouter.js';
+
 dotenv.config(); // 환경 변수 로드
 
 // MongoDB 연결 (실패/성공 메시지는 mongoDB.js에서 처리)
@@ -83,6 +85,9 @@ app.use("/api/pr", prRoutes);
 app.use('/api/developer', developerRoutes);
 app.use('/api/chatNotification', chatNotificationRoutes);
 app.use('/api/friendRequestNotification', friendReqRoutes);
+app.use('/api/search', searchRouter);
+
+
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
