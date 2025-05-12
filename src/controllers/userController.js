@@ -8,6 +8,7 @@ import {
 import { rateUser } from "../services/userService.js";
 import { User } from "../models/UserProfile.js";
 import {io} from "../socket/socketIO.js";
+import {createFriendReqNotif} from "../services/friendRequestNotificationService.js";
 
 // 사용자 정보를 가져오는 컨트롤러 함수
 export const getUserInfo = async (req, res) => {
@@ -130,24 +131,35 @@ export const acceptFriendRequestController = async (req, res) => {
 export const sendFriendRequestController = async (req, res) => {
     const { senderId, receiverId } = req.body;
     try {
-        // 친구 요청 생성
+        // 1) 친구 요청 생성
         const newRequest = await sendFriendRequest(senderId, receiverId);
-        // 보낸 유저의 정보를 가져와 닉네임을 조회
-        const senderUser = await getUserById(senderId);
 
-        // 보낸 유저의 닉네임을 포함하여 알림 전송
-        io.to(receiverId).emit('friendRequestNotification', {
-            message: `${senderUser.nickname}님이 친구 요청을 보냈습니다.`,
-            friendRequest: newRequest,
+        // 2) 보낸 유저의 닉네임 조회
+        const senderUser = await getUserById(senderId);
+        const message = `${senderUser.nickname}님이 친구 요청을 보냈습니다.`;
+
+        // 3) 알림 레코드로 저장
+        const notif = await createFriendReqNotif({
+            recipient: receiverId,
+            sender:    senderId,
+            message
         });
 
-        res.status(200).json({
+        // 4) 소켓으로도 전송 (_id 포함)
+        io.to(receiverId).emit('friendRequestNotification', {
+            _id:     notif._id,
+            sender:  { _id: senderId, nickname: senderUser.nickname },
+            message: notif.message,
+            request: newRequest
+        });
+
+        return res.status(200).json({
             success: true,
             message: "친구 요청을 보냈습니다.",
-            data: newRequest
+            data:    newRequest
         });
     } catch (error) {
-        res.status(400).json({
+        return res.status(400).json({
             success: false,
             message: error.message
         });
