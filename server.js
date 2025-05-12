@@ -24,6 +24,8 @@ import uploadRoutes from './src/routes/uploadRoutes.js';
 import reportRoutes from "./src/routes/reportRoutes.js";
 import reportNotificationRoutes from "./src/routes/reportNotificationRoutes.js";
 import prRoutes from "./src/routes/prRoutes.js";
+import chatNotificationRoutes from "./src/routes/chatNotificationRoutes.js";
+import friendReqRoutes from './src/routes/friendRequestNotificationRoutes.js';
 
 dotenv.config(); // 환경 변수 로드
 
@@ -79,8 +81,8 @@ app.use('/api/reportNotification', reportNotificationRoutes)
 app.use('/api/upload', uploadRoutes);
 app.use("/api/pr", prRoutes);
 app.use('/api/developer', developerRoutes);
-
-
+app.use('/api/chatNotification', chatNotificationRoutes);
+app.use('/api/friendRequestNotification', friendReqRoutes);
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
