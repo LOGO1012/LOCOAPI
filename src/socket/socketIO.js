@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import * as chatService from '../services/chatService.js';
 import { ChatRoom } from "../models/chat.js";
 import * as userService from "../services/userService.js";
+import {createChatNotification} from "../services/chatNotificationService.js";
 
 export let io;
 
@@ -41,40 +42,45 @@ export const initializeSocket = (server) => {
 
         // 메시지 전송 이벤트
         socket.on('sendMessage', async ({ chatRoom, sender, text }, callback) => {
-            // ... 메시지 저장, sender 정보 등 처리 ...
             try {
-                // 메시지 저장 및 메시지 객체 생성 코드 (기존 코드 유지)
                 const message = await chatService.saveMessage(chatRoom, sender, text);
                 const senderUser = await userService.getUserById(sender);
                 const senderNickname = senderUser ? senderUser.nickname : "알 수 없음";
+                const messageWithNickname = { ...message.toObject(), sender: { id: sender, nickname: senderNickname } };
 
-                const messageWithNickname = {
-                    ...message.toObject(),
-                    sender: { id: sender, nickname: senderNickname }
-                };
-
-                // 채팅방 사용자에게 메시지 전송
+                // 1) 채팅방 사용자에게 실시간 전송
                 io.to(chatRoom).emit('receiveMessage', messageWithNickname);
 
-                // 채팅 알림 전송: 알림에 roomType 추가
-                const chatRoomObj = await ChatRoom.findById(chatRoom);
-                if (chatRoomObj) {
-                    const userIds = chatRoomObj.chatUsers.map(u => u.toString());
-                    userIds.forEach(userId => {
-                        if (userId !== sender) {
-                            io.to(userId).emit('chatNotification', {
-                                chatRoom,
-                                roomType: chatRoomObj.roomType,  // roomType 정보 포함
-                                message: messageWithNickname,
-                                notification: `${senderNickname}: ${text}`
-                            });
-                        }
-                    });
+                // 2) 채팅 알림 저장·전송
+                const room = await ChatRoom.findById(chatRoom);
+                if (room) {
+                    const userIds = room.chatUsers.map(u => u.toString());
+                    for (const uid of userIds) {
+                        if (uid === sender) continue;
+
+                        // DB에 저장
+                        const savedNotif = await createChatNotification({
+                            recipient: uid,
+                            chatRoom,
+                            sender,
+                            roomType: room.roomType,
+                            message: `${senderNickname}: ${text}`
+                        });
+
+                        // 실시간 푸시도 함께
+                        io.to(uid).emit('chatNotification', {
+                            _id: savedNotif._id,
+                            chatRoom,
+                            roomType: room.roomType,
+                            sender: { id: sender, nickname: senderNickname },
+                            message: text
+                        });
+                    }
                 }
 
                 callback({ success: true, message: messageWithNickname });
             } catch (error) {
-                console.error('❌ 메시지 저장 오류:', error.message);
+                console.error('❌ 메시지 저장 오류:', error);
                 callback({ success: false, error: error.message });
             }
         });
