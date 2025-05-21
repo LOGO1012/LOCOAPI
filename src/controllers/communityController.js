@@ -108,6 +108,21 @@ export const recommendCommunity = async (req, res) => {
     }
 };
 
+export const cancelRecommendCommunity = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userId } = req.body;
+        if (!userId) {
+            return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
+        }
+        const updatedCommunity = await communityService.cancelRecommendCommunity(id, userId);
+        res.status(200).json(updatedCommunity);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+
 // 댓글 추가 컨트롤러
 export const addComment = async (req, res) => {
     try {
