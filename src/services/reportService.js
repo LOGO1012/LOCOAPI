@@ -147,14 +147,14 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
         const reporterId = updatedReport.reportErId._id || updatedReport.reportErId;
         await ReportNotification.create({
             receiver: reporterId,
-            content: `신고 답변이 등록되었습니다: ${replyContent}`,
+            content: `신고 답변: ${replyContent}`,
             type: 'reportAnswer'
         });
 
         // 가해자에게 신고 제재 알림 생성 (정지 기간이 있다면 기간 정보 포함)
         await ReportNotification.create({
             receiver: offenderId,
-            content: `신고 제재가 적용되었습니다: ${updatedReport.stopDetail}${(suspensionDays && parseInt(suspensionDays) > 0) ? ` (${suspensionDays}일 정지)` : ''}`,
+            content: `신고 제재: ${updatedReport.stopDetail}${(suspensionDays && parseInt(suspensionDays) > 0) ? ` (${suspensionDays}일 정지)` : ''}`,
             type: 'sanctionInfo'
         });
         // --- 알림 생성 부분 끝 ---
