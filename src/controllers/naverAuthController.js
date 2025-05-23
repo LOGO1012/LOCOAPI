@@ -51,10 +51,12 @@ export const naverCallback = async (req, res, next) => {
             httpOnly: true,
             secure: false,
             // secure: process.env.NODE_ENV === "production",
-            // sameSite: "none",   // 크로스 사이트 허용
-            sameSite: "lax",
+            sameSite: "none",   // 크로스 사이트 허용
+            //sameSite: "lax",
             // sameSite: "strict",
-            maxAge: 86400000, // 1일
+            path: "/",
+            //maxAge: 86400000, // 1일
+            maxAge: 24 * 60 * 60 * 1000,
         });
 
         // 로그 추가
