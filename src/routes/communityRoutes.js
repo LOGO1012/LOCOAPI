@@ -29,6 +29,9 @@ router.delete('/:id', communityController.deleteCommunity);
 // 추천 처리 엔드포인트 (POST /api/communities/:id/recommend)
 router.post('/:id/recommend', communityController.recommendCommunity);
 
+// 추천 취소 엔드포인트 추가
+router.delete('/:id/recommend', communityController.cancelRecommendCommunity);
+
 // 댓글 추가 엔드포인트 (commentImage 파일 업로드 처리)
 router.post('/:id/comments', upload.single('commentImage'), communityController.addComment);
 

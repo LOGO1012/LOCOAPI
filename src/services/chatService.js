@@ -1,5 +1,6 @@
 import {ChatRoom, ChatMessage, ChatRoomExit} from '../models/chat.js';
 import {User} from "../models/UserProfile.js";
+import { ChatRoomHistory } from "../models/chatRoomHistory.js";
 
 /**
  * 새로운 채팅방 생성
@@ -119,7 +120,13 @@ export const saveMessage = async (chatRoom, sender, text) => {
             if (!user) {
                 throw new Error('사용자를 찾을 수 없습니다.');
             }
-            sender = { _id: user._id, nickname: user.nickname };
+            sender = { _id: user._id,
+                nickname: user.nickname,
+                lolNickname: user.lolNickname,
+                gender: user.gender,
+                star: user.star,
+                info: user.info,
+                photo: user.photo};
         }
 
         const newMessage = new ChatMessage({ chatRoom, sender, text });

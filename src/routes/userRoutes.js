@@ -11,7 +11,11 @@ import {
     sendFriendRequestController,
     getFriendRequestsController,
     deleteFriendController,
-    declineFriendRequestController, blockUserController, unblockUserController, getBlockedUsersController
+    declineFriendRequestController,
+    blockUserController,
+    unblockUserController,
+    getBlockedUsersController,
+    getSummonerRecord
 } from "../controllers/userController.js";
 
 const router = express.Router();
@@ -53,5 +57,7 @@ router.delete("/:userId/friends/:friendId", deleteFriendController);
 router.post   ('/:userId/block/:targetUserId',   blockUserController);
 router.delete ('/:userId/block/:targetUserId',   unblockUserController);
 router.get    ('/:userId/blocked',               getBlockedUsersController);
+
+router.get('/lol/:gameName/:tagLine', getSummonerRecord);
 
 export default router;

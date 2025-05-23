@@ -8,6 +8,7 @@ import {
 import { rateUser } from "../services/userService.js";
 import { User } from "../models/UserProfile.js";
 import {io} from "../socket/socketIO.js";
+import {getLoLRecordByRiotId} from "../middlewares/getLoLRecordBySummonerName.js";
 
 // 사용자 정보를 가져오는 컨트롤러 함수
 export const getUserInfo = async (req, res) => {
@@ -246,3 +247,15 @@ export const getBlockedUsersController = async (req, res) => {
         res.status(400).json({ success: false, message: err.message });
     }
 };
+
+export async function getSummonerRecord(req, res) {
+    try {
+        const { gameName, tagLine } = req.params;
+        const riotId = `${gameName}#${tagLine}`;
+        const data = await getLoLRecordByRiotId(riotId);
+        return res.status(200).json({ success: true, data });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+}
