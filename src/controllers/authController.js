@@ -84,9 +84,10 @@ export const kakaoCallback = async (req, res, next) => {
             httpOnly: true,
             secure: false,
             // secure: process.env.NODE_ENV === "production", //배포환경에서 변경,
-            sameSite: "lax", //sameSite: "strict"
-            // sameSite: "none",   // 크로스 사이트 허용
-            maxAge: 86400000, // 1일 (밀리초)
+            //sameSite: "lax", //sameSite: "strict"
+            sameSite: "none",   // 크로스 사이트 허용
+            path: "/",
+            maxAge: 24 * 60 * 60 * 1000, // 1일 (밀리초)
         });
 
         // 로그 추가: 쿠키 설정 정보 출력
@@ -111,4 +112,16 @@ export const kakaoCallback = async (req, res, next) => {
         console.error('카카오 콜백 컨트롤러 에러:', err.message);
         next(err);
     }
+};
+
+
+export const logoutRedirect = (req, res) => {
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    res.clearCookie("token", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "none",
+        path: "/",
+    });
+    return res.redirect(frontendUrl);
 };

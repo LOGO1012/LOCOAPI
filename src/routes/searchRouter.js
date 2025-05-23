@@ -1,7 +1,8 @@
 // File: src/routes/searchRouter.js
 import express from 'express';
 import { createSearchRouter } from '../dto/common/search/searchRouter.js';
-
+import { authenticate } from '../middlewares/authMiddleware.js';
+import { requireLevel } from '../middlewares/requireLevel.js';
 import { ChatMessage, ChatRoom } from '../models/chat.js';
 import { ChatRoomHistory } from '../models/chatRoomHistory.js';
 import { Community } from '../models/Community.js';
@@ -12,6 +13,14 @@ import { ReportNotification } from '../models/ReportNotification.js';
 import { User } from '../models/UserProfile.js';
 
 const router = express.Router();
+
+// ▶ LV3 이상만 검색 가능 (채팅 관련)
+router.use(
+    ['/users', '/chat-messages', '/chat-rooms', '/chat-room-history'],
+    authenticate,
+    requireLevel(3)
+);
+
 
 // ▶ 채팅 메시지 검색
 router.use(
