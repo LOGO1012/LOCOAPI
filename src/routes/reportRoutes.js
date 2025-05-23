@@ -1,10 +1,20 @@
+//src/routes/reportRoutes.js
 import { Router } from 'express';
 import * as reportController from '../controllers/reportController.js';
+//접근제한
+import { authenticate } from '../middlewares/authMiddleware.js';
+import { requireLevel } from '../middlewares/requireLevel.js';
 
 const router = Router();
 
 // 신고 생성
 router.post('/reports', reportController.createReport);
+
+//이 코드 작성된 이하의 코드들한테 적용됨
+router.use(
+    authenticate,       // JWT 인증 검사
+    requireLevel(2)     // userLv ≥ 2
+);
 
 // 전체 신고 목록 조회
 router.get('/reports', reportController.getReports);

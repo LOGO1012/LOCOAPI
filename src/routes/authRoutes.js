@@ -1,7 +1,7 @@
 // src/routes/authRoutes.js
 import express from 'express'; // Express 모듈 불러오기
 import jwt from 'jsonwebtoken';
-import { kakaoCallback } from '../controllers/authController.js'; // 카카오 콜백 컨트롤러 함수 불러오기
+import { kakaoCallback, logoutRedirect } from '../controllers/authController.js'; // 카카오 콜백 컨트롤러 함수 불러오기
 import naverAuthRoutes from "./naverAuthRoutes.js";
 import { User } from '../models/UserProfile.js';
 
@@ -39,7 +39,7 @@ router.get('/me', async (req, res) => {
     }
 });
 
-
+router.get("/logout-redirect", logoutRedirect);
 
 export default router; // 라우터 내보내기
 //124
