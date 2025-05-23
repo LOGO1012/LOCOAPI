@@ -1,6 +1,8 @@
 // src/controllers/developerController.js
 import { User } from "../models/UserProfile.js";
 
+
+
 export const getDeveloperUsers = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 30;
@@ -37,6 +39,11 @@ export const getDeveloperUsers = async (req, res) => {
 
 // 유저 수정 (PATCH) 함수
 export const updateDeveloperUser = async (req, res) => {
+
+
+
+
+
     const { userId } = req.params;
     try {
         // req.body에 프론트엔드에서 수정된 데이터가 담겨 있습니다.
