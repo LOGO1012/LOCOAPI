@@ -41,14 +41,14 @@ export async function getLoLRecordByRiotId(riotId) {
         ? Math.round((totalWins / (totalWins + totalLosses)) * 10000) / 100
         : 0;
 
-    // 5) 최근 매치 ID 20개 조회
+    // 5) 최근 매치 ID 5개 조회
     const { data: matchIds } = await axios.get(
-        `${MATCH_API}/lol/match/v5/matches/by-puuid/${puuid}/ids?count=20`,
+        `${MATCH_API}/lol/match/v5/matches/by-puuid/${puuid}/ids?count=5`,
         { headers: { 'X-Riot-Token': process.env.RIOT_API_KEY } }
     );
 
-    // 6) 매치 상세정보 배치 조회 (5개씩, 0.5초 딜레이)
-    const batchSize = 5;
+    // 6) 매치 상세정보 배치 조회
+    const batchSize = 2;
     const allMatches = [];
     for (let i = 0; i < matchIds.length; i += batchSize) {
         const batch = matchIds.slice(i, i + batchSize);
@@ -62,7 +62,7 @@ export async function getLoLRecordByRiotId(riotId) {
         allMatches.push(...results);
 
         if (i + batchSize < matchIds.length) {
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise(r => setTimeout(r, 3500));
         }
     }
 
