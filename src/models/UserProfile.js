@@ -234,14 +234,16 @@ userSchema.index({ name: "text", nickname: "text", phone: "text", gender: "text"
 
 // lolNickname을 분리해 gameName, tagLine 가상 필드로 노출
 userSchema.virtual('riotGameName').get(function() {
-    const [gameName] = this.lolNickname.split('#');  // split()으로 분리[3]
-    return gameName || '';
+    if (!this.lolNickname) return '';
+    return this.lolNickname.split('#')[0] || '';
 });
 
 userSchema.virtual('riotTagLine').get(function() {
-    const parts = this.lolNickname.split('#');       // split()으로 분리[3]
+    if (!this.lolNickname) return '';
+    const parts = this.lolNickname.split('#');
     return parts[1] || '';
 });
+
 
 // JSON으로 반환될 때 virtual 포함
 userSchema.set('toJSON', { virtuals: true });
