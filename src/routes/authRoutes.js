@@ -1,7 +1,7 @@
 // src/routes/authRoutes.js
 import express from 'express'; // Express 모듈 불러오기
 import jwt from 'jsonwebtoken';
-import { kakaoCallback, logoutRedirect, logout } from '../controllers/authController.js'; // 카카오 콜백 컨트롤러 함수 불러오기
+import { kakaoCallback, logoutRedirect, logout, refreshToken } from '../controllers/authController.js'; // 카카오 콜백 컨트롤러 함수 불러오기
 import naverAuthRoutes from "./naverAuthRoutes.js";
 import { User } from '../models/UserProfile.js';
 
@@ -16,26 +16,33 @@ router.get('/kakao/callback', (req, res, next) => {
 
 router.use(naverAuthRoutes);
 
+
+// 3) Access 토큰 갱신
+router.post('/refresh', refreshToken);
+
+
 router.get('/kakao-data', (req, res) => {                     // (추가)
     // (추가) 세션에 저장된 kakaoUserData를 JSON으로 반환 (없으면 빈 객체)
     res.json(req.session.kakaoUserData || {});                // (추가)
 });
 
+// 4) 현재 로그인된 유저 정보 조회
 router.get('/me', async (req, res) => {
-    const token = req.cookies.token;
-    if (!token) {
-        return res.status(401).json({ message: "Unauthorized" });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ message: 'Unauthorized' });
     }
+
+    const token = authHeader.split(' ')[1];
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        // 실제 DB 조회
         const user = await User.findById(decoded.userId).lean();
         if (!user) {
-            return res.status(404).json({ message: "User not found" });
+            return res.status(404).json({ message: 'User not found' });
         }
         return res.status(200).json({ user });
     } catch (err) {
-        return res.status(401).json({ message: "Invalid token" });
+        return res.status(401).json({ message: 'Invalid token' });
     }
 });
 
