@@ -62,7 +62,7 @@ export async function getLoLRecordByRiotId(riotId) {
         allMatches.push(...results);
 
         if (i + batchSize < matchIds.length) {
-            await new Promise(r => setTimeout(r, 3500));
+            await new Promise(r => setTimeout(r, 4000));
         }
     }
 
