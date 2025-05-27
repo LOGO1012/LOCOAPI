@@ -1,7 +1,7 @@
 // 파일 경로: src/routes/naverAuthRoutes.js
 // 네이버 콜백 엔드포인트만 처리하는 라우터입니다.
 import express from 'express';
-import { naverCallback } from '../controllers/naverAuthController.js';
+import { naverCallback, logout, logoutRedirect } from '../controllers/naverAuthController.js';
 
 const router = express.Router();
 
@@ -13,6 +13,9 @@ router.get('/naver/callback', (req, res, next) => {
 router.get('/naver-data', (req, res) => {
     res.json(req.session.naverUserData || {});
 });
+router.post('/logout', logout);
 
+// 6) 카카오/네이버 로그아웃 후 프론트 리다이렉트용
+router.get('/logout-redirect', logoutRedirect);
 
 export default router;
