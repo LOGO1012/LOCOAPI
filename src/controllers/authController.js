@@ -84,8 +84,8 @@ export const kakaoCallback = async (req, res, next) => {
             httpOnly: true,
             secure: false,
             // secure: process.env.NODE_ENV === "production", //배포환경에서 변경,
-            //sameSite: "lax", //sameSite: "strict"
-            sameSite: "none",   // 크로스 사이트 허용
+            sameSite: "lax", //sameSite: "strict"
+            //sameSite: "none",   // 크로스 사이트 허용
             path: "/",
             maxAge: 24 * 60 * 60 * 1000, // 1일 (밀리초)
         });
@@ -96,7 +96,7 @@ export const kakaoCallback = async (req, res, next) => {
             secure: process.env.NODE_ENV === "production",
             // sameSite: "none",   // 크로스 사이트 허용
             sameSite: "lax",
-            maxAge: 86400000,
+            maxAge: 24 * 60 * 60 * 1000,
         });
 
 
@@ -114,14 +114,25 @@ export const kakaoCallback = async (req, res, next) => {
     }
 };
 
-
-export const logoutRedirect = (req, res) => {
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+// 공통: 토큰 쿠키를 지우는 함수
+const clearTokenCookie = (res) => {
     res.clearCookie("token", {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
+        sameSite: "lax",
         path: "/",
     });
+};
+
+// (B) 전용 JSON 응답용 로그아웃
+export const logout = (req, res) => {
+    clearTokenCookie(res);
+    return res.status(200).json({ message: "로그아웃 완료" });
+};
+
+// 기존 리다이렉트용 로그아웃은 그대로 유지
+export const logoutRedirect = (req, res) => {
+    clearTokenCookie(res);
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
     return res.redirect(frontendUrl);
 };
