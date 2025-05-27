@@ -122,6 +122,23 @@ export const recommendCommunity = async (id, userId) => {
     return await community.save();
 };
 
+// 추천 취소 기능: 사용자 ID가 있을 때만 추천 목록에서 제거하고 추천 수 감소
+export const cancelRecommendCommunity = async (id, userId) => {
+    const updated = await Community.findOneAndUpdate(
+        { _id: id, recommendedUsers: userId },
+        {
+            $pull: { recommendedUsers: userId },
+            $inc: { recommended: -1 }
+        },
+        { new: true }
+    );
+    if (!updated) {
+        throw new Error('추천한 내역이 없습니다.');
+    }
+    return updated;
+};
+
+
 // 댓글 추가: 댓글 데이터를 community.comments 배열에 추가하고, commentCount 1 증가
 export const addComment = async (communityId, commentData) => {
     return Community.findByIdAndUpdate(
