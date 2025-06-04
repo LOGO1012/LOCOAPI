@@ -18,30 +18,24 @@ export const initializeSocket = (server) => {
         });
 
         // 채팅방 참가
-        socket.on('joinRoom', async ({ roomId, userId }) => {
+        socket.on('joinRoom', async (roomId) => {
             socket.join(roomId);
-            console.log(`📌 ${userId}님이 방 ${roomId}에 참가`);
+            console.log(`📌 클라이언트 ${socket.id}가 방 ${roomId}에 참가`);
 
             try {
                 const chatRoom = await ChatRoom.findById(roomId);
-                if (!chatRoom) return;
-
-                // 중복 방지 후 참가자 목록에 추가
-                const exists = chatRoom.chatUsers
-                    .map(u => u.toString())
-                    .includes(userId);
-                if (!exists) {
-                    chatRoom.chatUsers.push(userId);
-                    await chatRoom.save();
+                if (!chatRoom) {
+                    console.log("채팅방을 찾을 수 없습니다.");
+                    return;
                 }
 
-                // 참가자 목록과 최대 수용 인원 함께 전송
+                // 현재 채팅방의 인원 수와 최대 인원 수를 클라이언트에 전달
                 io.to(roomId).emit('roomJoined', {
                     chatUsers: chatRoom.chatUsers,
                     capacity: chatRoom.capacity,
                 });
-            } catch (err) {
-                console.error('채팅방 참가 오류:', err);
+            } catch (error) {
+                console.error("채팅방 정보 가져오기 오류:", error);
             }
         });
 
