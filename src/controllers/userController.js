@@ -8,7 +8,7 @@ import {
 import { rateUser } from "../services/userService.js";
 import { User } from "../models/UserProfile.js";
 import {io} from "../socket/socketIO.js";
-import {createFriendReqNotif} from "../services/friendRequestNotificationService.js";
+import {getLoLRecordByRiotId} from "../middlewares/getLoLRecordBySummonerName.js";
 
 // 사용자 정보를 가져오는 컨트롤러 함수
 export const getUserInfo = async (req, res) => {
@@ -131,35 +131,24 @@ export const acceptFriendRequestController = async (req, res) => {
 export const sendFriendRequestController = async (req, res) => {
     const { senderId, receiverId } = req.body;
     try {
-        // 1) 친구 요청 생성
+        // 친구 요청 생성
         const newRequest = await sendFriendRequest(senderId, receiverId);
-
-        // 2) 보낸 유저의 닉네임 조회
+        // 보낸 유저의 정보를 가져와 닉네임을 조회
         const senderUser = await getUserById(senderId);
-        const message = `${senderUser.nickname}님이 친구 요청을 보냈습니다.`;
 
-        // 3) 알림 레코드로 저장
-        const notif = await createFriendReqNotif({
-            recipient: receiverId,
-            sender:    senderId,
-            message
-        });
-
-        // 4) 소켓으로도 전송 (_id 포함)
+        // 보낸 유저의 닉네임을 포함하여 알림 전송
         io.to(receiverId).emit('friendRequestNotification', {
-            _id:     notif._id,
-            sender:  { _id: senderId, nickname: senderUser.nickname },
-            message: notif.message,
-            request: newRequest
+            message: `${senderUser.nickname}님이 친구 요청을 보냈습니다.`,
+            friendRequest: newRequest,
         });
 
-        return res.status(200).json({
+        res.status(200).json({
             success: true,
             message: "친구 요청을 보냈습니다.",
-            data:    newRequest
+            data: newRequest
         });
     } catch (error) {
-        return res.status(400).json({
+        res.status(400).json({
             success: false,
             message: error.message
         });
@@ -258,3 +247,15 @@ export const getBlockedUsersController = async (req, res) => {
         res.status(400).json({ success: false, message: err.message });
     }
 };
+
+export async function getSummonerRecord(req, res) {
+    try {
+        const { gameName, tagLine } = req.params;
+        const riotId = `${gameName}#${tagLine}`;
+        const data = await getLoLRecordByRiotId(riotId);
+        return res.status(200).json({ success: true, data });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+}

@@ -232,6 +232,23 @@ const userSchema = new Schema({
 // 텍스트 인덱스
 userSchema.index({ name: "text", nickname: "text", phone: "text", gender: "text", birthdate: "text", userLv: "text" });
 
+// lolNickname을 분리해 gameName, tagLine 가상 필드로 노출
+userSchema.virtual('riotGameName').get(function() {
+    if (!this.lolNickname) return '';
+    return this.lolNickname.split('#')[0] || '';
+});
+
+userSchema.virtual('riotTagLine').get(function() {
+    if (!this.lolNickname) return '';
+    const parts = this.lolNickname.split('#');
+    return parts[1] || '';
+});
+
+
+// JSON으로 반환될 때 virtual 포함
+userSchema.set('toJSON', { virtuals: true });
+userSchema.set('toObject', { virtuals: true });
+
 //      모델을 'User' 컬렉션으로 생성 및 내보내기
 export const User = model('User', userSchema);
 

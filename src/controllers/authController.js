@@ -9,6 +9,15 @@ dotenv.config(); // .env 파일에 정의된 환경변수 로드
 
 // JWT 서명에 사용할 비밀키를 환경변수에서 가져오거나 기본값 사용
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
+const REFRESH_SECRET = process.env.REFRESH_SECRET || "your_refresh_secret";
+
+const cookieOptions = {
+    httpOnly: true,
+    secure:   process.env.NODE_ENV === "production",                     // prod일 때만 true
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",    // prod → none, dev → lax
+    path:     "/api/auth/refresh",
+    maxAge:   7 * 24 * 60 * 60 * 1000,
+};
 
 /**
  * 카카오 OAuth 콜백 컨트롤러 함수
@@ -66,49 +75,79 @@ export const kakaoCallback = async (req, res, next) => {
         const user = result;
         console.log('DB에서 사용자 처리 결과:', user);
 
+        const payload = {
+            userId:  user._id,
+            kakaoId: user.social.kakao.providerId,
+            name:    user.name,
+        };
+
+        const accessToken  = jwt.sign(payload, JWT_SECRET,     { expiresIn: "15m" });
+        const refreshToken = jwt.sign(payload, REFRESH_SECRET, { expiresIn: "7d" });
 
 
 
-        // JWT 토큰 생성: 사용자 _id, 카카오 id, 이름을 payload로 포함하여 서명
-        const token = jwt.sign(
-            { userId: user._id, kakaoId: user.social.kakao.providerId, name: user.name },
-            JWT_SECRET,
-            { expiresIn: '1d' } // 토큰 유효 기간: 1일
-        );
-        console.log('JWT 토큰 발급 성공:', token);
-
-
-
-
-        res.cookie("token", token, {
-            httpOnly: true,
-            secure: false,
-            // secure: process.env.NODE_ENV === "production", //배포환경에서 변경,
-            sameSite: "lax", //sameSite: "strict"
-            // sameSite: "none",   // 크로스 사이트 허용
-            maxAge: 86400000, // 1일 (밀리초)
-        });
-
-        // 로그 추가: 쿠키 설정 정보 출력
-        console.log("Set-Cookie header set for 'token' with options:", {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            // sameSite: "none",   // 크로스 사이트 허용
-            sameSite: "lax",
-            maxAge: 86400000,
-        });
-
-
-        // 로그인 성공 응답: JWT 토큰과 사용자 정보를 JSON 형태로 반환
-        return res.status(200).json({
-            message: '카카오 로그인 성공',
-            status: "success",
-            user,
-            // token
-        });
+        // 5) Refresh 토큰은 HttpOnly 쿠키로, Access 토큰은 JSON 바디로 응답
+        res
+            .cookie("refreshToken", refreshToken, cookieOptions)
+            .status(200)
+            .json({
+                message:     "카카오 로그인 성공",
+                status:      "success",
+                accessToken,      // 클라이언트가 메모리에 저장
+                user,
+            });
     } catch (err) {
-        // 예외 발생 시 에러 메시지를 로그에 출력하고, next()로 에러를 전파
-        console.error('카카오 콜백 컨트롤러 에러:', err.message);
         next(err);
     }
+};                                                    // 원본 소셜 로그인 부분 참조 :contentReference[oaicite:0]{index=0}
+//---------------------카카오 콜백
+
+/**
+ * Refresh 토큰으로 새 Access 토큰 발급
+ */
+export const refreshToken = (req, res) => {
+    const token = req.cookies.refreshToken;
+    if (!token) {
+        return res.status(401).json({ message: "No refresh token" });
+    }
+    try {
+        const payload = jwt.verify(token, REFRESH_SECRET);
+        const newAccess = jwt.sign(
+            {
+                userId:  payload.userId,
+                kakaoId: payload.kakaoId,
+                name:    payload.name,
+            },
+            JWT_SECRET,
+            { expiresIn: "15m" }
+        );
+        return res.json({ accessToken: newAccess });
+    } catch {
+        return res.status(401).json({ message: "Invalid refresh token" });
+    }
+};
+
+
+
+/**
+ * 로그아웃: Refresh 토큰 쿠키 삭제
+ */
+export const logout = (req, res) => {
+    res.clearCookie("refreshToken", cookieOptions );
+    return res.status(200).json({ message: "Logged out" });
+};
+
+
+/**
+ * 로그아웃 후 프론트 리다이렉트 (카카오 로그아웃용)
+ */
+export const logoutRedirect = (req, res) => {
+    res.clearCookie("refreshToken", {
+        httpOnly: true,
+        secure:   process.env.NODE_ENV === "production",
+        sameSite: "none",
+        path:     "/api/auth/refresh",
+    });
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    return res.redirect(frontendUrl);
 };
