@@ -84,8 +84,6 @@ app.use('/api/developer', developerRoutes);
 
 app.use('/api/search', searchRouter);
 
-
-
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
 const io = initializeSocket(server);
