@@ -2,7 +2,7 @@
 // 카카오 인증 요청에서 전달받은 인가코드를 검증하기 위한 Joi 스키마 임포트
 import { kakaoAuthSchema } from '../dto/authValidator.js';
 import { kakaoLogin } from '../services/authService.js';
-import { findUserOrNoUser } from '../services/userService.js';
+import {findUserOrNoUser, getUserById} from '../services/userService.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config(); // .env 파일에 정의된 환경변수 로드
@@ -11,11 +11,14 @@ dotenv.config(); // .env 파일에 정의된 환경변수 로드
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 const REFRESH_SECRET = process.env.REFRESH_SECRET || "your_refresh_secret";
 
+const isProd = process.env.NODE_ENV === 'production';
+
 const cookieOptions = {
     httpOnly: true,
-    secure:   process.env.NODE_ENV === "production",                     // prod일 때만 true
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",    // prod → none, dev → lax
-    path:     "/api/auth/refresh",
+    secure:   isProd,                     // prod일 때만 true
+    // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",    // prod → none, dev → lax
+    sameSite: isProd ? 'none' : 'lax',
+    path:     "/",
     maxAge:   7 * 24 * 60 * 60 * 1000,
 };
 
@@ -105,25 +108,119 @@ export const kakaoCallback = async (req, res, next) => {
 /**
  * Refresh 토큰으로 새 Access 토큰 발급
  */
-export const refreshToken = (req, res) => {
-    const token = req.cookies.refreshToken;
-    if (!token) {
-        return res.status(401).json({ message: "No refresh token" });
-    }
+// export const refreshToken = (req, res) => {
+//     const token = req.cookies.refreshToken;
+//     if (!token) {
+//         return res.status(401).json({ message: "No refresh token" });
+//     }
+//     try {
+//         const payload = jwt.verify(token, REFRESH_SECRET);
+//         const newAccess = jwt.sign(
+//             {
+//                 userId:  payload.userId,
+//                 kakaoId: payload.kakaoId,
+//                 name:    payload.name,
+//             },
+//             JWT_SECRET,
+//             { expiresIn: "15m" }
+//         );
+//         return res.json({ accessToken: newAccess });
+//     } catch {
+//         return res.status(401).json({ message: "Invalid refresh token" });
+//     }
+// };
+
+/**
+ * 리프레시 토큰으로 새 액세스 토큰 발급
+ * 1) 쿠키에 담긴 리프레시 토큰이 없는 경우 → 401
+ * 2) 토큰 검증 후 DB에서 해당 userId가 실제 존재하는지 확인 → 없으면 401
+ * 3) 새 액세스 토큰 발급 → { accessToken } 반환
+ */
+export const refreshToken = async (req, res) => {
     try {
-        const payload = jwt.verify(token, REFRESH_SECRET);
-        const newAccess = jwt.sign(
+        const rToken = req.cookies.refreshToken;
+        if (!rToken) {
+            return res.status(401).json({ message: '리프레시 토큰이 없습니다.' });
+        }
+
+        const payload = jwt.verify(rToken, REFRESH_SECRET);
+        // DB에 실제 userId 존재 여부 확인
+        const user = await getUserById(payload.userId);
+        if (!user) {
+            return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
+        }
+
+        // 새 액세스 토큰 발급
+        const newAccessToken = jwt.sign(
             {
-                userId:  payload.userId,
+                userId: payload.userId,
                 kakaoId: payload.kakaoId,
-                name:    payload.name,
+                name: payload.name,
             },
             JWT_SECRET,
-            { expiresIn: "15m" }
+            { expiresIn: '15m' }
         );
-        return res.json({ accessToken: newAccess });
-    } catch {
-        return res.status(401).json({ message: "Invalid refresh token" });
+        return res.status(200).json({ accessToken: newAccessToken });
+    } catch (err) {
+        return res.status(401).json({ message: '리프레시 토큰이 유효하지 않습니다.' });
+    }
+};
+
+/**
+ * 현재 로그인된 사용자 정보 조회 (/api/auth/me)
+ * 1) 헤더에서 Authorization: Bearer <accessToken> 확인 → 검증 → DB 조회 → { user } 반환
+ * 2) 헤더 토큰이 만료되었거나 없으면, 쿠키에서 리프레시 토큰으로 검증 → DB 조회 → 새 액세스 토큰 발급 + { user, accessToken } 반환
+ * 3) 둘 다 실패 시 401 반환
+ */
+export const getCurrentUser = async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.split(' ')[1];
+            try {
+                const payload = jwt.verify(token, JWT_SECRET);
+                const user = await getUserById(payload.userId);
+                if (!user) {
+                    return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
+                }
+                return res.status(200).json({ user });
+            } catch {
+                // 액세스 토큰이 만료되었거나 유효하지 않으면, 쿠키 단계로 이동
+            }
+        }
+
+        // 2) 쿠키 단에서 리프레시 토큰 검사
+        const rToken = req.cookies.refreshToken;
+        if (!rToken) {
+            return res.status(401).json({ message: '리프레시 토큰이 없습니다.' });
+        }
+        let payload;
+        try {
+            payload = jwt.verify(rToken, REFRESH_SECRET);
+        } catch {
+            return res.status(401).json({ message: '리프레시 토큰이 유효하지 않습니다.' });
+        }
+
+        const user = await getUserById(payload.userId);
+        if (!user) {
+            return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
+        }
+
+        // 새로운 액세스 토큰 발급
+        const newAccessToken = jwt.sign(
+            {
+                userId: payload.userId,
+                kakaoId: payload.kakaoId,
+                name: payload.name,
+            },
+            JWT_SECRET,
+            { expiresIn: '15m' }
+        );
+
+        return res.status(200).json({ user, accessToken: newAccessToken });
+    } catch (err) {
+        console.error('GET /api/auth/me 에러:', err);
+        return res.status(500).json({ message: '서버 오류' });
     }
 };
 
@@ -142,12 +239,7 @@ export const logout = (req, res) => {
  * 로그아웃 후 프론트 리다이렉트 (카카오 로그아웃용)
  */
 export const logoutRedirect = (req, res) => {
-    res.clearCookie("refreshToken", {
-        httpOnly: true,
-        secure:   process.env.NODE_ENV === "production",
-        sameSite: "none",
-        path:     "/api/auth/refresh",
-    });
+    res.clearCookie("refreshToken", cookieOptions);
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
     return res.redirect(frontendUrl);
 };

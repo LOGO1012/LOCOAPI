@@ -2,19 +2,21 @@
 // 네이버 OAuth 콜백 요청을 처리하여 사용자 정보를 조회하고, 로그인 또는 회원가입 필요 상태를 반환합니다.
 import { naverAuthSchema } from '../dto/naverAuthValidator.js';
 import { naverLogin } from '../services/naverAuthService.js';
-import { findUserByNaver } from '../services/userService.js'; // 기존 userService.js의 네이버 조회 함수 사용
+import {findUserByNaver, getUserById} from '../services/userService.js'; // 기존 userService.js의 네이버 조회 함수 사용
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 const REFRESH_SECRET = process.env.REFRESH_SECRET || "your_refresh_secret";
+const isProd = process.env.NODE_ENV === 'production';
 
 const cookieOptions = {
     httpOnly: true,
-    secure:   process.env.NODE_ENV === "production",                     // prod일 때만 true
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",    // prod → none, dev → lax
-    path:     "/api/auth/refresh",
+    secure:   isProd,                     // prod일 때만 true
+    // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",    // prod → none, dev → lax
+    sameSite: isProd ? 'none' : 'lax',
+    path:     "/",
     maxAge:   7 * 24 * 60 * 60 * 1000,
 };
 
@@ -79,28 +81,59 @@ export const naverCallback = async (req, res, next) => {
     }
 };
 
+// /**
+//  * Refresh 토큰으로 새 Access 토큰 발급
+//  */
+// export const refreshToken = (req, res) => {
+//     const token = req.cookies.refreshToken;
+//     if (!token) {
+//         return res.status(401).json({ message: "No refresh token" });
+//     }
+//     try {
+//         const payload = jwt.verify(token, REFRESH_SECRET);
+//         const newAccess = jwt.sign(
+//             {
+//                 userId:  payload.userId,
+//                 naverId: payload.naverId,
+//                 name:    payload.name,
+//             },
+//             JWT_SECRET,
+//             { expiresIn: "15m" }
+//         );
+//         return res.json({ accessToken: newAccess });
+//     } catch {
+//         return res.status(401).json({ message: "Invalid refresh token" });
+//     }
+// };
+
 /**
- * Refresh 토큰으로 새 Access 토큰 발급
+ * 리프레시 토큰으로 새 액세스 토큰 발급
  */
-export const refreshToken = (req, res) => {
-    const token = req.cookies.refreshToken;
-    if (!token) {
-        return res.status(401).json({ message: "No refresh token" });
-    }
+export const naverRefreshToken = async (req, res) => {
     try {
-        const payload = jwt.verify(token, REFRESH_SECRET);
-        const newAccess = jwt.sign(
+        const rToken = req.cookies.refreshToken;
+        if (!rToken) {
+            return res.status(401).json({ message: '리프레시 토큰이 없습니다.' });
+        }
+
+        const payload = jwt.verify(rToken, REFRESH_SECRET);
+        const user = await getUserById(payload.userId);
+        if (!user) {
+            return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
+        }
+
+        const newAccessToken = jwt.sign(
             {
-                userId:  payload.userId,
+                userId: payload.userId,
                 naverId: payload.naverId,
-                name:    payload.name,
+                name: payload.name,
             },
             JWT_SECRET,
-            { expiresIn: "15m" }
+            { expiresIn: '15m' }
         );
-        return res.json({ accessToken: newAccess });
-    } catch {
-        return res.status(401).json({ message: "Invalid refresh token" });
+        return res.status(200).json({ accessToken: newAccessToken });
+    } catch (err) {
+        return res.status(401).json({ message: '리프레시 토큰이 유효하지 않습니다.' });
     }
 };
 
@@ -116,12 +149,7 @@ export const logout = (req, res) => {
  * 로그아웃 후 프론트 리다이렉트용 (필요 시)
  */
 export const logoutRedirect = (req, res) => {
-    res.clearCookie("refreshToken", {
-        httpOnly: true,
-        secure:   process.env.NODE_ENV === "production",
-        sameSite: "none",
-        path:     "/api/auth/refresh",
-    });
+    res.clearCookie("refreshToken", cookieOptions);
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
     return res.redirect(frontendUrl);
 };
