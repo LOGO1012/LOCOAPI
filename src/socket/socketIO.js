@@ -1,7 +1,8 @@
 import { Server } from 'socket.io';
 import * as chatService from '../services/chatService.js';
-import { ChatRoom } from "../models/chat.js";
+import {ChatRoom, ChatRoomExit} from "../models/chat.js";
 import * as userService from "../services/userService.js";
+import mongoose from "mongoose";
 
 export let io;
 
@@ -40,42 +41,52 @@ export const initializeSocket = (server) => {
         });
 
         // 메시지 전송 이벤트
-        socket.on('sendMessage', async ({ chatRoom, sender, text }, callback) => {
-            // ... 메시지 저장, sender 정보 등 처리 ...
+        socket.on("sendMessage", async ({ chatRoom, sender, text }, callback) => {
             try {
-                // 메시지 저장 및 메시지 객체 생성 코드 (기존 코드 유지)
-                const message = await chatService.saveMessage(chatRoom, sender, text);
-                const senderUser = await userService.getUserById(sender);
-                const senderNickname = senderUser ? senderUser.nickname : "알 수 없음";
+                /* 0) sender 문자열·객체 대비, ObjectId 캐스팅 */
+                const senderId    = typeof sender === "object" ? sender._id : sender;
+                const senderObjId = new mongoose.Types.ObjectId(senderId);
 
+                /* 1) 메시지 저장 */
+                const message = await chatService.saveMessage(chatRoom, senderId, text);
+
+                /* 2) 발신자 닉네임 조회 */
+                const senderUser = await userService.getUserById(senderId);
+                const senderNick = senderUser ? senderUser.nickname : "알 수 없음";
+
+                /* 3) 프런트로 송신할 메시지 형태 */
                 const messageWithNickname = {
                     ...message.toObject(),
-                    sender: { id: sender, nickname: senderNickname }
+                    sender: { id: senderId, nickname: senderNick }
                 };
 
-                // 채팅방 사용자에게 메시지 전송
-                io.to(chatRoom).emit('receiveMessage', messageWithNickname);
+                /* 4) 방 내부 실시간 전송 */
+                io.to(chatRoom).emit("receiveMessage", messageWithNickname);
 
-                // 채팅 알림 전송: 알림에 roomType 추가
-                const chatRoomObj = await ChatRoom.findById(chatRoom);
-                if (chatRoomObj) {
-                    const userIds = chatRoomObj.chatUsers.map(u => u.toString());
-                    userIds.forEach(userId => {
-                        if (userId !== sender) {
-                            io.to(userId).emit('chatNotification', {
-                                chatRoom,
-                                roomType: chatRoomObj.roomType,  // roomType 정보 포함
-                                message: messageWithNickname,
-                                notification: `${senderNickname}: ${text}`
-                            });
-                        }
+                /* 5) 퇴장자·발신자 제외, 알림 대상 추출 */
+                const roomDoc     = await ChatRoom.findById(chatRoom);
+                const exitedUsers = await ChatRoomExit.distinct("user", { chatRoom });   // ObjectId 배열
+
+                const targets = roomDoc.chatUsers.filter(uid =>
+                    !uid.equals(senderObjId) &&                  // 발신자 제외
+                    !exitedUsers.some(ex => ex.equals(uid))      // 퇴장자 제외
+                );
+
+                /* 6) 개인 알림 전송 */
+                targets.forEach(uid => {
+                    io.to(uid.toString()).emit("chatNotification", {
+                        chatRoom,
+                        roomType: roomDoc.roomType,
+                        message:  messageWithNickname,
+                        notification: `${senderNick}: ${text}`
                     });
-                }
+                });
 
+                /* 7) 클라이언트 콜백 */
                 callback({ success: true, message: messageWithNickname });
-            } catch (error) {
-                console.error('❌ 메시지 저장 오류:', error.message);
-                callback({ success: false, error: error.message });
+            } catch (err) {
+                console.error("❌ 메시지 처리 오류:", err);
+                callback({ success: false, error: err.message });
             }
         });
 
