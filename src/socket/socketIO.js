@@ -85,19 +85,23 @@ export const initializeSocket = (server) => {
         });
 
         socket.on("leaveRoom", async ({ roomId, userId }) => {
-            const chatRoom = await ChatRoom.findById(roomId);
-            if (!chatRoom) return;
+            /* 1) 방에서 소켓 제거 */
+            socket.leave(roomId);
 
-            chatRoom.chatUsers = chatRoom.chatUsers.filter(user => user._id.toString() !== userId);
+            /* 2) 참가자 리스트 갱신용 이벤트 */
+            io.to(roomId).emit("userLeft", { userId });
 
-            if (chatRoom.chatUsers.length === 0) {
-                chatRoom.isActive = false;
-            }
+            /* 3) 시스템-메시지 전송 */
+            const user = await userService.getUserById(userId);
+            const nickname = user ? user.nickname : "알 수 없음";
 
-            await chatRoom.save();
-
-            // 모든 클라이언트에게 변경 사항 브로드캐스트
-            io.to(roomId).emit("userLeft", { userId, chatUsers: chatRoom.chatUsers });
+            io.to(roomId).emit("systemMessage", {
+                _id: Date.now().toString(),          // 간단한 임시 ID
+                sender: { _id: "system", nickname: "SYSTEM" },
+                text: `${nickname} 님이 퇴장했습니다.`,
+                textTime: new Date().toISOString(),
+                isSystem: true
+            });
         });
 
         // 클라이언트 연결 해제
