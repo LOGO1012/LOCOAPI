@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 // MongoDB 연결
 const connectMongoDB = async () => {
     try {
-        const mongoURI = 'mongodb://loco:loco98@192.168.0.15/locodb';
+        const mongoURI = 'mongodb://loco:loco98@localhost/locodb';
 
         console.log('MongoDB 연결 시도...');
 

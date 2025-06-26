@@ -81,28 +81,46 @@ export const getAllChatRooms = async (filters) => {
  */
 export const addUserToRoom = async (roomId, userId) => {
     try {
-        const room = await ChatRoom.findById(roomId);
+
+        // 1) 방  현재 참가자들의 blockedUsers 정보 조회
+        const room = await ChatRoom.findById(roomId)
+            .populate('chatUsers', 'blockedUsers')   // ← 추가
+            .exec();
         if (!room) {
             throw new Error('채팅방을 찾을 수 없습니다.');
         }
 
-        // 유저가 이미 채팅방에 없으면 추가
+        // 2) 입장하려는 사용자 본인의 blockedUsers 가져오기
+        const joiner = await User.findById(userId).select('blockedUsers');
+        if (!joiner) {
+            throw new Error('사용자를 찾을 수 없습니다.');
+        }
+
+        // 3) 차단 관계 양방향 검사
+        const blockedByMe = room.chatUsers.some(u =>
+            joiner.blockedUsers.includes(u._id)
+        );
+        const blockedMe = room.chatUsers.some(u =>
+            u.blockedUsers.includes(userId)
+        );
+
+        if (blockedByMe || blockedMe) {
+            const err = new Error('차단 관계가 있는 사용자와 함께할 수 없습니다.');
+            err.status = 403;          // 컨트롤러에서 그대로 사용
+            throw err;
+        }
+
+        // 4) 기존 로직 유지 ― 실제로 방에 추가
         if (!room.chatUsers.includes(userId)) {
             room.chatUsers.push(userId);
+
+            if (room.roomType === 'random' && room.chatUsers.length >= room.capacity) {
+                room.isActive = true;
+                room.status = 'active';
+                return await room.save();
+            }
         }
-
-        // 채팅방이 'random'일 때, 정원이 찼으면 채팅방을 활성화
-        if (room.roomType === 'random' && room.chatUsers.length >= room.capacity) {
-            room.isActive = true;
-            room.status = 'active';  // 상태를 'active'로 변경
-
-            const saved = await room.save();
-
-
-            return saved;
-        }
-
-        await room.save();  // 상태와 isActive 변경 후 저장
+        await room.save();
         return room;
     } catch (error) {
         throw new Error(error.message);
@@ -235,6 +253,13 @@ export const getUserLeftRooms = async (userId) => {
     } catch (error) {
         throw new Error(error.message);
     }
+};
+// isActive 토글
+export const setRoomActive = async (roomId, active) => {
+    const room = await ChatRoom.findById(roomId);
+    if (!room) throw new Error('채팅방을 찾을 수 없습니다.');
+    room.isActive = active;
+    return await room.save();
 };
 
 
