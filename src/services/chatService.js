@@ -123,7 +123,7 @@ export const addUserToRoom = async (roomId, userId) => {
         await room.save();
         return room;
     } catch (error) {
-        throw new Error(error.message);
+        throw error;
     }
 };
 
