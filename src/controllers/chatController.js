@@ -58,10 +58,14 @@ export const addUserToRoom = async (req, res) => {
     try {
         const { roomId } = req.params;
         const { userId } = req.body;
-        const room = await chatService.addUserToRoom(roomId, userId);
-        res.status(200).json(room);
+
+        const room = await chatService.addUserToRoom(roomId, userId);   // 서비스 호출[1]
+        return res.status(200).json(room);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+
+        // 서비스가 status 필드를 제공하면 그대로 사용
+        const status = error.status || 500;
+        return res.status(status).json({ error: error.message });
     }
 };
 
