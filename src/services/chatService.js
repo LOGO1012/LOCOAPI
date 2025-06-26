@@ -236,6 +236,13 @@ export const getUserLeftRooms = async (userId) => {
         throw new Error(error.message);
     }
 };
+// isActive 토글
+export const setRoomActive = async (roomId, active) => {
+    const room = await ChatRoom.findById(roomId);
+    if (!room) throw new Error('채팅방을 찾을 수 없습니다.');
+    room.isActive = active;
+    return await room.save();
+};
 
 
 

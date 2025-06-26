@@ -33,4 +33,6 @@ router.delete('/rooms/:roomId/:userId', chatController.leaveChatRoom);
 // 사용자 종료한 채팅방 ID 목록 조회
 router.get('/leftRooms/:userId', chatController.getLeftRooms);
 
+router.patch('/rooms/:roomId/active', chatController.updateRoomActive);
+
 export default router;

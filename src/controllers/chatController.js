@@ -140,6 +140,16 @@ export const getLeftRooms = async (req, res) => {
     }
 };
 
+export const updateRoomActive = async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const { active } = req.body;            // Boolean
+        const room = await chatService.setRoomActive(roomId, active);
+        res.status(200).json(room);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
 
 
 
