@@ -13,7 +13,7 @@ const reportSchema = new Schema({
     // 신고 구역 (예: 채팅, 커뮤니티 등)
     reportArea: {
         type: String,
-        enum: ['friendChat', 'randomChat', 'community'], // 신고 구역: 어느 영역에서 발생한 신고인지
+        enum: ['친구채팅', '랜덤채팅', '커뮤니티'], // 신고 구역: 어느 영역에서 발생한 신고인지
         required: true
     },
     // 신고 카테고리 (예: 욕설, 정치 등)
@@ -51,8 +51,8 @@ const reportSchema = new Schema({
     // 제재 내용: 계정 상태, 제재 기간 등 관리자가 내린 제재 상세 내용
     stopDetail: {
         type: String,
-        enum: ['active', 'banned', 'suspended', 'warning'],
-        default: 'active'
+        enum: ['활성', '영구정지', '일시정지', '경고'],
+        default: '활성'
     },
     // 제재 일시: 실제로 제재가 시작된 시간
     stopDate: {
