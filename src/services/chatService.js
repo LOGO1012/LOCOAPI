@@ -262,6 +262,10 @@ export const setRoomActive = async (roomId, active) => {
     return await room.save();
 };
 
+export const saveSystemMessage = async (roomId, text) => {
+    const msg = new ChatMessage({ chatRoom: roomId, sender: null, text, isSystem: true });
+    return await msg.save();
+};
 
 
 
