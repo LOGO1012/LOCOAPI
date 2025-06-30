@@ -25,8 +25,7 @@ export const initializeSocket = (server) => {
 
             try {
                 const chatRoom = await ChatRoom.findById(roomId);
-                if (!chatRoom) {
-                    console.log("채팅방을 찾을 수 없습니다.");
+                if (!chatRoom) return console.log("채팅방을 찾을 수 없습니다.");
 
                     /* 1) 퇴장자 조회 */
                     const exited = await ChatRoomExit.distinct('user', { chatRoom: roomId });
@@ -35,8 +34,6 @@ export const initializeSocket = (server) => {
                     const activeUsers = chatRoom.chatUsers.filter(u =>
                         !exited.some(id => id.equals(u))
                     );
-                    return;
-                }
 
                 // 현재 채팅방의 인원 수와 최대 인원 수를 클라이언트에 전달
                 io.to(roomId).emit('roomJoined', {
