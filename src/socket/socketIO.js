@@ -27,12 +27,21 @@ export const initializeSocket = (server) => {
                 const chatRoom = await ChatRoom.findById(roomId);
                 if (!chatRoom) {
                     console.log("채팅방을 찾을 수 없습니다.");
+
+                    /* 1) 퇴장자 조회 */
+                    const exited = await ChatRoomExit.distinct('user', { chatRoom: roomId });
+
+                    /* 2) 현재 남아 있는 인원(activeUsers) 산출 */
+                    const activeUsers = chatRoom.chatUsers.filter(u =>
+                        !exited.some(id => id.equals(u))
+                    );
                     return;
                 }
 
                 // 현재 채팅방의 인원 수와 최대 인원 수를 클라이언트에 전달
                 io.to(roomId).emit('roomJoined', {
                     chatUsers: chatRoom.chatUsers,
+                    activeUsers,
                     capacity: chatRoom.capacity,
                 });
             } catch (error) {
@@ -96,22 +105,17 @@ export const initializeSocket = (server) => {
         });
 
         socket.on("leaveRoom", async ({ roomId, userId }) => {
-            /* 1) 방에서 소켓 제거 */
             socket.leave(roomId);
+            io.to(roomId).emit("userLeft", { userId });          // 실시간 리스트 갱신
 
-            /* 2) 참가자 리스트 갱신용 이벤트 */
-            io.to(roomId).emit("userLeft", { userId });
-
-            /* 3) 시스템-메시지 전송 */
             const user = await userService.getUserById(userId);
             const nickname = user ? user.nickname : "알 수 없음";
+            const sysText = `${nickname} 님이 퇴장했습니다.`;
 
-            io.to(roomId).emit("systemMessage", {
-                _id: Date.now().toString(),          // 간단한 임시 ID
-                sender: { _id: "system", nickname: "SYSTEM" },
-                text: `${nickname} 님이 퇴장했습니다.`,
-                textTime: new Date().toISOString(),
-                isSystem: true
+            const saved = await chatService.saveSystemMessage(roomId, sysText); // ⬅️ 저장
+            io.to(roomId).emit("systemMessage", {                 // 프런트 즉시 표시
+                ...saved.toObject(),
+                sender: { _id: "system", nickname: "SYSTEM" }
             });
         });
 

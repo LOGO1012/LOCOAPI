@@ -1,5 +1,6 @@
 import * as chatService from '../services/chatService.js';
 import {leaveChatRoomService} from "../services/chatService.js";
+import {ChatRoomExit} from "../models/chat.js";
 
 /**
  * 채팅방 생성 컨트롤러
@@ -28,15 +29,32 @@ export const createFriendRoom = async (req, res) => {
 /**
  * 특정 채팅방 조회 컨트롤러
  */
+// controllers/chatController.js
 export const getRoomById = async (req, res) => {
     try {
         const room = await chatService.getChatRoomById(req.params.roomId);
-        if (!room) return res.status(404).json({ message: '채팅방을 찾을 수 없습니다.' });
-        res.status(200).json(room);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+        if (!room)
+            return res.status(404).json({ message: '채팅방을 찾을 수 없습니다.' });
+
+        // 1) 퇴장 목록 조회
+        const exited = await ChatRoomExit.distinct('user', { chatRoom: room._id });
+
+        // 2) 현재 남아 있는 유저만 필터링
+        const activeUsers = room.chatUsers.filter(u =>
+            !exited.some(id => id.toString() === u._id.toString())
+        );
+
+        // 3) payload 구성
+        const payload = room.toObject();
+        payload.activeUsers = activeUsers;   // 👈 새 필드
+        // payload.chatUsers 는 그대로 둔다 (전체 참가자)
+
+        return res.status(200).json(payload);
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
     }
 };
+
 
 /**
  * 모든 채팅방 조회 컨트롤러 (필터링 및 페이징 지원)
