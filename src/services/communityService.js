@@ -19,7 +19,11 @@ export const getCommunitiesPage = async (
     if (category === '내 글') {
         filter.userId = userId;
     } else if (category === '내 댓글') {
-        filter['comments.userId'] = userId;
+        filter.$or = [
+            { 'comments.userId': userId },                    // 댓글
+            { 'comments.replies.userId': userId },            // 대댓글
+            { 'comments.replies.subReplies.userId': userId }  // 대대댓글
+        ];
     } else if (category !== '전체') {
         filter.communityCategory = category;
     }
@@ -155,7 +159,7 @@ export const addComment = async (communityId, commentData) => {
 export const addReply = async (communityId, commentId, replyData) => {
     return await Community.findOneAndUpdate(
         { _id: communityId, "comments._id": commentId },
-        { $push: { "comments.$.replies": replyData } },
+        { $push: { "comments.$.replies": replyData }, $inc: { commentCount: 1 } },
         { new: true }
     );
 };
@@ -165,7 +169,7 @@ export const addSubReply = async (communityId, commentId, replyId, subReplyData)
     return await Community.findOneAndUpdate(
         { _id: communityId },
         {
-            $push: { "comments.$[c].replies.$[r].subReplies": subReplyData }
+            $push: { "comments.$[c].replies.$[r].subReplies": subReplyData }, $inc: { commentCount: 1 }
         },
         {
             new: true,
@@ -193,7 +197,7 @@ export const deleteComment = async (communityId, commentId) => {
 export const deleteReply = async (communityId, commentId, replyId) => {
     return await Community.findOneAndUpdate(
         { _id: communityId, "comments._id": commentId },
-        { $pull: { "comments.$.replies": { _id: replyId } } },
+        { $pull: { "comments.$.replies": { _id: replyId } }, $inc: { commentCount: -1 } },
         { new: true }
     );
 };
@@ -202,7 +206,7 @@ export const deleteReply = async (communityId, commentId, replyId) => {
 export const deleteSubReply = async (communityId, commentId, replyId, subReplyId) => {
     return await Community.findOneAndUpdate(
         { _id: communityId },
-        { $pull: { "comments.$[c].replies.$[r].subReplies": { _id: subReplyId } } },
+        { $pull: { "comments.$[c].replies.$[r].subReplies": { _id: subReplyId } }, $inc: { commentCount: -1 } },
         {
             new: true,
             arrayFilters: [
@@ -222,17 +226,57 @@ let cachedTopCommented = [];
 // 캐시를 업데이트하는 함수
 export const updateTopCaches = async () => {
     try {
+        /* 조회수 TOP 5는 그대로 */
         cachedTopViewed = await Community.aggregate([
             { $sort: { communityViews: -1 } },
-            { $limit: 5 }
+            { $limit: 10 },
+            { $project: { communityTitle: 1, communityViews: 1 } }
         ]);
+
+        /* 👇 댓글 수(부모‧대댓글‧대대댓글 총합) 를 계산해 TOP 5 산출 */
         cachedTopCommented = await Community.aggregate([
-            { $sort: { commentCount: -1 } },
-            { $limit: 5 }
+            {
+                /* comments 배열(+ 하위 배열)의 전체 원소 수를 totalComments 로 산출 */
+                $addFields: {
+                    totalComments: {
+                        $sum: [
+                            { $size: '$comments' },
+                            {
+                                $sum: {
+                                    $map: {
+                                        input: '$comments',
+                                        as: 'c',
+                                        in: { $size: '$$c.replies' }
+                                    }
+                                }
+                            },
+                            {
+                                $sum: {
+                                    $map: {
+                                        input: {
+                                            $reduce: {
+                                                input: '$comments',
+                                                initialValue: [],
+                                                in: { $concatArrays: ['$$value', '$$this.replies'] }
+                                            }
+                                        },
+                                        as: 'r',
+                                        in: { $size: '$$r.subReplies' }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            { $sort: { totalComments: -1 } }, // 총합 기준 내림차순
+            { $limit: 10 },
+            { $project: { communityTitle: 1, totalComments: 1 } }
         ]);
+
         console.log('Top caches updated successfully.');
-    } catch (error) {
-        console.error('Failed to update top caches:', error);
+    } catch (err) {
+        console.error('Failed to update top caches:', err);
     }
 };
 
