@@ -42,9 +42,12 @@ export const getCommunitiesPage = async (
                 // userNickname 스냅샷 필드로 바로 검색
                 filter.userNickname = { $regex: regex };
                 break;
-            default:
-                // 'title content' 등은 full‑text 인덱스 사용
-                filter.$text = { $search: keyword };
+            case 'title+content':
+                filter.$or = [
+                    { communityTitle:   { $regex: regex } },
+                    { communityContents:{ $regex: regex } }
+                ];
+                break;
         }
     }
 
