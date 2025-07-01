@@ -229,7 +229,7 @@ export const updateTopCaches = async () => {
         /* 조회수 TOP 5는 그대로 */
         cachedTopViewed = await Community.aggregate([
             { $sort: { communityViews: -1 } },
-            { $limit: 5 },
+            { $limit: 10 },
             { $project: { communityTitle: 1, communityViews: 1 } }
         ]);
 
@@ -270,7 +270,7 @@ export const updateTopCaches = async () => {
                 }
             },
             { $sort: { totalComments: -1 } }, // 총합 기준 내림차순
-            { $limit: 5 },
+            { $limit: 10 },
             { $project: { communityTitle: 1, totalComments: 1 } }
         ]);
 
