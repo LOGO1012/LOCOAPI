@@ -118,7 +118,12 @@ const chatRoomExitSchema = new Schema({
     leftAt: {
         type: Date,
         default: Date.now
-    }
+    },
+    phase: {
+        type: String,
+        enum: ['waiting', 'active'],
+        required: true
+    },
 });
 
 

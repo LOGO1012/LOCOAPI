@@ -101,18 +101,31 @@ export const initializeSocket = (server) => {
             socket.to(roomId).emit("messageDeleted", { messageId });
         });
 
-        socket.on("leaveRoom", async ({ roomId, userId }) => {
-            socket.leave(roomId);
-            io.to(roomId).emit("userLeft", { userId });          // 실시간 리스트 갱신
+        socket.on('leaveRoom', async ({ roomId, userId }) => {
+            socket.leave(roomId);                         // 소켓은 일단 방에서 분리
 
-            const user = await userService.getUserById(userId);
-            const nickname = user ? user.nickname : "알 수 없음";
-            const sysText = `${nickname} 님이 퇴장했습니다.`;
+            /* 1) 방 상태 확인 */
+            const room = await ChatRoom.findById(roomId).select('status');
+            const isWaiting = room?.status === 'waiting';
 
-            const saved = await chatService.saveSystemMessage(roomId, sysText); // ⬅️ 저장
-            io.to(roomId).emit("systemMessage", {                 // 프런트 즉시 표시
+            /* 2) waiting 방이면 인원만 갱신하고 메시지 송신은 생략 */
+            if (isWaiting) {
+                // 필요하다면 인원 목록 재전송
+                io.to(roomId).emit('waitingLeft', { userId });
+                return;
+            }
+
+            /* 3) active 방일 때만 퇴장 알림·시스템 메시지 처리 */
+            io.to(roomId).emit('userLeft', { userId });   // 실시간 리스트 갱신
+
+            const user    = await userService.getUserById(userId);
+            const nickname = user ? user.nickname : '알 수 없음';
+            const sysText  = `${nickname} 님이 퇴장했습니다.`;
+
+            const saved = await chatService.saveSystemMessage(roomId, sysText);
+            io.to(roomId).emit('systemMessage', {
                 ...saved.toObject(),
-                sender: { _id: "system", nickname: "SYSTEM" }
+                sender: { _id: 'system', nickname: 'SYSTEM' }
             });
         });
 
