@@ -344,3 +344,22 @@ export const getBlockedUsersService = async (userId) => {
     return user.blockedUsers;
 };
 
+export const getPaginatedFriends = async (
+    userId,
+    offset = 0,
+    limit = 20,
+) => {
+    // friends 배열을 DB 쪽에서 잘라서 가져옴
+    const user = await User.findById(userId)
+        .slice('friends', [offset, limit])      // <- $slice 전달
+        .populate('friends', 'nickname photo'); // 필요한 필드만
+
+    if (!user) throw new Error('User not found');
+
+    // 전체 친구 수도 내려주고 싶다면 한 번 더 가볍게 조회
+    const totalCnt =
+        (await User.findById(userId).select('friends').lean())?.friends.length || 0;
+
+    return { total: totalCnt, friends: user.friends };
+};
+

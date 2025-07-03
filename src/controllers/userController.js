@@ -1,7 +1,7 @@
 // controllers/userController.js
 import {
     acceptFriendRequestService, blockUserService, declineFriendRequestService,
-    decrementChatCount, deleteFriend, getBlockedUsersService, getFriendRequests,
+    decrementChatCount, deleteFriend, getBlockedUsersService, getFriendRequests, getPaginatedFriends,
     getUserById,
     getUserByNickname, sendFriendRequest, unblockUserService
 } from "../services/userService.js";
@@ -259,3 +259,16 @@ export async function getSummonerRecord(req, res) {
         return res.status(500).json({ success: false, message: err.message });
     }
 }
+
+export const getPaginatedFriendsController = async (req, res) => {
+    const { userId } = req.params;
+    const offset = Number(req.query.offset ?? 0);
+    const limit  = Number(req.query.limit  ?? 20);
+
+    try {
+        const data = await getPaginatedFriends(userId, offset, limit);
+        res.status(200).json({ success: true, ...data });
+    } catch (e) {
+        res.status(400).json({ success: false, message: e.message });
+    }
+};
