@@ -128,14 +128,14 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
         const offenderId = updatedReport.offenderId;
         let updateFields = { $inc: { numOfReport: 1 } };
 
-        if (updatedReport.stopDetail === 'suspended' || updatedReport.stopDetail === 'banned') {
+        if (updatedReport.stopDetail === '일시정지' || updatedReport.stopDetail === '영구정지') {
             updateFields.$set = {
                 reportStatus: updatedReport.stopDetail, // 'suspended' 또는 'banned'로 업데이트
                 reportTimer: updatedReport.durUntil       // 정지 해제 시각으로 설정
             };
         } else {
             updateFields.$set = {
-                reportStatus: 'active',
+                reportStatus: '활성',
                 reportTimer: null
             };
         }
