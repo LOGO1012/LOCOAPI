@@ -100,9 +100,9 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
         // 기본 상태는 답변만 달린 경우 reviewed
         let reportStatus = "reviewed";
         // 정지(또는 영구 정지) 적용 시 resolved, 경고만 준 경우 dismissed
-        if ((stopDetail === "banned" || stopDetail === "suspended") || (suspensionDays && parseInt(suspensionDays) > 0)) {
+        if ((stopDetail === "영구정지" || stopDetail === "일시정지") || (suspensionDays && parseInt(suspensionDays) > 0)) {
             reportStatus = "resolved";
-        } else if (stopDetail === "warning") {
+        } else if (stopDetail === "경고") {
             reportStatus = "dismissed";
         }
 
