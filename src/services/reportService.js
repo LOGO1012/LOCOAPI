@@ -97,6 +97,8 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
             durUntil = new Date(now.getTime() + parseInt(suspensionDays) * 24 * 60 * 60 * 1000);
         }
 
+        const original = await Report.findById(id).select('reportStatus').lean();
+
         // 기본 상태는 답변만 달린 경우 reviewed
         let reportStatus = "reviewed";
         // 정지(또는 영구 정지) 적용 시 resolved, 경고만 준 경우 dismissed
@@ -126,7 +128,12 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
 
         // 신고당한(가해자) 사용자의 신고 횟수 증가 및 정지 상태 적용 (채팅 관련 필드는 업데이트하지 않음)
         const offenderId = updatedReport.offenderId;
-        let updateFields = { $inc: { numOfReport: 1 } };
+        let updateFields = {};
+
+        //최초 처리(pending → reviewed/resolved/dismissed)일 때만 신고 횟수 +1
+        if (original?.reportStatus === 'pending') {
+            updateFields.$inc = { numOfReport: 1 };
+        }
 
         if (updatedReport.stopDetail === '일시정지' || updatedReport.stopDetail === '영구정지') {
             updateFields.$set = {
