@@ -78,7 +78,7 @@ const chatMessageSchema = new Schema({
     sender: {
         type: Schema.Types.ObjectId,
         ref: 'User',                  // 메시지를 보낸 사용자의 고유 ID
-        required: true
+        required() { return !this.isSystem; }
     },
     text: {
         type: String,                 // 메시지 내용
@@ -92,7 +92,8 @@ const chatMessageSchema = new Schema({
     isDeleted: {
         type: Boolean,
         default: false                // 기본적으로 삭제되지 않은 상태
-    }
+    },
+    isSystem : { type: Boolean, default: false }
 }, { timestamps: true });          // createdAt, updatedAt 필드를 자동 생성
 
 
@@ -117,8 +118,14 @@ const chatRoomExitSchema = new Schema({
     leftAt: {
         type: Date,
         default: Date.now
-    }
+    },
+    phase: {
+        type: String,
+        enum: ['waiting', 'active'],
+        required: true
+    },
 });
+
 
 
 export const ChatRoomExit = model('ChatRoomExit', chatRoomExitSchema);

@@ -1,5 +1,6 @@
 import * as chatService from '../services/chatService.js';
 import {leaveChatRoomService} from "../services/chatService.js";
+import {ChatRoomExit} from "../models/chat.js";
 
 /**
  * 채팅방 생성 컨트롤러
@@ -28,15 +29,32 @@ export const createFriendRoom = async (req, res) => {
 /**
  * 특정 채팅방 조회 컨트롤러
  */
+// controllers/chatController.js
 export const getRoomById = async (req, res) => {
     try {
         const room = await chatService.getChatRoomById(req.params.roomId);
-        if (!room) return res.status(404).json({ message: '채팅방을 찾을 수 없습니다.' });
-        res.status(200).json(room);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+        if (!room)
+            return res.status(404).json({ message: '채팅방을 찾을 수 없습니다.' });
+
+        // 1) 퇴장 목록 조회
+        const exited = await ChatRoomExit.distinct('user', { chatRoom: room._id });
+
+        // 2) 현재 남아 있는 유저만 필터링
+        const activeUsers = room.chatUsers.filter(u =>
+            !exited.some(id => id.toString() === u._id.toString())
+        );
+
+        // 3) payload 구성
+        const payload = room.toObject();
+        payload.activeUsers = activeUsers;   // 👈 새 필드
+        // payload.chatUsers 는 그대로 둔다 (전체 참가자)
+
+        return res.status(200).json(payload);
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
     }
 };
+
 
 /**
  * 모든 채팅방 조회 컨트롤러 (필터링 및 페이징 지원)
@@ -58,10 +76,14 @@ export const addUserToRoom = async (req, res) => {
     try {
         const { roomId } = req.params;
         const { userId } = req.body;
-        const room = await chatService.addUserToRoom(roomId, userId);
-        res.status(200).json(room);
+
+        const room = await chatService.addUserToRoom(roomId, userId);   // 서비스 호출[1]
+        return res.status(200).json(room);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+
+        // 서비스가 status 필드를 제공하면 그대로 사용
+        const status = error.status || 500;
+        return res.status(status).json({ error: error.message });
     }
 };
 
@@ -140,6 +162,16 @@ export const getLeftRooms = async (req, res) => {
     }
 };
 
+export const updateRoomActive = async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const { active } = req.body;            // Boolean
+        const room = await chatService.setRoomActive(roomId, active);
+        res.status(200).json(room);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
 
 
 

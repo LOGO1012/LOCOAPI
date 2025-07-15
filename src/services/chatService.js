@@ -53,6 +53,8 @@ export const getAllChatRooms = async (filters) => {
     // 차단된 사용자 포함 방 제외
     if (filters.userId) {
         const me = await User.findById(filters.userId).select('blockedUsers');
+        const exited = await ChatRoomExit.distinct('chatRoom', { user: filters.userId });
+        if (exited.length) query._id = { $nin: exited };   // 이미 나간 방 제외
         if (me && me.blockedUsers.length > 0) {
             query.chatUsers = { $nin: me.blockedUsers };
         }
@@ -81,31 +83,59 @@ export const getAllChatRooms = async (filters) => {
  */
 export const addUserToRoom = async (roomId, userId) => {
     try {
-        const room = await ChatRoom.findById(roomId);
+
+        // 1) 방  현재 참가자들의 blockedUsers 정보 조회
+        const room = await ChatRoom.findById(roomId)
+            .populate('chatUsers', 'blockedUsers')   // ← 추가
+            .exec();
         if (!room) {
             throw new Error('채팅방을 찾을 수 없습니다.');
         }
 
-        // 유저가 이미 채팅방에 없으면 추가
+        /* 🔒 이미 퇴장한 적이 있으면 재입장 금지 */
+        const hasExited = await ChatRoomExit.exists({                    // [3]
+            chatRoom: roomId, user: userId
+        });
+        if (hasExited) {
+            const err = new Error('이미 퇴장한 채팅방입니다.');
+            err.status = 403;
+            throw err;                                                     // controller에서 그대로 전송
+        }
+
+        // 2) 입장하려는 사용자 본인의 blockedUsers 가져오기
+        const joiner = await User.findById(userId).select('blockedUsers');
+        if (!joiner) {
+            throw new Error('사용자를 찾을 수 없습니다.');
+        }
+
+        // 3) 차단 관계 양방향 검사
+        const blockedByMe = room.chatUsers.some(u =>
+            joiner.blockedUsers.includes(u._id)
+        );
+        const blockedMe = room.chatUsers.some(u =>
+            u.blockedUsers.includes(userId)
+        );
+
+        if (blockedByMe || blockedMe) {
+            const err = new Error('차단 관계가 있는 사용자와 함께할 수 없습니다.');
+            err.status = 403;          // 컨트롤러에서 그대로 사용
+            throw err;
+        }
+
+        // 4) 기존 로직 유지 ― 실제로 방에 추가
         if (!room.chatUsers.includes(userId)) {
             room.chatUsers.push(userId);
+
+            if (room.roomType === 'random' && room.chatUsers.length >= room.capacity) {
+                room.isActive = true;
+                room.status = 'active';
+                return await room.save();
+            }
         }
-
-        // 채팅방이 'random'일 때, 정원이 찼으면 채팅방을 활성화
-        if (room.roomType === 'random' && room.chatUsers.length >= room.capacity) {
-            room.isActive = true;
-            room.status = 'active';  // 상태를 'active'로 변경
-
-            const saved = await room.save();
-
-
-            return saved;
-        }
-
-        await room.save();  // 상태와 isActive 변경 후 저장
+        await room.save();
         return room;
     } catch (error) {
-        throw new Error(error.message);
+        throw error;
     }
 };
 
@@ -171,57 +201,72 @@ export const softDeleteMessage = async (messageId) => {
  */
 export const leaveChatRoomService = async (roomId, userId) => {
     try {
-        // 이미 퇴장 기록이 있는지 확인합니다.
-        const existingExit = await ChatRoomExit.findOne({ chatRoom: roomId, user: userId });
-        if (!existingExit) {
-            await ChatRoomExit.create({ chatRoom: roomId, user: userId });
-        }
-
-        // 채팅방 정보를 가져옵니다.
+        /* ① 방 조회 */
         const chatRoom = await ChatRoom.findById(roomId);
-        if (!chatRoom) {
-            throw new Error("채팅방을 찾을 수 없습니다.");
+        if (!chatRoom) throw new Error('채팅방을 찾을 수 없습니다.');
+
+        /* ② phase 결정 : waiting | active */
+        const phase = chatRoom.status === 'waiting' ? 'waiting' : 'active';
+
+        /* ③ Exit 레코드 upsert */
+        let exit = await ChatRoomExit.findOne({ chatRoom: roomId, user: userId });
+        if (!exit) {
+            exit = await ChatRoomExit.create({ chatRoom: roomId, user: userId, phase });
+        } else if (exit.phase !== phase) {
+            exit.phase = phase;          // waiting → active 로 승격
+            await exit.save();
         }
 
-        // 채팅방의 총 사용자 수를 계산합니다.
-        const totalUsers = chatRoom.chatUsers.length;
+        /* ④ 단계별 참가자 배열 처리 */
+        if (phase === 'waiting') {
+            chatRoom.chatUsers = chatRoom.chatUsers.filter(
+                uid => uid.toString() !== userId.toString()
+            );
+            await chatRoom.save();       // 빈 슬롯 반영
+        }
+        // active 단계는 배열 유지(매너 평가용)
 
-        // 채팅방에서 이미 퇴장한 사용자 ID 목록을 조회합니다.
-        const exitedUsers = await ChatRoomExit.distinct('user', { chatRoom: roomId });
+        /* ⑤ 방 삭제 판단 */
+        let shouldDelete = false;
+        if (phase === 'waiting') {
+            shouldDelete = chatRoom.chatUsers.length === 0;
+        } else {
+            const activeExitCnt = await ChatRoomExit.countDocuments({
+                chatRoom: roomId,
+                phase:    'active'
+            });
+            shouldDelete = activeExitCnt >= chatRoom.capacity;
+        }
 
-        // 모든 사용자가 퇴장한 경우
-        if (exitedUsers.length >= totalUsers) {
-            // ==== 여기서 복사 로직 추가 ====
+        /* ⑥ 정리 & 삭제 */
+        if (shouldDelete) {
             await ChatRoomHistory.create({
                 chatRoomId: chatRoom._id,
                 meta: {
-                    chatUsers:    chatRoom.chatUsers,
-                    capacity:     chatRoom.capacity,
-                    roomType:     chatRoom.roomType,
-                    matchedGender:chatRoom.matchedGender,
-                    ageGroup:     chatRoom.ageGroup,
-                    createdAt:    chatRoom.createdAt
+                    chatUsers:     chatRoom.chatUsers,
+                    capacity:      chatRoom.capacity,
+                    roomType:      chatRoom.roomType,
+                    matchedGender: chatRoom.matchedGender,
+                    ageGroup:      chatRoom.ageGroup,
+                    createdAt:     chatRoom.createdAt
                 }
             });
-            // ============================
-
-            // 채팅 메시지 삭제: isDeleted 플래그를 true로 업데이트합니다.
             await ChatMessage.updateMany(
                 { chatRoom: roomId, isDeleted: false },
                 { $set: { isDeleted: true } }
             );
-            // 채팅방 삭제
             await ChatRoom.deleteOne({ _id: roomId });
-            // 해당 채팅방의 모든 exit 기록 삭제
             await ChatRoomExit.deleteMany({ chatRoom: roomId });
         }
 
-        return { success: true, message: "채팅방에서 나갔습니다." };
-    } catch (error) {
-        console.error('채팅방 나가기 중 오류:', error);
-        throw error;
+        return { success: true, message: '채팅방에서 나갔습니다.' };
+    } catch (err) {
+        console.error('[leaveChatRoomService] error:', err);
+        throw err;
     }
 };
+
+
 
 /**
  * 사용자 exit 기록을 기반으로 종료한 채팅방 ID 목록 조회
@@ -236,7 +281,18 @@ export const getUserLeftRooms = async (userId) => {
         throw new Error(error.message);
     }
 };
+// isActive 토글
+export const setRoomActive = async (roomId, active) => {
+    const room = await ChatRoom.findById(roomId);
+    if (!room) throw new Error('채팅방을 찾을 수 없습니다.');
+    room.isActive = active;
+    return await room.save();
+};
 
+export const saveSystemMessage = async (roomId, text) => {
+    const msg = new ChatMessage({ chatRoom: roomId, sender: null, text, isSystem: true });
+    return await msg.save();
+};
 
 
 
