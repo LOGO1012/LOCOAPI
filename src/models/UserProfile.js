@@ -118,6 +118,10 @@ const userSchema = new Schema({
         },
 
     },
+    profilePhoto: {
+        type: String,   // 프로필 사진 URL
+        default: ''     // 기본값: 빈 문자열
+    },
     photo: {
         type: [String],  // 문자열 배열로 여러 이미지 URL을 저장
         default: [],  // 기본값은 빈 배열
