@@ -122,7 +122,7 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
                 reportAnswer: replyContent,
                 adminId: adminId,
                 reportStatus: reportStatus,
-                stopDetail: stopDetail ? stopDetail : (suspensionDays && parseInt(suspensionDays) > 0 ? 'suspended' : 'active'),
+                stopDetail: stopDetail ? stopDetail : (suspensionDays && parseInt(suspensionDays) > 0 ? '일시정지' : '활성'),
                 stopDate: suspensionDays && parseInt(suspensionDays) > 0 ? now : null,
                 durUntil: suspensionDays && parseInt(suspensionDays) > 0 ? durUntil : null,
                 adminNickname:  admin.nickname,
@@ -139,7 +139,7 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
 
         if (updatedReport.stopDetail === '일시정지' || updatedReport.stopDetail === '영구정지') {
             updateFields.$set = {
-                reportStatus: updatedReport.stopDetail, // 'suspended' 또는 'banned'로 업데이트
+                reportStatus: updatedReport.stopDetail, // '알시정지' 또는 '영구정지'로 업데이트
                 reportTimer: updatedReport.durUntil       // 정지 해제 시각으로 설정
             };
         } else {
