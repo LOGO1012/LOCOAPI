@@ -3,6 +3,26 @@ import { User } from './UserProfile.js';
 
 const { Schema, model } = mongoose;
 
+// 신고 위치 정보를 한 번에 담는 서브 다큐먼트
+const anchorSchema = new Schema({
+    type: {                  // post | comment | reply 등
+        type: String,
+        enum: ['post', 'comment', 'reply'],
+        required: true
+    },
+    parentId: {              // 글 ID(댓글·대댓글이라도 글 ID 유지)
+        type: Schema.Types.ObjectId,
+        required: true,
+        index: true
+    },
+    targetId: {              // 실제 클릭된 객체 ID
+        type: Schema.Types.ObjectId,
+        required: true,
+        index: true
+    }
+}, { _id: false });        // 하위 스키마는 _id 생성 X
+
+
 // 신고 내역 스키마 정의
 const reportSchema = new Schema({
     // 신고 제목
@@ -90,7 +110,12 @@ const reportSchema = new Schema({
         type: String,
         enum: ['pending', 'reviewed', 'resolved', 'dismissed'],
         default: 'pending'
-    }
+    },
+    // ▶▶ 새로 추가
+    anchor: {
+        type: anchorSchema,
+        required: false
+    },
 }, {
     timestamps: true // createdAt, updatedAt 필드 자동 추가
 });
