@@ -196,8 +196,8 @@ const userSchema = new Schema({
     },
     reportStatus: {
         type: String,
-        enum: ['active', 'banned', 'suspended'],
-        default: 'active'
+        enum: ['활성', '영구정지', '일시정지'],
+        default: '활성'
     },
     reportTimer: {
         type: Date,
