@@ -7,8 +7,15 @@ const { Schema, model } = mongoose;
 const anchorSchema = new Schema({
     type: {                  // post | comment | reply 등
         type: String,
-        enum: ['post', 'comment', 'reply'],
+        enum: ['post', 'comment', 'reply', 'chat'],
         required: true
+    },
+    /* ▶▶ 채팅 신고 전용 필드 */
+    roomId: {                  // 채팅방 ID
+        type: Schema.Types.ObjectId,
+        ref: 'ChatRoom',
+        required: function () { return this.type === 'chat'; },
+        index: true
     },
     parentId: {              // 글 ID(댓글·대댓글이라도 글 ID 유지)
         type: Schema.Types.ObjectId,
