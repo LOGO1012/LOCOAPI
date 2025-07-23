@@ -2,7 +2,8 @@
 import {normalizeBirthdate} from "../utils/normalizeBirthdate.js";
 import {normalizePhoneNumber} from "../utils/normalizePhoneNumber.js";
 import { User } from '../models/UserProfile.js';
-import {FriendRequest} from "../models/FriendRequest.js"; // User 모델 임포트
+import {FriendRequest} from "../models/FriendRequest.js";
+import {getMax, rechargeIfNeeded, REFILL_MS} from "../utils/chatQuota.js";
 
 /**
  * findUserOrNoUser
@@ -135,13 +136,21 @@ export const findUserByNaver = async (naverUserData) => {
 // 유저 정보를 불러오는 서비스 함수
 export const getUserById = async (userId) => {
     try {
-        const user = await User.findById(userId);
-        if (!user) {
-            throw new Error("사용자를 찾을 수 없습니다.");
-        }
-        return user;
-    } catch (error) {
-        throw new Error(error.message);
+        let user = await User.findById(userId);
+        if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+
+        user = await rechargeIfNeeded(user);                 // 자동 충전
+
+        const maxChatCount = getMax(user.plan?.planType);    // 플랜별 최대
+        const last = user.chatTimer ?? new Date();           // 마지막 충전 시각
+        const nextRefillAt = new Date(new Date(last).getTime() + REFILL_MS);
+
+        const data = user.toObject();
+        data.maxChatCount = maxChatCount;
+        data.nextRefillAt = nextRefillAt;                    // ISO 문자열
+        return data;
+    } catch (err) {
+        throw new Error(err.message);
     }
 };
 
@@ -186,12 +195,15 @@ export const getUserByNickname = async (nickname) => {
 // 채팅 횟수 감소
 export const decrementChatCount = async (userId) => {
     const user = await User.findById(userId);
-    if (!user) {
-        throw new Error("User not found.");
-    }
-    // numOfChat이 없을 경우 0으로 초기화 후 1 감소, 음수는 방지
-    user.numOfChat = (user.numOfChat || 0) - 1;
-    if (user.numOfChat < 0) user.numOfChat = 0;
+    if (!user) throw new Error("User not found.");
+
+    const max = getMax(user.plan?.planType);
+    const before = user.numOfChat ?? 0;
+    user.numOfChat = Math.max(0, before - 1);
+
+    // ‘가득찬 상태(=max)’에서 처음 사용했을 때 타이머 시작
+    if (before === max) user.chatTimer = new Date();
+
     await user.save();
     return user;
 };
