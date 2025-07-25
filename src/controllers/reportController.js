@@ -4,6 +4,7 @@ import { Report } from '../models/report.js';
 import PageRequestDTO from "../dto/common/PageRequestDTO.js";
 import PageResponseDTO from "../dto/common/PageResponseDTO.js";
 import {User} from "../models/UserProfile.js";
+import {ChatMessage} from "../models/chat.js";
 
 /**
  * 신고 생성 컨트롤러 함수
@@ -171,3 +172,25 @@ export const replyToReport = async (req, res) => {
 };
 
 
+export const getReportChatLog = async (req, res) => {
+    try {
+        const report = await Report.findById(req.params.id);
+        if (!report) return res.status(404).json({ message: 'Report not found' });
+
+        // 채팅 신고가 아닐 때 예외 처리
+        if (report.anchor?.type !== 'chat' || !report.anchor.roomId) {
+            return res.status(400).json({ message: 'This report is not chat-related.' });
+        }
+
+        // 메시지 조회 (필요 시 페이지네이션/limit 적용)
+        const messages = await ChatMessage
+            .find({ chatRoom: report.anchor.roomId })
+            .sort({ createdAt: 1 })
+            .populate('sender', 'nickname profileImg'); // ★ 닉네임(필요하면 아바타도)만 로드
+    // 시간 순 정렬
+
+        res.status(200).json(messages);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};

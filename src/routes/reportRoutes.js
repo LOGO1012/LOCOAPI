@@ -31,4 +31,7 @@ router.delete('/reports/:id', reportController.deleteReport);
 // 신고에 대한 답변 추가 라우트
 router.post('/reports/:id/reply', reportController.replyToReport);
 
+// (관리자 전용) 신고된 채팅방 메시지 가져오기
+router.get('/reports/:id/chat-log', reportController.getReportChatLog);
+
 export default router;
