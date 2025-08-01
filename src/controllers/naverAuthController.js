@@ -16,6 +16,7 @@ const cookieOptions = {
     secure:   isProd,                     // prod일 때만 true
     // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",    // prod → none, dev → lax
     sameSite: isProd ? 'none' : 'lax',
+    // sameSite: 'none',
     path:     "/",
     maxAge:   7 * 24 * 60 * 60 * 1000,
 };
@@ -68,12 +69,12 @@ export const naverCallback = async (req, res, next) => {
 
         // 6) Refresh 토큰은 HttpOnly 쿠키로, Access 토큰은 JSON으로 응답
         res
-            .cookie("refreshToken", refreshToken, cookieOptions)
+            .cookie("accessToken",  accessToken,  { ...cookieOptions, maxAge: 15*60*1000 })
+            .cookie("refreshToken", refreshToken, { ...cookieOptions, maxAge: 7*24*60*60*1000 })
             .status(200)
             .json({
                 message:     "네이버 로그인 성공",
                 status:      "success",
-                accessToken,  // 클라이언트는 메모리에 저장
                 user,
             });
     } catch (err) {
@@ -131,7 +132,10 @@ export const naverRefreshToken = async (req, res) => {
             JWT_SECRET,
             { expiresIn: '15m' }
         );
-        return res.status(200).json({ accessToken: newAccessToken });
+        return res
+            .cookie("accessToken", newAccessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+            .status(200)
+            .json({ message: "Access token refreshed" });
     } catch (err) {
         return res.status(401).json({ message: '리프레시 토큰이 유효하지 않습니다.' });
     }
