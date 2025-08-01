@@ -26,6 +26,7 @@ export const updateUserPlan = async (userId, productId) => {
     const endDate = new Date(now.getTime() + duration * 24 * 60 * 60 * 1000);
 
     await User.findByIdAndUpdate(userId, {
+        "plan.planName":  product.productName       || '',
         "plan.isPlan": true,
         "plan.planType": product.subscriptionTier || '',
         "plan.startDate": now,

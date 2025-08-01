@@ -35,3 +35,16 @@ export const updateProduct = async (req, res, next) => {
         next(error);
     }
 };
+
+export const getProductNames = async (req, res, next) => {
+    try {
+        // _id와 name 필드만 조회
+        const names = await Product
+            .find({ productType: 'subscription' })
+            .select('_id productName')
+            .lean();            // lean()으로 plain object 반환
+        return res.json(names);
+    } catch (error) {
+        next(error);
+    }
+};

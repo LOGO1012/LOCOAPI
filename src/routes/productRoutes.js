@@ -1,6 +1,6 @@
 // src/routes/productRoutes.js
 import express from 'express';
-import { getProducts, addProduct, updateProduct } from '../controllers/productController.js';
+import { getProducts, addProduct, updateProduct, getProductNames } from '../controllers/productController.js';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
 
@@ -25,5 +25,7 @@ router.put(
     requireLevel(3),
     updateProduct
 );
+
+router.get('/names', getProductNames);
 
 export default router;
