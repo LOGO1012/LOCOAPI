@@ -331,14 +331,18 @@ export const getBlockedUsersController = async (req, res) => {
 export async function getSummonerRecord(req, res) {
     try {
         const { gameName, tagLine } = req.params;
-        const riotId = `${gameName}#${tagLine}`;
-        const data = await getLoLRecordByRiotId(riotId);
+        const data = await getLoLRecordByRiotId(`${gameName}#${tagLine}`);
         return res.status(200).json({ success: true, data });
     } catch (err) {
         console.error(err);
-        return res.status(500).json({ success: false, message: err.message });
+        const status = /403/.test(err.message) ? 502   // 키 문제
+            : /404/.test(err.message) ? 404   // Riot ID 없음
+                : /429/.test(err.message) ? 503   // 레이트 리밋
+                    : 500;
+        return res.status(status).json({ success: false, message: err.message });
     }
 }
+
 
 export const getPaginatedFriendsController = async (req, res) => {
     const { userId } = req.params;

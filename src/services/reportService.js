@@ -10,21 +10,30 @@ import {ReportNotification} from "../models/ReportNotification.js";
  */
 export const createReport = async (data) => {
     try {
-        // 사용자 닉네임 조회
-        const offender = await User.findById(data.offenderId, 'nickname');
-        const reporter = await User.findById(data.reportErId, 'nickname');
+        const offender  = await User.findById(data.offenderId,  'nickname');
+        const reporter  = await User.findById(data.reportErId, 'nickname');
 
-        // 스냅샷 필드에 닉네임 저장
-        const report = new Report({
+        // 신고 문서 저장
+        const report = await new Report({
             ...data,
-            offenderNickname: offender?.nickname || '',
-            reportErNickname: reporter?.nickname  || ''
-        });
-        return await report.save();
+            offenderNickname : offender?.nickname  || '',
+            reportErNickname : reporter?.nickname || ''
+        }).save();
+
+        /* ──────────────  추가: 가해자 numOfReport 증가 ────────────── */
+        await User.findByIdAndUpdate(
+            data.offenderId,
+            { $inc: { numOfReport: 1 } },
+            { new: false }            // 반환값 필요 없으면 false
+        );
+        /* ────────────────────────────────────────────────────────── */
+
+        return report;
     } catch (error) {
         throw error;
     }
 };
+
 
 /**
  * ID를 이용하여 단일 신고 조회 함수
@@ -97,8 +106,6 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
             durUntil = new Date(now.getTime() + parseInt(suspensionDays) * 24 * 60 * 60 * 1000);
         }
 
-        const original = await Report.findById(id).select('reportStatus').lean();
-
         // 기본 상태는 답변만 달린 경우 reviewed
         let reportStatus = "reviewed";
         // 정지(또는 영구 정지) 적용 시 resolved, 경고만 준 경우 dismissed
@@ -115,7 +122,7 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
                 reportAnswer: replyContent,
                 adminId: adminId,
                 reportStatus: reportStatus,
-                stopDetail: stopDetail ? stopDetail : (suspensionDays && parseInt(suspensionDays) > 0 ? 'suspended' : 'active'),
+                stopDetail: stopDetail ? stopDetail : (suspensionDays && parseInt(suspensionDays) > 0 ? '일시정지' : '활성'),
                 stopDate: suspensionDays && parseInt(suspensionDays) > 0 ? now : null,
                 durUntil: suspensionDays && parseInt(suspensionDays) > 0 ? durUntil : null,
                 adminNickname:  admin.nickname,
@@ -130,14 +137,9 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
         const offenderId = updatedReport.offenderId;
         let updateFields = {};
 
-        //최초 처리(pending → reviewed/resolved/dismissed)일 때만 신고 횟수 +1
-        if (original?.reportStatus === 'pending') {
-            updateFields.$inc = { numOfReport: 1 };
-        }
-
         if (updatedReport.stopDetail === '일시정지' || updatedReport.stopDetail === '영구정지') {
             updateFields.$set = {
-                reportStatus: updatedReport.stopDetail, // 'suspended' 또는 'banned'로 업데이트
+                reportStatus: updatedReport.stopDetail, // '알시정지' 또는 '영구정지'로 업데이트
                 reportTimer: updatedReport.durUntil       // 정지 해제 시각으로 설정
             };
         } else {

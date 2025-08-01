@@ -13,9 +13,13 @@ export const initializeSocket = (server) => {
         console.log('🔗 새로운 클라이언트 연결됨:', socket.id);
 
         // 사용자 등록: 클라이언트가 자신의 userId를 보내면 해당 userId 기반의 개인룸에 join합니다.
+        const registeredUsers = new Set();
+
         socket.on('register', (userId) => {
+            if (registeredUsers.has(`${socket.id}-${userId}`)) return;
+            registeredUsers.add(`${socket.id}-${userId}`);
             socket.join(userId);
-            console.log(`사용자 ${userId} 등록됨`);
+            console.log(`사용자 ${userId} 등록됨 (socket: ${socket.id})`);
         });
 
         // 채팅방 참가

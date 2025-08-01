@@ -3,6 +3,33 @@ import { User } from './UserProfile.js';
 
 const { Schema, model } = mongoose;
 
+// 신고 위치 정보를 한 번에 담는 서브 다큐먼트
+const anchorSchema = new Schema({
+    type: {                  // post | comment | reply 등
+        type: String,
+        enum: ['post', 'comment', 'reply', 'chat'],
+        required: true
+    },
+    /* ▶▶ 채팅 신고 전용 필드 */
+    roomId: {                  // 채팅방 ID
+        type: Schema.Types.ObjectId,
+        ref: 'ChatRoom',
+        required: function () { return this.type === 'chat'; },
+        index: true
+    },
+    parentId: {              // 글 ID(댓글·대댓글이라도 글 ID 유지)
+        type: Schema.Types.ObjectId,
+        required: true,
+        index: true
+    },
+    targetId: {              // 실제 클릭된 객체 ID
+        type: Schema.Types.ObjectId,
+        required: true,
+        index: true
+    }
+}, { _id: false });        // 하위 스키마는 _id 생성 X
+
+
 // 신고 내역 스키마 정의
 const reportSchema = new Schema({
     // 신고 제목
@@ -19,7 +46,7 @@ const reportSchema = new Schema({
     // 신고 카테고리 (예: 욕설, 정치 등)
     reportCategory: {
         type: String,                   // 신고 카테고리: 신고 내용의 분류
-        enum: ['욕설, 모욕, 혐오발언', '스팸, 도배, 거짓정보', '부적절한 메세지(성인/도박/마약 등)', '규칙에 위반되는 프로필/모욕성 닉네임'],
+        enum: ['욕설, 모욕, 혐오발언', '스팸, 도배, 거짓정보', '부적절한 메세지(성인/도박/마약 등)', '규칙에 위반되는 프로필/모욕성 닉네임', '음란물 배포(이미지)'],
         required: true
     },
     // 신고 내용 (상세한 신고 설명)
@@ -90,7 +117,12 @@ const reportSchema = new Schema({
         type: String,
         enum: ['pending', 'reviewed', 'resolved', 'dismissed'],
         default: 'pending'
-    }
+    },
+    // ▶▶ 새로 추가
+    anchor: {
+        type: anchorSchema,
+        required: false
+    },
 }, {
     timestamps: true // createdAt, updatedAt 필드 자동 추가
 });
