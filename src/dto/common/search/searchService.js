@@ -1,43 +1,55 @@
-// src/common/search/searchService.js
-import PageResponseDTO from '../PageResponseDTO.js';
+// src/dto/common/search/searchService.js
+import PageResponseDTO from '../../common/PageResponseDTO.js';
 
-export async function searchService(Model, pageReq, options = {}) {
-    const { page=1, size=10, keyword, searchType } = pageReq;
-    const { textFields = [], btreeFields = [] } = options;
-    const skip = (page - 1) * size;
-    const filter = {};
+export async function searchService(Model, pageReqDto, options = {}) {
+    // PageRequestDTO 필드 바로 사용
+    const { page, size, type, keyword } = pageReqDto;
 
-    // 1) 상태·카테고리 등 정확 조회
-    for (const field of btreeFields) {
-        if (pageReq[field] != null) {
-            filter[field] = pageReq[field];
-        }
+    const {
+        match = {},
+        textFields = [],
+        btreeFields = [],
+        populateFields = [],
+        sortField = 'createdAt',
+        sortOrder = -1
+    } = options;
+
+    // 기본 match 에 DTO 의 type(roomType) 필터 병합
+    const baseMatch = { ...match };
+    if (type) {
+        // 라이브엔티티는 roomType, 히스토리엔티티는 meta.roomType 으로 옵션에 맞춰 넣어주세요
+        baseMatch[options.typeField || 'roomType'] = type;
     }
 
-    // 2) 키워드 검색: full‑text 우선
-    if (keyword && textFields.length > 0) {
-        // textFields로 설정된 필드 전부 텍스트 인덱스 대상이라면
-        if (searchType === 'text') {
-            filter.$text = { $search: keyword };
-        } else if (textFields.includes(searchType)) {
-            // 특정 textFields 하나만
-            filter.$text = { $search: keyword };
-            // (MongoDB 텍스트 인덱스는 인덱스 설정 순서에 따라 검색 필드를 자동 적용)
-        } else if (searchType === 'both') {
-            // 기본 both → $or + regex (보조)
-            const regex = new RegExp(keyword, 'i');
-            filter.$or = textFields.map(f => ({ [f]: { $regex: regex } }));
-        }
+    // 1) B-Tree 필터
+    const btreeFilter = btreeFields.reduce((acc, field) => {
+        const val = pageReqDto[field];
+        if (val != null) acc[field] = val;
+        return acc;
+    }, {});
+
+    // 2) 텍스트 검색 조건
+    const filter = { ...baseMatch, ...btreeFilter };
+    if (keyword) {
+        const regex = new RegExp(keyword, 'i');
+        filter.$or = textFields.map(f => ({ [f]: regex }));
     }
 
-    // 3) 쿼리 실행
+    // 3) Mongoose 쿼리 빌드
+    let query = Model.find(filter);
+    populateFields.forEach(({ path, select }) => {
+        query = query.populate(path, select);
+    });
+    query = query.sort({ [sortField]: sortOrder })
+        .skip((page - 1) * size)
+        .limit(size);
+
+    // 4) 실행
     const [docs, totalCount] = await Promise.all([
-        Model.find(filter)
-            .skip(skip)
-            .limit(size)
-            .lean(),
+        query.exec(),
         Model.countDocuments(filter)
     ]);
 
-    return new PageResponseDTO(docs, pageReq, totalCount);
+    // 5) PageResponseDTO 로 감싸서 반환
+    return new PageResponseDTO(docs, { page, size, type, keyword }, totalCount);
 }

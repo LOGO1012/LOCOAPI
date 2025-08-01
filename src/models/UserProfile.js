@@ -1,7 +1,7 @@
-
 //PASS 받아오는거 어디넣을지
 import mongoose from "mongoose";
-const { Schema, model } = mongoose; // Schema 생성자 추출
+
+const {Schema, model} = mongoose; // Schema 생성자 추출
 
 // User 스키마 정의
 const userSchema = new Schema({
@@ -18,7 +18,7 @@ const userSchema = new Schema({
     },
     gender: {
         type: String,           // 성별: 사용자의 성별
-        enum: ['male', 'female','select'], // 허용 값: 남성, 여성, 기타
+        enum: ['male', 'female', 'select'], // 허용 값: 남성, 여성, 기타
         default: 'select'
     },
     // 추가 연락처 정보
@@ -118,6 +118,10 @@ const userSchema = new Schema({
         },
 
     },
+    profilePhoto: {
+        type: String,   // 프로필 사진 URL
+        default: ''     // 기본값: 빈 문자열
+    },
     photo: {
         type: [String],  // 문자열 배열로 여러 이미지 URL을 저장
         default: [],  // 기본값은 빈 배열
@@ -176,10 +180,16 @@ const userSchema = new Schema({
         }
     ],
     plan: {
+
+        planName: {
+            type: String,       // 구독 상품명 보관
+            default: ''         // 기본값은 빈 문자열
+        },
+
         planType: {
             type: String,
-            enum: ['basic', 'standard', 'premium'],
-            default: 'basic'
+            enum: ['none', 'basic', 'standard', 'premium', 'other'],
+            default: 'none'
         },
         isPlan: {
             type: Boolean,
@@ -224,21 +234,20 @@ const userSchema = new Schema({
     }
 
 
-
 }, {
     timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
 });
 
 // 텍스트 인덱스
-userSchema.index({ name: "text", nickname: "text", phone: "text", gender: "text", birthdate: "text", userLv: "text" });
+userSchema.index({name: "text", nickname: "text", phone: "text", gender: "text", birthdate: "text", userLv: "text"});
 
 // lolNickname을 분리해 gameName, tagLine 가상 필드로 노출
-userSchema.virtual('riotGameName').get(function() {
+userSchema.virtual('riotGameName').get(function () {
     if (!this.lolNickname) return '';
     return this.lolNickname.split('#')[0] || '';
 });
 
-userSchema.virtual('riotTagLine').get(function() {
+userSchema.virtual('riotTagLine').get(function () {
     if (!this.lolNickname) return '';
     const parts = this.lolNickname.split('#');
     return parts[1] || '';
@@ -246,12 +255,11 @@ userSchema.virtual('riotTagLine').get(function() {
 
 
 // JSON으로 반환될 때 virtual 포함
-userSchema.set('toJSON', { virtuals: true });
-userSchema.set('toObject', { virtuals: true });
+userSchema.set('toJSON', {virtuals: true});
+userSchema.set('toObject', {virtuals: true});
 
 //      모델을 'User' 컬렉션으로 생성 및 내보내기
 export const User = model('User', userSchema);
-
 
 
 // lastActive: {

@@ -18,6 +18,7 @@ const cookieOptions = {
     secure:   isProd,                     // prod일 때만 true
     // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",    // prod → none, dev → lax
     sameSite: isProd ? 'none' : 'lax',
+    // sameSite: 'none',
     path:     "/",
     maxAge:   7 * 24 * 60 * 60 * 1000,
 };
@@ -90,13 +91,13 @@ export const kakaoCallback = async (req, res, next) => {
 
 
         // 5) Refresh 토큰은 HttpOnly 쿠키로, Access 토큰은 JSON 바디로 응답
+        // 수정 Refresh, Access 둘다 HttpOnly 쿠키로
         res
-            .cookie("refreshToken", refreshToken, cookieOptions)
-            .status(200)
+            .cookie('accessToken',  accessToken,  { ...cookieOptions, maxAge: 15*60*1000})
+            .cookie('refreshToken', refreshToken, { ...cookieOptions , maxAge: 7*24*60*60*1000 })
             .json({
                 message:     "카카오 로그인 성공",
                 status:      "success",
-                accessToken,      // 클라이언트가 메모리에 저장
                 user,
             });
     } catch (err) {
@@ -160,7 +161,10 @@ export const refreshToken = async (req, res) => {
             JWT_SECRET,
             { expiresIn: '15m' }
         );
-        return res.status(200).json({ accessToken: newAccessToken });
+        return res
+            .cookie('accessToken', newAccessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+            .status(200)
+            .json({ message: 'Access token refreshed' });
     } catch (err) {
         return res.status(401).json({ message: '리프레시 토큰이 유효하지 않습니다.' });
     }
@@ -217,7 +221,10 @@ export const getCurrentUser = async (req, res) => {
             { expiresIn: '15m' }
         );
 
-        return res.status(200).json({ user, accessToken: newAccessToken });
+        return res
+            .cookie('accessToken', newAccessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+            .status(200)
+            .json({ user });
     } catch (err) {
         console.error('GET /api/auth/me 에러:', err);
         return res.status(500).json({ message: '서버 오류' });

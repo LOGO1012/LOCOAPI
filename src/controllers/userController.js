@@ -10,6 +10,74 @@ import { User } from "../models/UserProfile.js";
 import {io} from "../socket/socketIO.js";
 import {getLoLRecordByRiotId} from "../middlewares/getLoLRecordBySummonerName.js";
 
+
+
+// 총 유저 수 함수
+export const getUserCountController = async (req, res) => {
+    try {
+        const count = await User.countDocuments();
+        return res.status(200).json({ success: true, count });
+    } catch (error) {
+        console.error("getUserCount error:", error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
+// 성별별 유저 수 함수
+export const getGenderCountController = async (req, res) => {
+    try {
+        const maleCount   = await User.countDocuments({ gender: "male"   });
+        const femaleCount = await User.countDocuments({ gender: "female" });
+        return res.status(200).json({
+            success: true,
+            male:   maleCount,
+            female: femaleCount
+        });
+    } catch (error) {
+        console.error("getGenderCount error:", error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
+// 소셜 성별별 유저 수 함수
+export const getSocialGenderCountController = async (req, res) => {
+    try {
+        // 오직 social 안의 kakao.gender, naver.gender 만 사용
+        const users = await User.find(
+            {},
+            "social.kakao.gender social.naver.gender"
+        ).lean();
+
+        let male = 0;
+        let female = 0;
+
+        users.forEach(u => {
+            let g = null;
+
+            // 1) 카카오 social gender 우선
+            if (u.social?.kakao?.gender) {
+                g = u.social.kakao.gender;       // 'male' | 'female' | ''
+            }
+            // 2) 없으면 네이버 social gender
+            else if (u.social?.naver?.gender) {
+                if (u.social.naver.gender === "M")      g = "male";
+                else if (u.social.naver.gender === "F") g = "female";
+            }
+
+            if (g === "male")   male++;
+            else if (g === "female") female++;
+        });
+
+        return res.status(200).json({ success: true, male, female });
+    } catch (error) {
+        console.error("getSocialGenderCount error:", error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+
 // 사용자 정보를 가져오는 컨트롤러 함수
 export const getUserInfo = async (req, res) => {
     const { userId } = req.params;
@@ -26,6 +94,7 @@ export const getUserInfo = async (req, res) => {
         });
     }
 };
+
 
 // 사용자 프로필 업데이트 컨트롤러 (PATCH 요청)
 // 로코 코인(coinLeft)과 생년월일(birthdate)은 수정할 수 없도록 업데이트에서 제거합니다.
@@ -74,6 +143,7 @@ export const rateUserController = async (req, res) => {
     }
 };
 
+
 /**
  * 별칭을 이용하여 사용자 정보를 가져오는 컨트롤러 함수
  */
@@ -93,6 +163,8 @@ export const getUserByNicknameController = async (req, res) => {
     }
 };
 
+
+
 export const decrementChatCountController = async (req, res) => {
     try {
         const { userId } = req.params;
@@ -110,6 +182,8 @@ export const decrementChatCountController = async (req, res) => {
     }
 };
 
+
+
 export const acceptFriendRequestController = async (req, res) => {
     const { requestId } = req.body; // 클라이언트에서 친구 요청 ID를 전달받음
     try {
@@ -126,6 +200,8 @@ export const acceptFriendRequestController = async (req, res) => {
         });
     }
 };
+
+
 
 // 친구 요청 보내기 컨트롤러
 export const sendFriendRequestController = async (req, res) => {
@@ -156,6 +232,7 @@ export const sendFriendRequestController = async (req, res) => {
 };
 
 
+
 // 친구 요청 목록 조회 컨트롤러 (수신한 요청 목록)
 export const getFriendRequestsController = async (req, res) => {
     const { userId } = req.params; // 수신자(현재 로그인 사용자) ID
@@ -172,6 +249,8 @@ export const getFriendRequestsController = async (req, res) => {
         });
     }
 };
+
+
 
 // 친구 요청 거절 컨트롤러 함수
 export const declineFriendRequestController = async (req, res) => {
@@ -190,6 +269,7 @@ export const declineFriendRequestController = async (req, res) => {
         });
     }
 };
+
 
 
 // 친구 삭제 컨트롤러
