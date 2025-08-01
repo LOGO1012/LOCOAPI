@@ -15,7 +15,9 @@ import {
     blockUserController,
     unblockUserController,
     getBlockedUsersController,
-    getSummonerRecord, getPaginatedFriendsController
+    getSummonerRecord, getPaginatedFriendsController,
+    getUserCountController, getGenderCountController,
+    getSocialGenderCountController
 } from "../controllers/userController.js";
 
 const router = express.Router();
@@ -23,8 +25,18 @@ const router = express.Router();
 // 회원가입
 router.post('/register', registerUserProfile);
 
+//유저 수 가져오기
+router.get("/user-count", getUserCountController);
+
+// 성별 유저 수
+router.get("/gender-count", getGenderCountController);
+
+// 소셜 성별 유저 수
+router.get("/social-gender-count", getSocialGenderCountController);
+
 // 사용자 정보 가져오기
 router.get("/:userId", getUserInfo);
+
 
 // 유저 별점 업데이트 엔드포인트
 router.post("/:userId/rate", rateUserController);
