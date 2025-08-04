@@ -58,17 +58,25 @@ const getAllQnas = async (req, res) => {
  * @param {Object} req - 요청 객체 (req.params.id에 QnA ID가 있음)
  * @param {Object} res - 응답 객체
  */
+// controllers/qnaController.js (예시: 단건 조회)
 const getQnaById = async (req, res) => {
     try {
         const qna = await QnaService.getQnaById(req.params.id);
-        if (!qna) {
-            return res.status(404).json({ message: 'QnA not found' });
-        }
-        return res.status(200).json(qna);
+        if (!qna) return res.status(404).json({ message: 'QnA not found' });
+
+        // ② toISOString으로 직렬화해서 보내기
+        const serialized = {
+            ...qna.toObject(),
+            qnaRegdate: qna.qnaRegdate.toISOString(),
+            updatedAt : qna.updatedAt.toISOString()
+        };
+
+        return res.status(200).json(serialized);
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
 };
+
 
 /**
  * 특정 ID의 QnA 문서를 업데이트하고, 업데이트된 문서를 클라이언트에 반환합니다.

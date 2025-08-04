@@ -49,6 +49,7 @@ const getQnaListPage = async (pageRequestDTO) => {
         const dtoList = await Qna.find(filter)
             .populate('userId')
             .populate('answerUserId')
+            .sort({ qnaRegdate: -1 })
             .skip(skip)
             .limit(size);
 
@@ -71,7 +72,9 @@ const createQna = async (qnaData) => {
         const author = await User.findById(qnaData.userId, 'nickname');
         const newQna = await Qna.create({
             ...qnaData,
-            userNickname: author?.nickname || ''
+            userNickname: author?.nickname || '',
+
+            qnaRegdate: new Date().toISOString()
         });
         return newQna;
     } catch (error) {
