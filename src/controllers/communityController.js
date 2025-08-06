@@ -1,6 +1,7 @@
 // src/controllers/communityController.js
 import PageRequestDTO from '../../src/dto/common/PageRequestDTO.js'; // 파일 경로를 실제 경로에 맞게 수정하세요.
 import * as communityService from '../services/communityService.js';
+import {saveRemoteImage} from "../utils/saveRemoteImage.js";
 
 export const getCommunities = async (req, res) => {
     try {
@@ -45,18 +46,31 @@ export const getCommunity = async (req, res) => {
     }
 };
 
+/* 공통 유틸: multipart 파일 + URL 문자열을 모두 받아 배열로 만든다 */
+const buildImageArray = async (req) => {
+    const fromUpload = (req.files || []).map(f => `/uploads/${f.filename}`);
+
+    // 문자열 입력(배열·단일 모두 허용)
+    const raw = req.body.communityImages || [];
+    const urls = (Array.isArray(raw) ? raw : [raw]).filter(Boolean);
+
+    const downloaded = [];
+    for (const u of urls) {
+        const saved = await saveRemoteImage(u);
+        if (saved) downloaded.push(saved);
+    }
+    return [...fromUpload, ...downloaded];
+};
+
 // 커뮤니티 생성
 export const createCommunity = async (req, res) => {
     try {
-        const communityData = { ...req.body };
-        if (req.file) {
-            // DB에는 '/uploads/파일명' 형식으로 저장 (백슬래시가 아닌 슬래시 사용)
-            communityData.communityImage = `/uploads/${req.file.filename}`;
-        }
-        const newCommunity = await communityService.createCommunity(communityData);
-        res.status(201).json(newCommunity);
-    } catch (error) {
-        res.status(500).json({ message: '커뮤니티 생성에 실패했습니다.', error });
+        const data = { ...req.body };
+        data.communityImages = await buildImageArray(req);     // ✅ 핵심
+        const created = await communityService.createCommunity(data);
+        res.status(201).json(created);
+    } catch (err) {
+        res.status(500).json({ message: '글 생성 실패', err });
     }
 };
 
@@ -64,17 +78,13 @@ export const createCommunity = async (req, res) => {
 export const updateCommunity = async (req, res) => {
     try {
         const { id } = req.params;
-        const updateData = { ...req.body };
-        if (req.file) {
-            updateData.communityImage = `/uploads/${req.file.filename}`;
-        }
-        const updatedCommunity = await communityService.updateCommunity(id, updateData);
-        if (!updatedCommunity) {
-            return res.status(404).json({ message: '커뮤니티를 찾을 수 없습니다.' });
-        }
-        res.status(200).json(updatedCommunity);
-    } catch (error) {
-        res.status(500).json({ message: '커뮤니티 수정에 실패했습니다.', error });
+        const data = { ...req.body };
+        data.communityImages = await buildImageArray(req);     // 파일·URL 둘 다 반영
+        const updated = await communityService.updateCommunity(id, data);
+        if (!updated) return res.status(404).json({ message: '존재하지 않는 글' });
+        res.status(200).json(updated);
+    } catch (err) {
+        res.status(500).json({ message: '글 수정 실패', err });
     }
 };
 

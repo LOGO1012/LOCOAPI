@@ -26,6 +26,8 @@ import reportNotificationRoutes from "./src/routes/reportNotificationRoutes.js";
 import prRoutes from "./src/routes/prRoutes.js";
 
 import searchRouter from './src/routes/searchRouter.js';
+import mongoose from "mongoose";
+import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
 
 dotenv.config(); // 환경 변수 로드
 
@@ -92,4 +94,11 @@ const io = initializeSocket(server);
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+});
+
+// 🟢 MongoDB가 준비된 뒤 별점 초기화 스케줄러 시작
+mongoose.connection.once('open', () => {
+    console.log('MongoDB connected – starting schedulers');
+    startResetStarScheduler();          // ⭐ 매너 별점 초기화
+    // 필요하다면 다른 스케줄러도 여기서 시작
 });
