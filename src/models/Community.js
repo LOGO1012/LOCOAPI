@@ -98,10 +98,11 @@ const communitySchema = new Schema({
         type: Date,
         default: Date.now,
     },
-    communityImage: {
+    /* ✅ 다중 이미지 배열로 변경 */
+    communityImages: [{
         type: String,
-        default: null,
-    },
+        required: false           // 한 장도 없을 수 있다면 required:false 로
+    }],
     recommended: {
         type: Number,
         default: 0,
