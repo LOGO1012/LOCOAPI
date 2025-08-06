@@ -266,7 +266,26 @@ export const leaveChatRoomService = async (roomId, userId) => {
     }
 };
 
+/**
+ * 랜덤채팅 히스토리 조회
+ * @param {{ 'meta.chatUsers': string, page?: number, size?: number }} filters
+ */
+export const getChatRoomHistory = async (filters) => {
+    const page = parseInt(filters.page)  || 1;
+    const size = parseInt(filters.size)  || 100;
+    const skip = (page - 1) * size;
 
+    // meta.chatUsers 필터에 걸리는 히스토리만, user 객체로 채워서 가져오기
+    const histories = await ChatRoomHistory
+        .find({ 'meta.chatUsers': filters['meta.chatUsers'] })
+        .lean()
+        .populate('meta.chatUsers', 'nickname name')    // ← 여기를 추가합니다
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(size);
+
+    return histories;
+};
 
 /**
  * 사용자 exit 기록을 기반으로 종료한 채팅방 ID 목록 조회

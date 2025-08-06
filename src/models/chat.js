@@ -61,6 +61,7 @@ const chatRoomSchema = new Schema({
     }
 }, { timestamps: true });          // createdAt, updatedAt 필드를 자동 생성
 
+
 /**
  * ChatMessage 스키마
  * - chatRoom: 메시지가 속한 채팅방의 ID (ChatRoom 컬렉션 참조)

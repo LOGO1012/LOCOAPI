@@ -174,4 +174,16 @@ export const updateRoomActive = async (req, res) => {
 };
 
 
+/**
+ * GET /api/search/chat-room-history
+ */
+export const getChatRoomHistory = async (req, res) => {
+    try {
+        const dtoList = await chatService.getChatRoomHistory(req.query);
+        return res.status(200).json({ dtoList });
+    } catch (error) {
+        console.error('히스토리 조회 실패:', error);
+        return res.status(500).json({ error: error.message });
+    }
+};
 
