@@ -10,7 +10,7 @@ router.get('', communityController.getCommunities);
 
 // 커뮤니티 생성 (이미지 업로드 처리 미들웨어 추가)
 // 클라이언트는 'communityImage' 필드명으로 파일을 전송합니다.
-router.post('', upload.single('communityImage'), communityController.createCommunity);
+router.post('', upload.array('communityImages', 5), communityController.createCommunity); // 최대 5장
 
 // 최다 조회 및 최다 댓글 엔드포인트 추가
 router.get('/top-viewed', communityController.getTopViewed);
@@ -20,8 +20,7 @@ router.get('/top-commented', communityController.getTopCommented);
 router.get('/:id', communityController.getCommunity);
 
 // 커뮤니티 수정
-// update 요청에 대해 upload.single('communityImage') 미들웨어 추가
-router.put('/:id', upload.single('communityImage'), communityController.updateCommunity);
+router.put('/:id', upload.array('communityImages', 5), communityController.updateCommunity);
 
 // 커뮤니티 삭제
 router.delete('/:id', communityController.deleteCommunity);

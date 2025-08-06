@@ -26,7 +26,11 @@ router.get('/reports/:id', reportController.getReport);
 router.put('/reports/:id', reportController.updateReport);
 
 // 신고 삭제
-router.delete('/reports/:id', reportController.deleteReport);
+router.delete(
+    '/reports/:id',
+    requireLevel(3),
+    reportController.deleteReport
+);
 
 // 신고에 대한 답변 추가 라우트
 router.post('/reports/:id/reply', reportController.replyToReport);

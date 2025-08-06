@@ -55,6 +55,7 @@ export const getReportsWithPagination = async (filters = {}, page = 1, size = 10
         const reportsPromise = Report.find(filters)
             .skip(skip)
             .limit(size)
+            .sort({ reportDate: -1 })
             .populate('reportErId', 'nickname')
             .populate('offenderId', 'nickname')
             .populate('adminId',   'nickname');

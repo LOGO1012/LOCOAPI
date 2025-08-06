@@ -22,8 +22,13 @@ const fileFilter = (req, file, cb) => {
 };
 
 const upload = multer({
-    storage,
-    fileFilter,
+    storage,              // 기존 storage
+    limits: { fileSize: 5 * 1024 * 1024 },  // 5 MB
+    fileFilter: (_, file, cb) => {
+        const ok = /jpeg|jpg|png|gif/.test(file.mimetype);
+        cb(null, ok);
+    }
 });
+
 
 export default upload;
