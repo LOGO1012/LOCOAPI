@@ -1,6 +1,7 @@
 import express from 'express';
 import * as chatController from '../controllers/chatController.js';
 
+
 const router = express.Router();
 
 // 채팅방 생성
@@ -34,5 +35,7 @@ router.delete('/rooms/:roomId/:userId', chatController.leaveChatRoom);
 router.get('/leftRooms/:userId', chatController.getLeftRooms);
 
 router.patch('/rooms/:roomId/active', chatController.updateRoomActive);
+
+router.get('/search/chat-room-history', chatController.getChatRoomHistory);
 
 export default router;
