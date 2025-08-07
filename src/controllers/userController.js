@@ -9,6 +9,7 @@ import { rateUser } from "../services/userService.js";
 import { User } from "../models/UserProfile.js";
 import {io} from "../socket/socketIO.js";
 import {getLoLRecordByRiotId} from "../middlewares/getLoLRecordBySummonerName.js";
+import {FriendRequest} from "../models/FriendRequest.js";
 
 
 
@@ -356,3 +357,33 @@ export const getPaginatedFriendsController = async (req, res) => {
         res.status(400).json({ success: false, message: e.message });
     }
 };
+
+// 알림 설정 변경 (PATCH /:userId/prefs)
+export const updateUserPrefsController = async (req, res) => {
+    const { userId } = req.params;
+    const { friendReqEnabled } = req.body;
+
+    try {
+        // 1. 사용자 환경설정 업데이트
+        const updated = await User.findByIdAndUpdate(
+            userId,
+            { friendReqEnabled },
+            { new: true, fields: 'friendReqEnabled' }
+        );
+        if (!updated) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // 2. 만약 알림 설정이 꺼진다면, pending 상태의 친구요청을 삭제
+        if (friendReqEnabled === false) {
+            await FriendRequest.deleteMany({ receiver: userId, status: 'pending' });
+        }
+
+        // 3. 응답 반환
+        return res.status(200).json({ success: true, data: updated });
+
+    } catch (e) {
+        return res.status(400).json({ success: false, message: e.message });
+    }
+};
+

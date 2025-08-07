@@ -17,7 +17,7 @@ import {
     getBlockedUsersController,
     getSummonerRecord, getPaginatedFriendsController,
     getUserCountController, getGenderCountController,
-    getSocialGenderCountController
+    getSocialGenderCountController, updateUserPrefsController
 } from "../controllers/userController.js";
 
 const router = express.Router();
@@ -73,5 +73,7 @@ router.get    ('/:userId/blocked',               getBlockedUsersController);
 router.get('/lol/:gameName/:tagLine', getSummonerRecord);
 
 router.get('/:userId/friends', getPaginatedFriendsController);
+
+router.patch('/:userId/prefs', updateUserPrefsController);
 
 export default router;
