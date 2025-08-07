@@ -92,7 +92,7 @@ const communitySchema = new Schema({
     communityCategory: {
         type: String,
         required: true,
-        enum: ['자유', '유머', '질문', '사건사고', '전적인증'],
+        enum: ['자유', '유머', '질문', '사건사고', '전적인증', '개발요청'],
     },
     communityRegDate: {
         type: Date,
