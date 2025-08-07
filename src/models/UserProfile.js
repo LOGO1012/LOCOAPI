@@ -231,7 +231,12 @@ const userSchema = new Schema({
     qnaHistory: {
         type: [String], // 예를 들어 QnA 내역의 ID나 내용을 저장할 수 있습니다.
         default: []
-    }
+    },
+    // ❶ 스키마 중간 어딘가—알림 · 환경설정 섹션 추천
+    friendReqEnabled: {
+        type: Boolean,
+        default: true      // 기존 동작과 동일한 초기값
+    },
 
 
 }, {

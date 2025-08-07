@@ -233,6 +233,12 @@ export const acceptFriendRequestService = async (requestId) => {
 
 // 친구 요청 보내기 함수
 export const sendFriendRequest = async (senderId, receiverId) => {
+    // ❷ 수신자가 요청을 차단했는지 미리 확인
+    const receiverUser = await User.findById(receiverId).select('friendReqEnabled');
+    if (!receiverUser) throw new Error('받는 사용자를 찾을 수 없습니다.');
+    if (!receiverUser.friendReqEnabled) {
+        throw new Error('상대가 친구 요청을 차단했습니다.');
+    }
     if (senderId === receiverId) {
         throw new Error("자기 자신에게 친구 요청을 보낼 수 없습니다.");
     }
