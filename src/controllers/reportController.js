@@ -4,7 +4,7 @@ import { Report } from '../models/report.js';
 import PageRequestDTO from "../dto/common/PageRequestDTO.js";
 import PageResponseDTO from "../dto/common/PageResponseDTO.js";
 import {User} from "../models/UserProfile.js";
-import {ChatMessage} from "../models/chat.js";
+import {ChatMessage, ChatRoom} from "../models/chat.js";
 
 /**
  * 신고 생성 컨트롤러 함수
@@ -48,6 +48,9 @@ export const getReports = async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const size = parseInt(req.query.size) || 10;
         const pageRequestDTO = new PageRequestDTO(page, size);
+
+        // 정렬 순서 파라미터 추가 (기본값: desc)
+        const orderByDate = req.query.orderByDate === 'asc' ? 'asc' : 'desc';
 
         // 필터 객체 생성
         const filters = {};
@@ -106,7 +109,7 @@ export const getReports = async (req, res) => {
             filters.$or = orConditions;
         }
 
-        const { reports, totalCount } = await reportService.getReportsWithPagination(filters, page, size);
+        const { reports, totalCount } = await reportService.getReportsWithPagination(filters, page, size, orderByDate);
         const pageResponseDTO = new PageResponseDTO(reports, pageRequestDTO, totalCount);
         res.status(200).json(pageResponseDTO);
     } catch (error) {
@@ -182,14 +185,49 @@ export const getReportChatLog = async (req, res) => {
             return res.status(400).json({ message: 'This report is not chat-related.' });
         }
 
-        // 메시지 조회 (필요 시 페이지네이션/limit 적용)
-        const messages = await ChatMessage
-            .find({ chatRoom: report.anchor.roomId })
-            .sort({ createdAt: 1 })
-            .populate('sender', 'nickname profileImg'); // ★ 닉네임(필요하면 아바타도)만 로드
-    // 시간 순 정렬
+        // 채팅방 정보 조회하여 roomType 확인
+        const chatRoom = await ChatRoom.findById(report.anchor.roomId);
+        if (!chatRoom) {
+            return res.status(404).json({ message: 'ChatRoom not found' });
+        }
 
-        res.status(200).json(messages);
+        let messageQuery = { chatRoom: report.anchor.roomId };
+
+        // 친구 채팅방인 경우 신고일 기준 전후 1일 범위로 필터링
+        if (chatRoom.roomType === 'friend') {
+            const reportDate = report.reportDate;
+            const startDate = new Date(reportDate);
+            startDate.setDate(startDate.getDate() - 1); // 신고일 1일 전
+            startDate.setHours(0, 0, 0, 0);
+
+            const endDate = new Date(reportDate);
+            endDate.setDate(endDate.getDate() + 1); // 신고일 1일 후
+            endDate.setHours(23, 59, 59, 999);
+
+            messageQuery.createdAt = {
+                $gte: startDate,
+                $lte: endDate
+            };
+        }
+
+        // 메시지 조회 (친구 채팅방: 필터링된 날짜 범위, 랜덤 채팅방: 전체)
+        const messages = await ChatMessage
+            .find(messageQuery)
+            .sort({ createdAt: 1 })
+            .populate('sender', 'nickname profileImg');
+
+        res.status(200).json({
+            roomType: chatRoom.roomType,
+            totalMessages: messages.length,
+            messages: messages,
+            ...(chatRoom.roomType === 'friend' && {
+                dateRange: {
+                    from: messageQuery.createdAt?.$gte,
+                    to: messageQuery.createdAt?.$lte
+                }
+            })
+        });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
