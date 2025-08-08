@@ -2,13 +2,29 @@
 
 import axios from 'axios';
 
-const ACCOUNT_API   = 'https://asia.api.riotgames.com';
-// const SUMMONER_API  = 'https://kr.api.riotgames.com';
-const MATCH_API     = 'https://asia.api.riotgames.com';
-const LEAGUE_API    = 'https://kr.api.riotgames.com';
+const ACCOUNT_API = 'https://asia.api.riotgames.com';
+const MATCH_API = 'https://asia.api.riotgames.com';
+const LEAGUE_API = 'https://kr.api.riotgames.com';
+const DDRAGON_API = 'https://ddragon.leagueoflegends.com';
 
 function riotHeaders() {
     return { headers: { 'X-Riot-Token': process.env.RIOT_API_KEY } };
+}
+
+// Data Dragon 최신 버전 가져오기
+async function getLatestVersion() {
+    try {
+        const { data } = await axios.get(`${DDRAGON_API}/api/versions.json`);
+        return data[0]; // 첫 번째 요소가 최신 버전
+    } catch (error) {
+        console.warn('최신 버전을 가져오지 못했습니다. 기본 버전을 사용합니다.');
+        return '13.24.1'; // 기본값
+    }
+}
+
+// 챔피언 이미지 URL 생성
+function getChampionImageUrl(championName, version) {
+    return `${DDRAGON_API}/cdn/${version}/img/champion/${championName}.png`;
 }
 
 function translateRiotError(err, step) {
@@ -37,35 +53,25 @@ export async function getLoLRecordByRiotId(riotId) {
     } catch (e) {
         throw translateRiotError(e, '계정 조회');
     }
+
     const puuid = account.puuid;
     if (!puuid) throw new Error('PUUID를 가져오지 못했습니다.');
 
-    // 3) Summoner 정보 조회
-    // let summoner;
-    // try {
-    //     ({ data: summoner } = await axios.get(
-    //         `${SUMMONER_API}/lol/summoner/v4/summoners/by-puuid/${puuid}`,
-    //         riotHeaders()
-    //     ));
-    // } catch (e) {
-    //     throw translateRiotError(e, '소환사 조회');
-    // }
-    // console.log("summoner:", summoner);
-    // if (!summoner?.id)
-    //     throw new Error('summoner.id 를 가져오지 못했습니다.');
-
+    // 3) Data Dragon 최신 버전 가져오기
+    const version = await getLatestVersion();
 
     // 4) Solo/Duo 랭크 통계 조회
     const { data: leagueEntries } = await axios.get(
         `${LEAGUE_API}/lol/league/v4/entries/by-puuid/${puuid}`,
         { headers: { 'X-Riot-Token': process.env.RIOT_API_KEY } }
     );
+
     const solo = leagueEntries.find(e => e.queueType === 'RANKED_SOLO_5x5') || {};
-    const tier         = solo.tier         || 'Unranked';
-    const rank         = solo.rank         || '';
+    const tier = solo.tier || 'Unranked';
+    const rank = solo.rank || '';
     const leaguePoints = solo.leaguePoints || 0;
-    const totalWins    = solo.wins         || 0;
-    const totalLosses  = solo.losses       || 0;
+    const totalWins = solo.wins || 0;
+    const totalLosses = solo.losses || 0;
     const overallWinRate = (totalWins + totalLosses) > 0
         ? Math.round((totalWins / (totalWins + totalLosses)) * 10000) / 100
         : 0;
@@ -87,7 +93,6 @@ export async function getLoLRecordByRiotId(riotId) {
             )
         );
         allMatches.push(...results);
-
         if (i + batchSize < matchIds.length) {
             await new Promise(r => setTimeout(r, 4000));
         }
@@ -101,22 +106,22 @@ export async function getLoLRecordByRiotId(riotId) {
         .map(m => {
             const p = m.info.participants.find(x => x.puuid === puuid);
             return {
-                matchId:  m.metadata.matchId,
+                matchId: m.metadata.matchId,
                 champion: p.championName,
-                win:      p.win,
-                kda:      ((p.kills + p.assists) / Math.max(1, p.deaths)).toFixed(2),
-                cs:       p.totalMinionsKilled + p.neutralMinionsKilled,
+                championImage: getChampionImageUrl(p.championName, version), // 챔피언 이미지 URL 추가
+                win: p.win,
+                kda: ((p.kills + p.assists) / Math.max(1, p.deaths)).toFixed(2),
+                cs: p.totalMinionsKilled + p.neutralMinionsKilled,
                 duration: m.info.gameDuration
             };
         });
 
     // 8) 결과 반환
     return {
-        // summoner,        // { id, name, puuid, profileIconId, summonerLevel, ... }
-        tier,            // e.g. "GOLD"
-        rank,            // e.g. "IV"
-        leaguePoints,    // e.g. 23
-        overallWinRate,  // e.g. 52.75
-        recentRanked     // 최근 10판 요약 배열
+        tier,
+        rank,
+        leaguePoints,
+        overallWinRate,
+        recentRanked // 이제 championImage 필드가 포함됨
     };
 }
