@@ -49,6 +49,9 @@ export const getReports = async (req, res) => {
         const size = parseInt(req.query.size) || 10;
         const pageRequestDTO = new PageRequestDTO(page, size);
 
+        // 정렬 순서 파라미터 추가 (기본값: desc)
+        const orderByDate = req.query.orderByDate === 'asc' ? 'asc' : 'desc';
+
         // 필터 객체 생성
         const filters = {};
 
@@ -106,7 +109,7 @@ export const getReports = async (req, res) => {
             filters.$or = orConditions;
         }
 
-        const { reports, totalCount } = await reportService.getReportsWithPagination(filters, page, size);
+        const { reports, totalCount } = await reportService.getReportsWithPagination(filters, page, size, orderByDate);
         const pageResponseDTO = new PageResponseDTO(reports, pageRequestDTO, totalCount);
         res.status(200).json(pageResponseDTO);
     } catch (error) {

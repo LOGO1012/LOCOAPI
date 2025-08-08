@@ -49,23 +49,30 @@ export const getReportById = async (id) => {
     }
 };
 
-export const getReportsWithPagination = async (filters = {}, page = 1, size = 10) => {
+export const getReportsWithPagination = async (filters = {}, page = 1, size = 10, orderByDate = 'desc') => {
     try {
         const skip = (page - 1) * size;
+
+        // 정렬 순서 결정: 'asc'면 1 (오래된 순), 그 외는 -1 (최신순)
+        const sortOrder = orderByDate === 'asc' ? 1 : -1;
+
         const reportsPromise = Report.find(filters)
             .skip(skip)
             .limit(size)
-            .sort({ reportDate: -1 })
+            .sort({ reportDate: sortOrder }) // 동적 정렬 적용
             .populate('reportErId', 'nickname')
             .populate('offenderId', 'nickname')
-            .populate('adminId',   'nickname');
+            .populate('adminId', 'nickname');
+
         const countPromise = Report.countDocuments(filters);
         const [reports, totalCount] = await Promise.all([reportsPromise, countPromise]);
+
         return { reports, totalCount };
     } catch (error) {
         throw error;
     }
 };
+
 
 /**
  * 신고 업데이트 함수
