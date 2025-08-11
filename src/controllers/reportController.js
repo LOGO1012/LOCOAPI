@@ -5,6 +5,7 @@ import PageRequestDTO from "../dto/common/PageRequestDTO.js";
 import PageResponseDTO from "../dto/common/PageResponseDTO.js";
 import {User} from "../models/UserProfile.js";
 import {ChatMessage, ChatRoom} from "../models/chat.js";
+import {ChatRoomHistory} from "../models/chatRoomHistory.js";
 
 /**
  * 신고 생성 컨트롤러 함수
@@ -185,16 +186,33 @@ export const getReportChatLog = async (req, res) => {
             return res.status(400).json({ message: 'This report is not chat-related.' });
         }
 
-        // 채팅방 정보 조회하여 roomType 확인
-        const chatRoom = await ChatRoom.findById(report.anchor.roomId);
-        if (!chatRoom) {
-            return res.status(404).json({ message: 'ChatRoom not found' });
+        let chatRoom = null;
+        let roomType = null;
+
+        // 1단계: 먼저 활성 채팅방에서 조회
+        chatRoom = await ChatRoom.findById(report.anchor.roomId);
+
+        if (chatRoom) {
+            // 활성 채팅방이 존재하는 경우
+            roomType = chatRoom.roomType;
+        } else {
+            // 2단계: 삭제된 채팅방인 경우 chatRoomHistory에서 조회
+            const chatRoomHistory = await ChatRoomHistory.findOne({
+                chatRoomId: report.anchor.roomId
+            });
+
+            if (!chatRoomHistory) {
+                return res.status(404).json({ message: 'ChatRoom not found in both active rooms and history' });
+            }
+
+            // 히스토리에서 메타 정보 사용
+            roomType = chatRoomHistory.meta.roomType;
         }
 
         let messageQuery = { chatRoom: report.anchor.roomId };
 
         // 친구 채팅방인 경우 신고일 기준 전후 1일 범위로 필터링
-        if (chatRoom.roomType === 'friend') {
+        if (roomType === 'friend') {
             const reportDate = report.reportDate;
             const startDate = new Date(reportDate);
             startDate.setDate(startDate.getDate() - 1); // 신고일 1일 전
@@ -210,17 +228,18 @@ export const getReportChatLog = async (req, res) => {
             };
         }
 
-        // 메시지 조회 (친구 채팅방: 필터링된 날짜 범위, 랜덤 채팅방: 전체)
+        // 메시지 조회 (삭제된 채팅방의 경우 삭제된 메시지도 포함하여 조회)
         const messages = await ChatMessage
             .find(messageQuery)
             .sort({ createdAt: 1 })
             .populate('sender', 'nickname profileImg');
 
         res.status(200).json({
-            roomType: chatRoom.roomType,
+            roomType: roomType,
             totalMessages: messages.length,
             messages: messages,
-            ...(chatRoom.roomType === 'friend' && {
+            isDeleted: !chatRoom, // 채팅방이 삭제되었는지 여부
+            ...(roomType === 'friend' && {
                 dateRange: {
                     from: messageQuery.createdAt?.$gte,
                     to: messageQuery.createdAt?.$lte
@@ -232,3 +251,4 @@ export const getReportChatLog = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
