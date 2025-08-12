@@ -46,10 +46,18 @@ app.use(cookieParser()); // 쿠키 파서를 추가
 // 미들웨어 추가: res.cookie() 호출 시 로그 출력
 app.use((req, res, next) => {
     const originalCookie = res.cookie;
+    const originalClearCookie = res.clearCookie;
+    
     res.cookie = function(name, value, options) {
         console.log(`Setting cookie: ${name}`, value, options);
         return originalCookie.call(this, name, value, options);
     }
+    
+    res.clearCookie = function(name, options) {
+        console.log(`Clearing cookie: ${name}`, options);
+        return originalClearCookie.call(this, name, options);
+    }
+    
     next();
 });
 

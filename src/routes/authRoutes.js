@@ -55,5 +55,18 @@ router.get('/me', getCurrentUser);
 router.post('/logout', logout);
 router.get("/logout-redirect", logoutRedirect);
 
+// 디버깅용: 현재 쿠키 상태 확인
+router.get('/check-cookies', (req, res) => {
+    console.log('쿠키 체크 요청');
+    console.log('수신된 쿠키들:', req.cookies);
+    console.log('수신된 헤더들:', req.headers.cookie);
+    
+    res.json({
+        cookies: req.cookies,
+        rawCookieHeader: req.headers.cookie,
+        message: '쿠키 상태 확인 완료'
+    });
+});
+
 export default router; // 라우터 내보내기
 //124
