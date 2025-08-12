@@ -89,18 +89,22 @@ export const updateCommunity = async (req, res) => {
 };
 
 // 커뮤니티 삭제
+// 삭제 관련 응답 메시지 수정
 export const deleteCommunity = async (req, res) => {
     try {
         const { id } = req.params;
         const deletedCommunity = await communityService.deleteCommunity(id);
+
         if (!deletedCommunity) {
             return res.status(404).json({ message: '커뮤니티를 찾을 수 없습니다.' });
         }
+
         res.status(200).json({ message: '커뮤니티가 삭제되었습니다.' });
     } catch (error) {
         res.status(500).json({ message: '커뮤니티 삭제에 실패했습니다.', error });
     }
 };
+
 
 // 추천 처리 (사용자별 한 번만 추천)
 export const recommendCommunity = async (req, res) => {

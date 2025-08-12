@@ -1,4 +1,5 @@
 // src/models/Community.js
+
 import mongoose from 'mongoose';
 import { User } from './UserProfile.js';
 
@@ -23,9 +24,18 @@ const subReplySchema = new Schema({
         type: Date,
         default: Date.now,
     },
+    // ✅ Soft delete 필드 추가
+    isDeleted: {
+        type: Boolean,
+        default: false,
+    },
+    deletedAt: {
+        type: Date,
+        default: null,
+    },
 }, { timestamps: true });
 
-// 대댓글 스키마 (대대댓글 포함)
+// 대댓글 스키마
 const replySchema = new Schema({
     userId: {
         type: Schema.Types.ObjectId,
@@ -44,11 +54,19 @@ const replySchema = new Schema({
         type: Date,
         default: Date.now,
     },
-    // 대대댓글 배열 추가
+    // ✅ Soft delete 필드 추가
+    isDeleted: {
+        type: Boolean,
+        default: false,
+    },
+    deletedAt: {
+        type: Date,
+        default: null,
+    },
     subReplies: [subReplySchema],
 }, { timestamps: true });
 
-// 댓글 스키마 (대댓글 포함) – 댓글에 사진 첨부 지원
+// 댓글 스키마
 const commentSchema = new Schema({
     userId: {
         type: Schema.Types.ObjectId,
@@ -66,6 +84,15 @@ const commentSchema = new Schema({
     commentRegDate: {
         type: Date,
         default: Date.now,
+    },
+    // ✅ Soft delete 필드 추가
+    isDeleted: {
+        type: Boolean,
+        default: false,
+    },
+    deletedAt: {
+        type: Date,
+        default: null,
     },
     replies: [replySchema],
 }, { timestamps: true });
@@ -98,10 +125,9 @@ const communitySchema = new Schema({
         type: Date,
         default: Date.now,
     },
-    /* ✅ 다중 이미지 배열로 변경 */
     communityImages: [{
         type: String,
-        required: false           // 한 장도 없을 수 있다면 required:false 로
+        required: false
     }],
     recommended: {
         type: Number,
@@ -120,15 +146,27 @@ const communitySchema = new Schema({
         type: Number,
         default: 0,
     },
+    // ✅ Soft delete 필드 추가
+    isDeleted: {
+        type: Boolean,
+        default: false,
+    },
+    deletedAt: {
+        type: Date,
+        default: null,
+    },
 }, { timestamps: true });
 
+// 인덱스 설정
 communitySchema.index({
     communityTitle: 'text',
     communityContents: 'text'
 });
-// B‑Tree 인덱스: 정확 일치(zero‑scanned regex) 또는 anchored regex (접두사) 시 IXSCAN
+
 communitySchema.index({ communityTitle: 1 });
 communitySchema.index({ communityContents: 1 });
 communitySchema.index({ authorNickname: 1 });
+// ✅ Soft delete 조회 성능을 위한 인덱스 추가
+communitySchema.index({ isDeleted: 1 });
 
 export const Community = model('Community', communitySchema);
