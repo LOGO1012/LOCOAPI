@@ -10,17 +10,25 @@ dotenv.config(); // .env 파일에 정의된 환경변수 로드
 // JWT 서명에 사용할 비밀키를 환경변수에서 가져오거나 기본값 사용
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 const REFRESH_SECRET = process.env.REFRESH_SECRET || "your_refresh_secret";
-
+const BASE_URL_FRONT = process.env.BASE_URL_FRONT
 const isProd = process.env.NODE_ENV === 'production';
 
 const cookieOptions = {
     httpOnly: true,
-    secure:   isProd,                     // prod일 때만 true
-    // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",    // prod → none, dev → lax
-    sameSite: isProd ? 'none' : 'lax',
-    // sameSite: 'none',
+    secure:   false,  // 개발환경에서는 false
+    sameSite: 'lax',  // 개발환경에서는 lax
     path:     "/",
+    // domain 옵션을 제거하여 현재 도메인에만 쿠키 설정
     maxAge:   7 * 24 * 60 * 60 * 1000,
+};
+
+// 쿠키 삭제용 옵션 (maxAge 없이, 설정 시와 동일한 옵션 사용)
+const clearCookieOptions = {
+    httpOnly: true,
+    secure:   false,  // 설정할 때와 동일하게
+    sameSite: 'lax',  // 설정할 때와 동일하게
+    path:     "/",
+    // domain 옵션 제거
 };
 
 /**
@@ -237,7 +245,16 @@ export const getCurrentUser = async (req, res) => {
  * 로그아웃: Refresh 토큰 쿠키 삭제
  */
 export const logout = (req, res) => {
-    res.clearCookie("refreshToken", cookieOptions );
+    console.log('로그아웃 요청 - 쿠키 삭제 시작');
+    console.log('현재 쿠키들:', req.cookies);
+    console.log('요청 헤더 Origin:', req.headers.origin);
+    console.log('요청 헤더 Host:', req.headers.host);
+    
+    // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
+    res.clearCookie('refreshToken', clearCookieOptions);
+    res.clearCookie('accessToken', clearCookieOptions);
+    
+    console.log('쿠키 삭제 완료');
     return res.status(200).json({ message: "Logged out" });
 };
 
@@ -246,7 +263,13 @@ export const logout = (req, res) => {
  * 로그아웃 후 프론트 리다이렉트 (카카오 로그아웃용)
  */
 export const logoutRedirect = (req, res) => {
-    res.clearCookie("refreshToken", cookieOptions);
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-    return res.redirect(frontendUrl);
+    console.log('로그아웃 리다이렉트 - 쿠키 삭제 시작');
+    console.log('현재 쿠키들:', req.cookies);
+    
+    // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
+    res.clearCookie('refreshToken', clearCookieOptions);
+    res.clearCookie('accessToken', clearCookieOptions);
+    
+    console.log('쿠키 삭제 후 프론트로 리다이렉트');
+    return res.redirect(BASE_URL_FRONT);
 };
