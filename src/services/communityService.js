@@ -64,32 +64,39 @@ export const getCommunitiesPage = async (
     return new PageResponseDTO(communities, pageRequestDTO, totalCount);
 };
 
-
-
-
-// ✅ 단일 커뮤니티 조회 수정
-export const getCommunityById = async (id) => {
-    return await Community.findOne({ _id: id, isDeleted: false });
+// 익명 닉네임 생성 함수 추가
+const generateAnonymousNickname = () => {
+    const randomNum = Math.floor(Math.random() * 10000);
+    return `익명${randomNum}`;
 };
 
 // 커뮤니티 생성
 export const createCommunity = async (data) => {
-    // 작성자 닉네임 스냅샷
-    if (data.userId) {
+    // ✅ 익명 처리 로직 추가
+    if (data.isAnonymous) {
+        data.userNickname = '익명';
+        // 또는 랜덤 익명 닉네임 사용
+        // data.anonymousNickname = generateAnonymousNickname();
+    } else if (data.userId) {
+        // 기존 로직: 실명일 때만 실제 닉네임 조회
         const author = await User.findById(data.userId, 'nickname');
         data.userNickname = author?.nickname || '';
     }
+
     const community = new Community(data);
     return await community.save();
 };
 
 // 커뮤니티 업데이트
 export const updateCommunity = async (id, data) => {
-    // userId가 변경되었거나 닉네임을 리프레시할 필요가 있을 때
-    if (data.userId) {
+    // ✅ 익명 처리 로직 추가
+    if (data.isAnonymous) {
+        data.userNickname = '익명';
+    } else if (data.userId) {
         const author = await User.findById(data.userId, 'nickname');
         data.userNickname = author?.nickname || '';
     }
+
     return await Community.findByIdAndUpdate(id, data, { new: true });
 };
 
@@ -152,31 +159,51 @@ export const cancelRecommendCommunity = async (id, userId) => {
 
 // 댓글 추가: 댓글 데이터를 community.comments 배열에 추가하고, commentCount 1 증가
 export const addComment = async (communityId, commentData) => {
+    // ✅ 익명 댓글 처리
+    if (commentData.isAnonymous) {
+        // commentData.anonymousNickname = generateAnonymousNickname();
+        // 또는 단순히 '익명' 처리는 프론트엔드에서
+    }
+
     return Community.findByIdAndUpdate(
         communityId,
         {
-            $push: {comments: commentData},
-            $inc: {commentCount: 1}
+            $push: { comments: commentData },
+            $inc: { commentCount: 1 }
         },
-        {new: true}
+        { new: true }
     );
 };
 
 // 대댓글 추가: 특정 댓글의 replies 배열에 새 대댓글을 추가하고, commentCount는 그대로 유지
 export const addReply = async (communityId, commentId, replyData) => {
+    // ✅ 익명 대댓글 처리
+    if (replyData.isAnonymous) {
+        // replyData.anonymousNickname = generateAnonymousNickname();
+    }
+
     return await Community.findOneAndUpdate(
         { _id: communityId, "comments._id": commentId },
-        { $push: { "comments.$.replies": replyData }, $inc: { commentCount: 1 } },
+        {
+            $push: { "comments.$.replies": replyData },
+            $inc: { commentCount: 1 }
+        },
         { new: true }
     );
 };
 
 // 대대댓글 추가: community.comments 배열 내에서 특정 comment와 그 reply를 찾아 subReplies에 추가
 export const addSubReply = async (communityId, commentId, replyId, subReplyData) => {
+    // ✅ 익명 대대댓글 처리
+    if (subReplyData.isAnonymous) {
+        // subReplyData.anonymousNickname = generateAnonymousNickname();
+    }
+
     return await Community.findOneAndUpdate(
         { _id: communityId },
         {
-            $push: { "comments.$[c].replies.$[r].subReplies": subReplyData }, $inc: { commentCount: 1 }
+            $push: { "comments.$[c].replies.$[r].subReplies": subReplyData },
+            $inc: { commentCount: 1 }
         },
         {
             new: true,

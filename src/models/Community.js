@@ -24,7 +24,16 @@ const subReplySchema = new Schema({
         type: Date,
         default: Date.now,
     },
-    // ✅ Soft delete 필드 추가
+    // ✅ 익명 작성 여부 추가
+    isAnonymous: {
+        type: Boolean,
+        default: false,
+    },
+    // ✅ 익명일 때 표시할 닉네임 (선택사항)
+    anonymousNickname: {
+        type: String,
+        default: null,
+    },
     isDeleted: {
         type: Boolean,
         default: false,
@@ -54,7 +63,16 @@ const replySchema = new Schema({
         type: Date,
         default: Date.now,
     },
-    // ✅ Soft delete 필드 추가
+    // ✅ 익명 작성 여부 추가
+    isAnonymous: {
+        type: Boolean,
+        default: false,
+    },
+    // ✅ 익명일 때 표시할 닉네임 (선택사항)
+    anonymousNickname: {
+        type: String,
+        default: null,
+    },
     isDeleted: {
         type: Boolean,
         default: false,
@@ -85,7 +103,16 @@ const commentSchema = new Schema({
         type: Date,
         default: Date.now,
     },
-    // ✅ Soft delete 필드 추가
+    // ✅ 익명 작성 여부 추가
+    isAnonymous: {
+        type: Boolean,
+        default: false,
+    },
+    // ✅ 익명일 때 표시할 닉네임 (선택사항)
+    anonymousNickname: {
+        type: String,
+        default: null,
+    },
     isDeleted: {
         type: Boolean,
         default: false,
@@ -107,6 +134,16 @@ const communitySchema = new Schema({
     userNickname: {
         type: String,
         default: ''
+    },
+    // ✅ 익명 작성 여부 추가
+    isAnonymous: {
+        type: Boolean,
+        default: false,
+    },
+    // ✅ 익명일 때 표시할 닉네임 (선택사항)
+    anonymousNickname: {
+        type: String,
+        default: null,
     },
     communityTitle: {
         type: String,
@@ -146,7 +183,6 @@ const communitySchema = new Schema({
         type: Number,
         default: 0,
     },
-    // ✅ Soft delete 필드 추가
     isDeleted: {
         type: Boolean,
         default: false,
@@ -157,7 +193,7 @@ const communitySchema = new Schema({
     },
 }, { timestamps: true });
 
-// 인덱스 설정
+// 기존 인덱스들...
 communitySchema.index({
     communityTitle: 'text',
     communityContents: 'text'
@@ -166,7 +202,6 @@ communitySchema.index({
 communitySchema.index({ communityTitle: 1 });
 communitySchema.index({ communityContents: 1 });
 communitySchema.index({ authorNickname: 1 });
-// ✅ Soft delete 조회 성능을 위한 인덱스 추가
 communitySchema.index({ isDeleted: 1 });
 
 export const Community = model('Community', communitySchema);
