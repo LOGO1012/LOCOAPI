@@ -66,7 +66,11 @@ const buildImageArray = async (req) => {
 export const createCommunity = async (req, res) => {
     try {
         const data = { ...req.body };
-        data.communityImages = await buildImageArray(req);     // ✅ 핵심
+
+        // ✅ 익명 여부 처리
+        data.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
+
+        data.communityImages = await buildImageArray(req);
         const created = await communityService.createCommunity(data);
         res.status(201).json(created);
     } catch (err) {
@@ -79,7 +83,11 @@ export const updateCommunity = async (req, res) => {
     try {
         const { id } = req.params;
         const data = { ...req.body };
-        data.communityImages = await buildImageArray(req);     // 파일·URL 둘 다 반영
+
+        // ✅ 익명 여부 처리
+        data.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
+
+        data.communityImages = await buildImageArray(req);
         const updated = await communityService.updateCommunity(id, data);
         if (!updated) return res.status(404).json({ message: '존재하지 않는 글' });
         res.status(200).json(updated);
@@ -89,18 +97,22 @@ export const updateCommunity = async (req, res) => {
 };
 
 // 커뮤니티 삭제
+// 삭제 관련 응답 메시지 수정
 export const deleteCommunity = async (req, res) => {
     try {
         const { id } = req.params;
         const deletedCommunity = await communityService.deleteCommunity(id);
+
         if (!deletedCommunity) {
             return res.status(404).json({ message: '커뮤니티를 찾을 수 없습니다.' });
         }
+
         res.status(200).json({ message: '커뮤니티가 삭제되었습니다.' });
     } catch (error) {
         res.status(500).json({ message: '커뮤니티 삭제에 실패했습니다.', error });
     }
 };
+
 
 // 추천 처리 (사용자별 한 번만 추천)
 export const recommendCommunity = async (req, res) => {
@@ -136,11 +148,16 @@ export const cancelRecommendCommunity = async (req, res) => {
 // 댓글 추가 컨트롤러
 export const addComment = async (req, res) => {
     try {
-        const { id } = req.params; // 커뮤니티 ID
+        const { id } = req.params;
         const commentData = { ...req.body };
+
+        // ✅ 익명 여부 처리
+        commentData.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
+
         if (req.file) {
             commentData.commentImage = `/uploads/${req.file.filename}`;
         }
+
         const updatedCommunity = await communityService.addComment(id, commentData);
         res.status(200).json(updatedCommunity);
     } catch (error) {
@@ -151,13 +168,16 @@ export const addComment = async (req, res) => {
 // 대댓글 추가 컨트롤러 (사진 첨부 지원)
 export const addReply = async (req, res) => {
     try {
-        const { id, commentId } = req.params; // id: 커뮤니티 ID, commentId: 댓글 ID
-        // req.body에 { userId, commentContents }가 포함되어 있다고 가정
+        const { id, commentId } = req.params;
         const replyData = { ...req.body };
+
+        // ✅ 익명 여부 처리
+        replyData.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
+
         if (req.file) {
-            // 업로드된 파일이 있으면, '/uploads/파일명' 형식으로 저장
             replyData.replyImage = `/uploads/${req.file.filename}`;
         }
+
         const updatedCommunity = await communityService.addReply(id, commentId, replyData);
         res.status(200).json(updatedCommunity);
     } catch (error) {
@@ -165,14 +185,19 @@ export const addReply = async (req, res) => {
     }
 };
 
-// 대대댓글 추가 컨트롤러 (사진 첨부 지원)
+// 대대댓글 추가 컨트롤러
 export const addSubReply = async (req, res) => {
     try {
-        const { id, commentId, replyId } = req.params; // id: 커뮤니티 ID, commentId: 댓글 ID, replyId: 대댓글 ID
+        const { id, commentId, replyId } = req.params;
         const subReplyData = { ...req.body };
+
+        // ✅ 익명 여부 처리
+        subReplyData.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
+
         if (req.file) {
             subReplyData.subReplyImage = `/uploads/${req.file.filename}`;
         }
+
         const updatedCommunity = await communityService.addSubReply(id, commentId, replyId, subReplyData);
         res.status(200).json(updatedCommunity);
     } catch (error) {
