@@ -10,8 +10,8 @@ import { User } from "../models/UserProfile.js";
 import {io} from "../socket/socketIO.js";
 import {getLoLRecordByRiotId} from "../middlewares/getLoLRecordBySummonerName.js";
 import {FriendRequest} from "../models/FriendRequest.js";
-
-
+import { saveNicknameHistory, saveGenderHistory, getTodayNicknameChangeCount, getTodayGenderChangeCount, getLastNicknameChangeTime, getLastGenderChangeTime } from '../services/historyService.js';
+import { getNicknameHistory, getGenderHistory } from '../services/historyService.js';
 
 // 총 유저 수 함수
 export const getUserCountController = async (req, res) => {
@@ -99,27 +99,86 @@ export const getUserInfo = async (req, res) => {
 
 // 사용자 프로필 업데이트 컨트롤러 (PATCH 요청)
 // 로코 코인(coinLeft)과 생년월일(birthdate)은 수정할 수 없도록 업데이트에서 제거합니다.
-export const updateUserProfile = async (req, res, next) => {
-    const { userId } = req.params;
-    const updates = req.body;
-
-    // 수정할 수 없는 필드는 업데이트 객체에서 제거
-    if ("coinLeft" in updates) delete updates.coinLeft;
-    if ("birthdate" in updates) delete updates.birthdate;
-
+export const updateUserProfile = async (req, res) => {
     try {
-        const updatedUser = await User.findByIdAndUpdate(userId, updates, { new: true });
-        if (!updatedUser) {
-            return res.status(404).json({ success: false, message: "사용자를 찾을 수 없습니다." });
+        const { userId } = req.params;
+        const updateData = req.body;
+
+        // 현재 사용자 정보 조회
+        const currentUser = await User.findById(userId);
+        if (!currentUser) {
+            return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
         }
-        return res.status(200).json({
-            success: true,
-            message: "프로필 업데이트 성공",
-            user: updatedUser,
+
+        // 닉네임 변경 제한 체크 (하루 1회)
+        if (updateData.nickname && updateData.nickname !== currentUser.nickname) {
+        const todayNicknameChangeCount = await getTodayNicknameChangeCount(userId);
+        
+        if (todayNicknameChangeCount >= 1) {
+        const lastChangeTime = await getLastNicknameChangeTime(userId);
+        const lastChangeDate = lastChangeTime ? new Date(lastChangeTime).toLocaleDateString('ko-KR') : '알 수 없음';
+            
+                return res.status(400).json({ 
+                    message: `닉네임은 하루에 1회만 변경 가능합니다. 마지막 변경일: ${lastChangeDate}`,
+                    lastChangeTime: lastChangeTime
+            });
+        }
+        }
+        
+        // 성별 변경 제한 체크 (하루 1회)
+        if (updateData.gender && updateData.gender !== currentUser.gender) {
+            const todayGenderChangeCount = await getTodayGenderChangeCount(userId);
+            
+            if (todayGenderChangeCount >= 1) {
+                const lastChangeTime = await getLastGenderChangeTime(userId);
+                const lastChangeDate = lastChangeTime ? new Date(lastChangeTime).toLocaleDateString('ko-KR') : '알 수 없음';
+                
+                return res.status(400).json({ 
+                    message: `성별은 하루에 1회만 변경 가능합니다. 마지막 변경일: ${lastChangeDate}`,
+                    lastChangeTime: lastChangeTime
+                });
+            }
+        }
+
+        // 사용자 정보 업데이트
+        const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
+            new: true,
+            runValidators: true
         });
+
+        // 히스토리 저장
+        if (updateData.nickname && updateData.nickname !== currentUser.nickname) {
+        await saveNicknameHistory(
+        userId,
+        currentUser.nickname,
+        updateData.nickname,
+        'user_change',
+        userId,
+        req
+        );
+            console.log(`닉네임 변경: ${currentUser.nickname} → ${updateData.nickname}`);
+        }
+        
+        if (updateData.gender && updateData.gender !== currentUser.gender) {
+        await saveGenderHistory(
+        userId,
+        currentUser.gender,
+        updateData.gender,
+        'user_change',
+        userId,
+            req
+            );
+            console.log(`성별 변경: ${currentUser.gender} → ${updateData.gender}`);
+        }
+
+        res.status(200).json({
+            message: '프로필이 성공적으로 업데이트되었습니다.',
+            user: updatedUser
+        });
+
     } catch (error) {
-        console.error("프로필 업데이트 에러:", error.message);
-        return res.status(500).json({ success: false, message: error.message });
+        console.error('프로필 업데이트 실패:', error);
+        res.status(500).json({ message: '서버 오류가 발생했습니다.' });
     }
 };
 
@@ -387,3 +446,161 @@ export const updateUserPrefsController = async (req, res) => {
     }
 };
 
+// 닉네임 중복 체크 컨트롤러
+export const checkNicknameController = async (req, res) => {
+    try {
+        const { nickname } = req.params;
+        const { userId } = req.query; // 수정 시 자신의 ID는 제외하기 위함
+
+        console.log('닉네임 중복 체크:', nickname, 'userId:', userId);
+
+        if (!nickname || nickname.trim() === '') {
+            return res.status(400).json({
+                available: false,
+                message: '닉네임을 입력해주세요.'
+            });
+        }
+
+        // 닉네임 길이 체크 (2-12자)
+        if (nickname.length < 2 || nickname.length > 12) {
+            return res.status(400).json({
+                available: false,
+                message: '닉네임은 2-12자로 입력해주세요.'
+            });
+        }
+
+        // 특수문자 체크 (한글, 영문, 숫자, 일부 특수문자만 허용)
+        const nicknameRegex = /^[가-힣a-zA-Z0-9._-]+$/;
+        if (!nicknameRegex.test(nickname)) {
+            return res.status(400).json({
+                available: false,
+                message: '닉네임에는 한글, 영문, 숫자, ., _, - 만 사용 가능합니다.'
+            });
+        }
+
+        // 금지어 체크 (필요시 추가)
+        const forbiddenWords = ['관리자', 'admin', 'root', 'system'];
+        const lowerNickname = nickname.toLowerCase();
+        if (forbiddenWords.some(word => lowerNickname.includes(word))) {
+            return res.status(400).json({
+                available: false,
+                message: '사용할 수 없는 닉네임입니다.'
+            });
+        }
+
+        // DB에서 중복 체크
+        const existingUser = await User.findOne({ nickname });
+
+        if (existingUser) {
+            // 수정 시 자신의 닉네임인 경우는 사용 가능
+            if (userId && existingUser._id.toString() === userId) {
+                return res.json({
+                    available: true,
+                    message: '현재 사용 중인 닉네임입니다.'
+                });
+            }
+
+            // 다른 사용자가 사용 중인 닉네임인 경우
+            return res.json({
+                available: false,
+                message: '현재 사용 중인 닉네임입니다.'
+            });
+        }
+
+        return res.json({
+            available: true,
+            message: '사용 가능한 닉네임입니다.'
+        });
+
+    } catch (error) {
+        console.error('닉네임 중복 체크 에러:', error);
+        return res.status(500).json({
+            available: false,
+            message: '서버 오류가 발생했습니다.'
+        });
+    }
+};
+
+// 닉네임 히스토리 조회 컨트롤러
+export const getNicknameHistoryController = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { limit = 50 } = req.query;
+
+        const history = await getNicknameHistory(userId, parseInt(limit));
+
+        res.status(200).json({
+            message: '닉네임 히스토리 조회 성공',
+            data: history
+        });
+    } catch (error) {
+        console.error('닉네임 히스토리 조회 실패:', error);
+        res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+    }
+};
+
+// 성별 히스토리 조회 컨트롤러
+export const getGenderHistoryController = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { limit = 50 } = req.query;
+
+        const history = await getGenderHistory(userId, parseInt(limit));
+
+        res.status(200).json({
+            message: '성별 히스토리 조회 성공',
+            data: history
+        });
+    } catch (error) {
+        console.error('성별 히스토리 조회 실패:', error);
+        res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+    }
+};
+
+// 변경 가능 여부 확인 컨트롤러
+export const checkChangeAvailabilityController = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        
+        const [
+            todayNicknameCount,
+            todayGenderCount,
+            lastNicknameChangeTime,
+            lastGenderChangeTime
+        ] = await Promise.all([
+            getTodayNicknameChangeCount(userId),
+            getTodayGenderChangeCount(userId),
+            getLastNicknameChangeTime(userId),
+            getLastGenderChangeTime(userId)
+        ]);
+        
+        // 다음 날 시작 시간 계산
+        const getNextDayStart = () => {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(0, 0, 0, 0);
+            return tomorrow;
+        };
+        
+        res.status(200).json({
+            message: '변경 가능 여부 조회 성공',
+            data: {
+                nickname: {
+                    canChange: todayNicknameCount < 1,
+                    todayChangeCount: todayNicknameCount,
+                    lastChangeTime: lastNicknameChangeTime,
+                    nextAvailableTime: todayNicknameCount >= 1 ? getNextDayStart() : null
+                },
+                gender: {
+                    canChange: todayGenderCount < 1,
+                    todayChangeCount: todayGenderCount,
+                    lastChangeTime: lastGenderChangeTime,
+                    nextAvailableTime: todayGenderCount >= 1 ? getNextDayStart() : null
+                }
+            }
+        });
+    } catch (error) {
+        console.error('변경 가능 여부 확인 실패:', error);
+        res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+    }
+};

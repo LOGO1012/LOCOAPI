@@ -93,7 +93,7 @@ export const kakaoCallback = async (req, res, next) => {
             name:    user.name,
         };
 
-        const accessToken  = jwt.sign(payload, JWT_SECRET,     { expiresIn: "15m" });
+        const accessToken  = jwt.sign(payload, JWT_SECRET,     { expiresIn: "2h" }); // 15분 → 2시간으로 연장
         const refreshToken = jwt.sign(payload, REFRESH_SECRET, { expiresIn: "7d" });
 
 
@@ -101,7 +101,7 @@ export const kakaoCallback = async (req, res, next) => {
         // 5) Refresh 토큰은 HttpOnly 쿠키로, Access 토큰은 JSON 바디로 응답
         // 수정 Refresh, Access 둘다 HttpOnly 쿠키로
         res
-            .cookie('accessToken',  accessToken,  { ...cookieOptions, maxAge: 15*60*1000})
+            .cookie('accessToken',  accessToken,  { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000}) // 2시간
             .cookie('refreshToken', refreshToken, { ...cookieOptions , maxAge: 7*24*60*60*1000 })
             .json({
                 message:     "카카오 로그인 성공",
@@ -167,10 +167,10 @@ export const refreshToken = async (req, res) => {
                 name: payload.name,
             },
             JWT_SECRET,
-            { expiresIn: '15m' }
+            { expiresIn: '2h' } // 15분 → 2시간으로 연장
         );
         return res
-            .cookie('accessToken', newAccessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+            .cookie('accessToken', newAccessToken, { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000 }) // 2시간
             .status(200)
             .json({ message: 'Access token refreshed' });
     } catch (err) {
@@ -226,11 +226,11 @@ export const getCurrentUser = async (req, res) => {
                 name: payload.name,
             },
             JWT_SECRET,
-            { expiresIn: '15m' }
+            { expiresIn: '2h' } // 15분 → 2시간으로 연장
         );
 
         return res
-            .cookie('accessToken', newAccessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+            .cookie('accessToken', newAccessToken, { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000 }) // 2시간
             .status(200)
             .json({ user });
     } catch (err) {

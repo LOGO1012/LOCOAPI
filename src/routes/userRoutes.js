@@ -17,7 +17,10 @@ import {
     getBlockedUsersController,
     getSummonerRecord, getPaginatedFriendsController,
     getUserCountController, getGenderCountController,
-    getSocialGenderCountController, updateUserPrefsController
+    getSocialGenderCountController, updateUserPrefsController,
+    checkNicknameController,
+    getNicknameHistoryController, getGenderHistoryController,
+    checkChangeAvailabilityController
 } from "../controllers/userController.js";
 
 const router = express.Router();
@@ -75,5 +78,15 @@ router.get('/lol/:gameName/:tagLine', getSummonerRecord);
 router.get('/:userId/friends', getPaginatedFriendsController);
 
 router.patch('/:userId/prefs', updateUserPrefsController);
+
+router.get("/check-nickname/:nickname", checkNicknameController);
+
+router.get("/:userId/nickname-history", getNicknameHistoryController);
+
+// 성별 히스토리 조회
+router.get("/:userId/gender-history", getGenderHistoryController);
+
+// 변경 가능 여부 확인
+router.get("/:userId/change-availability", checkChangeAvailabilityController);
 
 export default router;

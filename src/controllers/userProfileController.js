@@ -1,6 +1,7 @@
 // src/controllers/userProfileController.js
 import { User } from '../models/UserProfile.js'; // User 스키마(모델) 임포트
 import { normalizePhoneNumber } from '../utils/normalizePhoneNumber.js';
+import { saveNicknameHistory, saveGenderHistory } from '../services/historyService.js';
 
 /**
  * registerUserProfile
@@ -57,14 +58,45 @@ export const registerUserProfile = async (req, res, next) => {
         });
 
         // 생성한 사용자 객체를 DB에 저장
-        await newUser.save(); // DB 저장 성공 시 새 User 문서가 생성됩니다.
-        console.log('신규 User 등록 성공:', newUser); // 저장 성공 로그 출력
+        const savedUser = await newUser.save(); // DB 저장 성공 시 새 User 문서가 생성됩니다.
+        console.log('신규 User 등록 성공:', savedUser); // 저장 성공 로그 출력
+
+        // 회원가입 시 닉네임 히스토리 저장
+        await saveNicknameHistory(
+            savedUser._id,
+            null,  // 회원가입 시에는 이전 닉네임이 없음
+            savedUser.nickname,
+            'signup',
+            savedUser._id,  // 자신이 생성
+            req
+        );
+
+        // 회원가입 시 성별 히스토리 저장
+        await saveGenderHistory(
+            savedUser._id,
+            null,  // 회원가입 시에는 이전 성별이 없음
+            savedUser.gender,
+            'signup',
+            savedUser._id,  // 자신이 생성
+            req
+        );
+
+        console.log('회원가입 및 히스토리 저장 완료');
 
         // 회원가입 성공 응답: 201 Created 상태와 함께 생성된 사용자 정보를 반환
         return res.status(201).json({
             message: '회원가입 성공',
-            user: newUser
+            user: savedUser
         });
+
+
+
+
+
+
+
+
+
     } catch (error) { // 오류헨들링코드
         // 에러 발생 시 콘솔에 오류 메시지를 출력하고, next()를 통해 에러를 미들웨어로 전달
         console.error('회원가입 컨트롤러 에러:', error.message);
