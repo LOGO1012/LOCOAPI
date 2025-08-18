@@ -46,6 +46,14 @@ const qnaSchema = new Schema({
         type: Date,
         default: Date.now,  // 문의 등록 날짜, 기본값은 현재 날짜
     },
+    isAnonymous: {
+        type: Boolean,
+        default: false, // false면 실명 표시, true면 익명
+    },
+    isAdminOnly: {
+        type: Boolean,
+        default: false, // false면 전체 공개, true면 관리자만 열람
+    },
 }, { timestamps: true });  // 생성일과 수정일 자동으로 기록
 
 
