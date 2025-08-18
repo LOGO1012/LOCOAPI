@@ -64,12 +64,23 @@ const getQnaById = async (req, res) => {
         const qna = await QnaService.getQnaById(req.params.id);
         if (!qna) return res.status(404).json({ message: 'QnA not found' });
 
-        // ② toISOString으로 직렬화해서 보내기
-        const serialized = {
+        const user = req.user;
+        const isAdmin = user && (user.role === 'admin' || user.userLv >= 2);
+        const isOwner = user && user._id.toString() === qna.userId.toString();
+
+        let serialized = {
             ...qna.toObject(),
+            userNickname: qna.isAnonymous ? '익명' : qna.userNickname,
             qnaRegdate: qna.qnaRegdate.toISOString(),
-            updatedAt : qna.updatedAt.toISOString()
+            updatedAt: qna.updatedAt.toISOString()
         };
+
+        // 관리자가 아니고, 본인이 아닌 경우에만 비공개 처리
+        if (qna.isAdminOnly && !isAdmin && !isOwner) {
+            serialized.qnaTitle = '비공개 게시글입니다.';
+            serialized.qnaContents = '비공개 게시글입니다. 관리자만 내용을 볼 수 있습니다.';
+            serialized.qnaAnswer = qna.qnaAnswer ? '비공개 답변입니다.' : null;
+        }
 
         return res.status(200).json(serialized);
     } catch (error) {
