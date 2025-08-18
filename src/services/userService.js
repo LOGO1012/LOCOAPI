@@ -357,7 +357,7 @@ export const unblockUserService = async (userId, targetId) => {
  * 차단 목록 조회
  */
 export const getBlockedUsersService = async (userId) => {
-    const user = await User.findById(userId).populate('blockedUsers', 'nickname photo');
+    const user = await User.findById(userId).populate('blockedUsers', 'nickname name profilePhoto createdAt');
     if (!user) throw new Error('사용자를 찾을 수 없습니다.');
     return user.blockedUsers;
 };

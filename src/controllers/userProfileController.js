@@ -31,6 +31,7 @@ export const registerUserProfile = async (req, res, next) => {
             phone: normalizePhoneNumber(phoneNumber),       // 전화번호
             birthdate,    // 회원가입 폼에서 입력한 생년월일 (날짜 형식)
             info,         // 자기소개 등 추가 정보 (옵션)
+            numOfChat: 30, // 회원가입 시 기본 채팅 횟수 30회 제공
             social: {
                 // 카카오 소셜 로그인 정보 (kakaoId가 있을 때만 추가)
                 ...(kakaoId && {
