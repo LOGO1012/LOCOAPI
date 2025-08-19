@@ -237,7 +237,11 @@ const userSchema = new Schema({
         type: Boolean,
         default: true      // 기존 동작과 동일한 초기값
     },
-
+    // 채팅 미리보기 알림 설정
+    chatPreviewEnabled: {
+        type: Boolean,
+        default: true // 기본값은 활성화
+    },
 
 }, {
     timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
