@@ -24,8 +24,11 @@ import uploadRoutes from './src/routes/uploadRoutes.js';
 import reportRoutes from "./src/routes/reportRoutes.js";
 import reportNotificationRoutes from "./src/routes/reportNotificationRoutes.js";
 import prRoutes from "./src/routes/prRoutes.js";
+import onlineStatusRoutes from './src/routes/onlineStatusRoutes.js';
 
 import searchRouter from './src/routes/searchRouter.js';
+import newsRoutes from './src/routes/newsRoutes.js';
+import editorRoutes from './src/routes/editorRoutes.js';
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
 
@@ -91,8 +94,11 @@ app.use('/api/reportNotification', reportNotificationRoutes)
 app.use('/api/upload', uploadRoutes);
 app.use("/api/pr", prRoutes);
 app.use('/api/developer', developerRoutes);
+app.use('/api/online-status', onlineStatusRoutes);
 
 app.use('/api/search', searchRouter);
+app.use('/api/news', newsRoutes);
+app.use('/api/editor', editorRoutes);
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
