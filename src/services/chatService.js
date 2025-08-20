@@ -80,8 +80,11 @@ export const getAllChatRooms = async (filters) => {
 
 /**
  * 채팅방에 사용자 추가
+ * @param {string} roomId - 채팅방 ID
+ * @param {string} userId - 사용자 ID  
+ * @param {string} selectedGender - 선택한 성별 카테고리 (opposite/any/same)
  */
-export const addUserToRoom = async (roomId, userId) => {
+export const addUserToRoom = async (roomId, userId, selectedGender = null) => {
     try {
 
         // 1) 방  현재 참가자들의 blockedUsers 정보 조회
@@ -125,6 +128,14 @@ export const addUserToRoom = async (roomId, userId) => {
         // 4) 기존 로직 유지 ― 실제로 방에 추가
         if (!room.chatUsers.includes(userId)) {
             room.chatUsers.push(userId);
+            
+            // 🔧 랜덤채팅에서 성별 선택 정보 저장
+            if (room.roomType === 'random') {
+                // selectedGender가 없으면 방의 matchedGender를 기본값으로 사용
+                const genderToSave = selectedGender || room.matchedGender || 'any';
+                room.genderSelections.set(userId.toString(), genderToSave);
+                console.log(`성별 선택 저장: ${userId} → ${genderToSave}`);
+            }
 
             if (room.roomType === 'random' && room.chatUsers.length >= room.capacity) {
                 room.isActive = true;

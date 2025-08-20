@@ -55,6 +55,12 @@ const chatRoomSchema = new Schema({
         enum: ['adult', 'minor'],
         required: function() { return this.roomType === 'random'; }
     },
+    // 🔧 사용자별 성별 선택 정보 (Map 구조로 효율적 저장)
+    genderSelections: {
+        type: Map,
+        of: String,  // userId -> selectedGender (opposite/any/same)
+        default: new Map()
+    },
     createdAt: {
         type: Date,
         default: Date.now              // 채팅방 생성 시각
