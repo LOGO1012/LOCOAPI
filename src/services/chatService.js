@@ -262,10 +262,6 @@ export const leaveChatRoomService = async (roomId, userId) => {
                     createdAt:     chatRoom.createdAt
                 }
             });
-            await ChatMessage.updateMany(
-                { chatRoom: roomId, isDeleted: false },
-                { $set: { isDeleted: true } }
-            );
             await ChatRoom.deleteOne({ _id: roomId });
             await ChatRoomExit.deleteMany({ chatRoom: roomId });
         }
