@@ -49,5 +49,39 @@ router.delete('/:id/comments/:commentId/replies/:replyId', communityController.d
 // 대대댓글 삭제: DELETE /api/communities/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId
 router.delete('/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId', communityController.deleteSubReply);
 
+// 투표 생성
+router.post('/:id/polls', communityController.createPoll);
+
+// 투표하기
+router.post('/:id/polls/:pollId/vote', communityController.votePoll);
+
+// 투표 결과 조회
+router.get('/:id/polls/:pollId/results', communityController.getPollResults);
+
+// 사용자 투표 상태 확인
+router.get('/:id/polls/:pollId/status', communityController.getUserVoteStatus);
+
+// 투표 삭제
+router.delete('/:id/polls/:pollId', communityController.deletePoll);
+
+router.post('/:id/polls/:pollId/cancel-vote', communityController.cancelVote);
+
+// 댓글 투표 생성
+router.post('/:id/comments/:commentId/polls', communityController.createCommentPoll);
+
+// 댓글 투표 참여
+router.post('/:id/comments/:commentId/polls/:pollId/vote', communityController.voteCommentPoll);
+
+// 댓글 투표 결과 조회
+router.get('/:id/comments/:commentId/polls/:pollId/results', communityController.getCommentPollResults);
+
+// 댓글 투표 상태 확인
+router.get('/:id/comments/:commentId/polls/:pollId/status', communityController.getCommentUserVoteStatus);
+
+// 댓글 투표 취소
+router.post('/:id/comments/:commentId/polls/:pollId/cancel-vote', communityController.cancelCommentVote);
+
+// 댓글 투표 삭제
+router.delete('/:id/comments/:commentId/polls/:pollId', communityController.deleteCommentPoll);
 
 export default router;

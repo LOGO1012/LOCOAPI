@@ -510,5 +510,463 @@ export const getTopCommentedCommunities = async () => {
     return cachedTopCommented;
 };
 
+// 투표 생성
+export const createPoll = async (communityId, pollData) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
 
+        // 이미 투표가 있는지 확인 (핵심 추가!)
+        if (community.polls && community.polls.length > 0) {
+            throw new Error("게시글당 투표는 하나만 생성할 수 있습니다.");
+        }
 
+        // 투표 만료 시간 설정 (시간 단위로 받음)
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + (pollData.duration || 24));
+
+        const newPoll = {
+            question: pollData.question,
+            options: pollData.options.map(opt => ({
+                text: opt.text,
+                votes: 0,
+                votedUsers: []
+            })),
+            createdBy: pollData.createdBy,
+            expiresAt: expiresAt,
+            totalVotes: 0,
+            isActive: true
+        };
+
+        community.polls.push(newPoll);
+        const savedCommunity = await community.save();
+
+        // 새로 생성된 투표만 반환
+        const createdPoll = savedCommunity.polls[savedCommunity.polls.length - 1];
+        return createdPoll;
+    } catch (error) {
+        throw new Error(`투표 생성 실패: ${error.message}`);
+    }
+};
+
+// 투표하기
+export const votePoll = async (communityId, pollId, userId, optionIndex) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
+
+        const poll = community.polls.id(pollId);
+        if (!poll) {
+            throw new Error("투표를 찾을 수 없습니다.");
+        }
+
+        // 투표 만료 확인
+        if (new Date() > poll.expiresAt) {
+            throw new Error("투표가 마감되었습니다.");
+        }
+
+        // 이미 투표했는지 확인
+        const hasVoted = poll.options.some(option =>
+            option.votedUsers.includes(userId)
+        );
+
+        if (hasVoted) {
+            // 기존 투표 취소
+            poll.options.forEach(option => {
+                const userIndex = option.votedUsers.indexOf(userId);
+                if (userIndex > -1) {
+                    option.votedUsers.splice(userIndex, 1);
+                    option.votes = Math.max(0, option.votes - 1);
+                    poll.totalVotes = Math.max(0, poll.totalVotes - 1);
+                }
+            });
+        }
+
+        // 새로운 투표 추가
+        if (optionIndex >= 0 && optionIndex < poll.options.length) {
+            poll.options[optionIndex].votedUsers.push(userId);
+            poll.options[optionIndex].votes += 1;
+            poll.totalVotes += 1;
+        }
+
+        await community.save();
+        return poll;
+    } catch (error) {
+        throw new Error(`투표 실패: ${error.message}`);
+    }
+};
+
+// 투표 결과 조회
+export const getPollResults = async (communityId, pollId) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
+
+        const poll = community.polls.id(pollId);
+        if (!poll) {
+            throw new Error("투표를 찾을 수 없습니다.");
+        }
+
+        // 사용자 정보는 제외하고 결과만 반환
+        const results = {
+            _id: poll._id,
+            question: poll.question,
+            options: poll.options.map(option => ({
+                text: option.text,
+                votes: option.votes,
+                percentage: poll.totalVotes > 0 ? Math.round((option.votes / poll.totalVotes) * 100) : 0
+            })),
+            totalVotes: poll.totalVotes,
+            expiresAt: poll.expiresAt,
+            isActive: poll.isActive && new Date() <= poll.expiresAt,
+            createdAt: poll.createdAt
+        };
+
+        return results;
+    } catch (error) {
+        throw new Error(`투표 결과 조회 실패: ${error.message}`);
+    }
+};
+
+// 사용자의 투표 상태 확인
+export const getUserVoteStatus = async (communityId, pollId, userId) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) return null;
+
+        const poll = community.polls.id(pollId);
+        if (!poll) return null;
+
+        // 사용자가 투표한 옵션 찾기
+        const votedOptionIndex = poll.options.findIndex(option =>
+            option.votedUsers.includes(userId)
+        );
+
+        return {
+            hasVoted: votedOptionIndex >= 0,
+            votedOption: votedOptionIndex >= 0 ? votedOptionIndex : null
+        };
+    } catch (error) {
+        return null;
+    }
+};
+
+// 투표 삭제 (투표 생성자나 게시글 작성자, 관리자만 가능)
+export const deletePoll = async (communityId, pollId, userId) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
+
+        const poll = community.polls.id(pollId);
+        if (!poll) {
+            throw new Error("투표를 찾을 수 없습니다.");
+        }
+
+        // 권한 확인
+        const user = await User.findById(userId);
+        const isAdmin = user?.userLv >= 2;
+        const isPostAuthor = community.userId.toString() === userId;
+        const isPollCreator = poll.createdBy.toString() === userId;
+
+        if (!isAdmin && !isPostAuthor && !isPollCreator) {
+            throw new Error("투표를 삭제할 권한이 없습니다.");
+        }
+
+        // 투표 삭제
+        community.polls.pull(pollId);
+        await community.save();
+
+        return { message: "투표가 삭제되었습니다." };
+    } catch (error) {
+        throw new Error(`투표 삭제 실패: ${error.message}`);
+    }
+};
+
+export const cancelVoteFromPoll = async (communityId, pollId, userId) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
+
+        const poll = community.polls.id(pollId);
+        if (!poll) {
+            throw new Error("투표를 찾을 수 없습니다.");
+        }
+
+        // 사용자의 기존 투표 제거
+        let voteRemoved = false;
+        poll.options.forEach(option => {
+            const userIndex = option.votedUsers.indexOf(userId);
+            if (userIndex > -1) {
+                option.votedUsers.splice(userIndex, 1);
+                option.votes = Math.max(0, option.votes - 1);
+                poll.totalVotes = Math.max(0, poll.totalVotes - 1);
+                voteRemoved = true;
+            }
+        });
+
+        if (!voteRemoved) {
+            throw new Error("취소할 투표가 없습니다.");
+        }
+
+        await community.save();
+        return poll;
+    } catch (error) {
+        throw new Error(`투표 취소 실패: ${error.message}`);
+    }
+};
+
+// 댓글 투표 생성
+export const createCommentPoll = async (communityId, commentId, pollData) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
+
+        const comment = community.comments.id(commentId);
+        if (!comment || comment.isDeleted) {
+            throw new Error("댓글을 찾을 수 없습니다.");
+        }
+
+        // 댓글에 이미 투표가 있는지 확인 (핵심 추가!)
+        if (comment.polls && comment.polls.length > 0) {
+            throw new Error("댓글당 투표는 하나만 생성할 수 있습니다.");
+        }
+
+        // 투표 만료 시간 설정
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + (pollData.duration || 24));
+
+        const newPoll = {
+            question: pollData.question,
+            options: pollData.options.map(opt => ({
+                text: opt.text,
+                votes: 0,
+                votedUsers: []
+            })),
+            createdBy: pollData.createdBy,
+            expiresAt: expiresAt,
+            totalVotes: 0,
+            isActive: true
+        };
+
+        comment.polls.push(newPoll);
+        const savedCommunity = await community.save();
+
+        // 새로 생성된 투표만 반환
+        const updatedComment = savedCommunity.comments.id(commentId);
+        const createdPoll = updatedComment.polls[updatedComment.polls.length - 1];
+        return createdPoll;
+    } catch (error) {
+        throw new Error(`댓글 투표 생성 실패: ${error.message}`);
+    }
+};
+
+// 댓글 투표 참여
+export const voteCommentPoll = async (communityId, commentId, pollId, userId, optionIndex) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
+
+        const comment = community.comments.id(commentId);
+        if (!comment || comment.isDeleted) {
+            throw new Error("댓글을 찾을 수 없습니다.");
+        }
+
+        const poll = comment.polls.id(pollId);
+        if (!poll) {
+            throw new Error("투표를 찾을 수 없습니다.");
+        }
+
+        // 투표 만료 확인
+        if (new Date() > poll.expiresAt) {
+            throw new Error("투표가 마감되었습니다.");
+        }
+
+        // 이미 투표했는지 확인
+        const hasVoted = poll.options.some(option =>
+            option.votedUsers.includes(userId)
+        );
+
+        if (hasVoted) {
+            // 기존 투표 취소
+            poll.options.forEach(option => {
+                const userIndex = option.votedUsers.indexOf(userId);
+                if (userIndex > -1) {
+                    option.votedUsers.splice(userIndex, 1);
+                    option.votes = Math.max(0, option.votes - 1);
+                    poll.totalVotes = Math.max(0, poll.totalVotes - 1);
+                }
+            });
+        }
+
+        // 새로운 투표 추가
+        if (optionIndex >= 0 && optionIndex < poll.options.length) {
+            poll.options[optionIndex].votedUsers.push(userId);
+            poll.options[optionIndex].votes += 1;
+            poll.totalVotes += 1;
+        }
+
+        await community.save();
+        return poll;
+    } catch (error) {
+        throw new Error(`댓글 투표 실패: ${error.message}`);
+    }
+};
+
+// 댓글 투표 결과 조회
+export const getCommentPollResults = async (communityId, commentId, pollId) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
+
+        const comment = community.comments.id(commentId);
+        if (!comment) {
+            throw new Error("댓글을 찾을 수 없습니다.");
+        }
+
+        const poll = comment.polls.id(pollId);
+        if (!poll) {
+            throw new Error("투표를 찾을 수 없습니다.");
+        }
+
+        // 사용자 정보는 제외하고 결과만 반환
+        const results = {
+            _id: poll._id,
+            question: poll.question,
+            options: poll.options.map(option => ({
+                text: option.text,
+                votes: option.votes,
+                percentage: poll.totalVotes > 0 ? Math.round((option.votes / poll.totalVotes) * 100) : 0
+            })),
+            totalVotes: poll.totalVotes,
+            expiresAt: poll.expiresAt,
+            isActive: poll.isActive && new Date() <= poll.expiresAt,
+            createdAt: poll.createdAt
+        };
+
+        return results;
+    } catch (error) {
+        throw new Error(`댓글 투표 결과 조회 실패: ${error.message}`);
+    }
+};
+
+// 댓글 투표 상태 확인
+export const getCommentUserVoteStatus = async (communityId, commentId, pollId, userId) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) return null;
+
+        const comment = community.comments.id(commentId);
+        if (!comment) return null;
+
+        const poll = comment.polls.id(pollId);
+        if (!poll) return null;
+
+        // 사용자가 투표한 옵션 찾기
+        const votedOptionIndex = poll.options.findIndex(option =>
+            option.votedUsers.includes(userId)
+        );
+
+        return {
+            hasVoted: votedOptionIndex >= 0,
+            votedOption: votedOptionIndex >= 0 ? votedOptionIndex : null
+        };
+    } catch (error) {
+        return null;
+    }
+};
+
+// 댓글 투표 취소
+export const cancelCommentVoteFromPoll = async (communityId, commentId, pollId, userId) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
+
+        const comment = community.comments.id(commentId);
+        if (!comment) {
+            throw new Error("댓글을 찾을 수 없습니다.");
+        }
+
+        const poll = comment.polls.id(pollId);
+        if (!poll) {
+            throw new Error("투표를 찾을 수 없습니다.");
+        }
+
+        // 사용자의 기존 투표 제거
+        let voteRemoved = false;
+        poll.options.forEach(option => {
+            const userIndex = option.votedUsers.indexOf(userId);
+            if (userIndex > -1) {
+                option.votedUsers.splice(userIndex, 1);
+                option.votes = Math.max(0, option.votes - 1);
+                poll.totalVotes = Math.max(0, poll.totalVotes - 1);
+                voteRemoved = true;
+            }
+        });
+
+        if (!voteRemoved) {
+            throw new Error("취소할 투표가 없습니다.");
+        }
+
+        await community.save();
+        return poll;
+    } catch (error) {
+        throw new Error(`댓글 투표 취소 실패: ${error.message}`);
+    }
+};
+
+// 댓글 투표 삭제
+export const deleteCommentPoll = async (communityId, commentId, pollId, userId) => {
+    try {
+        const community = await Community.findOne({ _id: communityId, isDeleted: false });
+        if (!community) {
+            throw new Error("게시글을 찾을 수 없습니다.");
+        }
+
+        const comment = community.comments.id(commentId);
+        if (!comment) {
+            throw new Error("댓글을 찾을 수 없습니다.");
+        }
+
+        const poll = comment.polls.id(pollId);
+        if (!poll) {
+            throw new Error("투표를 찾을 수 없습니다.");
+        }
+
+        // 권한 확인
+        const user = await User.findById(userId);
+        const isAdmin = user?.userLv >= 2;
+        const isPostAuthor = community.userId.toString() === userId;
+        const isCommentAuthor = comment.userId.toString() === userId;
+        const isPollCreator = poll.createdBy.toString() === userId;
+
+        if (!isAdmin && !isPostAuthor && !isCommentAuthor && !isPollCreator) {
+            throw new Error("투표를 삭제할 권한이 없습니다.");
+        }
+
+        // 투표 삭제
+        comment.polls.pull(pollId);
+        await community.save();
+
+        return { message: "댓글 투표가 삭제되었습니다." };
+    } catch (error) {
+        throw new Error(`댓글 투표 삭제 실패: ${error.message}`);
+    }
+};
