@@ -4,6 +4,7 @@ import {normalizePhoneNumber} from "../utils/normalizePhoneNumber.js";
 import { User } from '../models/UserProfile.js';
 import {FriendRequest} from "../models/FriendRequest.js";
 import {getMax, rechargeIfNeeded, REFILL_MS} from "../utils/chatQuota.js";
+import * as onlineStatusService from "./onlineStatusService.js";
 
 /**
  * findUserOrNoUser
@@ -370,7 +371,7 @@ export const getPaginatedFriends = async (
     // friends 배열을 DB 쪽에서 잘라서 가져옴
     const user = await User.findById(userId)
         .slice('friends', [offset, limit])      // <- $slice 전달
-        .populate('friends', 'nickname photo'); // 필요한 필드만
+        .populate('friends', 'nickname profilePhoto'); // 필요한 필드만
 
     if (!user) throw new Error('User not found');
 
@@ -378,6 +379,15 @@ export const getPaginatedFriends = async (
     const totalCnt =
         (await User.findById(userId).select('friends').lean())?.friends.length || 0;
 
-    return { total: totalCnt, friends: user.friends };
+    // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
+    const friendIds = user.friends.map(friend => friend._id.toString());
+    const onlineStatusMap = onlineStatusService.getMultipleUserStatus(friendIds);
+    
+    const friendsWithStatus = user.friends.map(friend => ({
+        ...friend.toObject(),
+        isOnline: onlineStatusMap[friend._id.toString()] || false
+    }));
+
+    return { total: totalCnt, friends: friendsWithStatus };
 };
 

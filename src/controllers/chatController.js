@@ -63,7 +63,24 @@ export const getAllRooms = async (req, res) => {
     try {
         // req.query를 그대로 전달하여 서버측 필터링 및 페이징을 적용
         const rooms = await chatService.getAllChatRooms(req.query);
-        res.status(200).json(rooms);
+        
+        // 🔧 성별 선택 정보가 포함된 참가자 데이터 추가
+        const roomsWithGenderInfo = rooms.map(room => {
+            const roomObj = room.toObject();
+            
+            // 참가자에 성별 선택 정보 추가
+            const chatUsersWithGender = roomObj.chatUsers.map(user => ({
+                ...user,
+                selectedGender: roomObj.genderSelections?.get(user._id.toString()) || null
+            }));
+            
+            return {
+                ...roomObj,
+                chatUsersWithGender
+            };
+        });
+        
+        res.status(200).json(roomsWithGenderInfo);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -75,9 +92,9 @@ export const getAllRooms = async (req, res) => {
 export const addUserToRoom = async (req, res) => {
     try {
         const { roomId } = req.params;
-        const { userId } = req.body;
+        const { userId, selectedGender } = req.body;  // 🔧 selectedGender 추가
 
-        const room = await chatService.addUserToRoom(roomId, userId);   // 서비스 호출[1]
+        const room = await chatService.addUserToRoom(roomId, userId, selectedGender);   // 🔧 selectedGender 전달
         return res.status(200).json(room);
     } catch (error) {
 

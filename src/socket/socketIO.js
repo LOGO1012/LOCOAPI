@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import * as chatService from '../services/chatService.js';
 import {ChatRoom, ChatRoomExit} from "../models/chat.js";
 import * as userService from "../services/userService.js";
+import * as onlineStatusService from '../services/onlineStatusService.js';
 import mongoose from "mongoose";
 
 export let io;
@@ -19,6 +20,17 @@ export const initializeSocket = (server) => {
             if (registeredUsers.has(`${socket.id}-${userId}`)) return;
             registeredUsers.add(`${socket.id}-${userId}`);
             socket.join(userId);
+            
+            // 🔧 온라인 상태 설정
+            onlineStatusService.setUserOnlineStatus(userId, socket.id, true);
+            
+            // 🔧 개발자 페이지에 온라인 상태 변경 알림
+            io.emit('userStatusChanged', {
+                userId,
+                isOnline: true,
+                timestamp: new Date()
+            });
+            
             console.log(`사용자 ${userId} 등록됨 (socket: ${socket.id})`);
         });
 
@@ -136,6 +148,20 @@ export const initializeSocket = (server) => {
         // 클라이언트 연결 해제
         socket.on('disconnect', () => {
             console.log('❌ 클라이언트 연결 해제:', socket.id);
+            
+            // 🔧 소켓 ID로 사용자 찾기
+            const userId = onlineStatusService.findUserBySocketId(socket.id);
+            if (userId) {
+                // 🔧 오프라인 상태 설정
+                onlineStatusService.setUserOnlineStatus(userId, null, false);
+                
+                // 🔧 개발자 페이지에 오프라인 상태 변경 알림
+                io.emit('userStatusChanged', {
+                    userId,
+                    isOnline: false,
+                    timestamp: new Date()
+                });
+            }
         });
     });
 
