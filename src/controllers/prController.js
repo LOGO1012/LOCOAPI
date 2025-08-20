@@ -1,6 +1,7 @@
 // src/controllers/prController.js
 import { User } from "../models/UserProfile.js";
 import moment from "moment";
+import * as onlineStatusService from "../services/onlineStatusService.js";
 
 const mapGenderKor = (g) => {
     if (g === "male") return "남성";
@@ -12,10 +13,17 @@ const mapGenderKor = (g) => {
 export const getPRTopUsers = async (req, res, next) => {
     try {
         const topUsersRaw = await User.find().sort({ star: -1 }).limit(10).lean();
+        
+        // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
+        const userIds = topUsersRaw.map(u => u._id.toString());
+        const onlineStatusMap = onlineStatusService.getMultipleUserStatus(userIds);
+        
         const topUsers = topUsersRaw.map(u => ({
             ...u,
             gender: mapGenderKor(u.gender),
+            isOnline: onlineStatusMap[u._id.toString()] || false
         }));
+        
         return res.status(200).json({ data: topUsers });
     } catch (err) {
         next(err);
@@ -49,9 +57,14 @@ export const getPRUserList = async (req, res, next) => {
             .limit(limit)
             .lean();
 
+        // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
+        const userIds = usersRaw.map(u => u._id.toString());
+        const onlineStatusMap = onlineStatusService.getMultipleUserStatus(userIds);
+        
         const users = usersRaw.map(u => ({
             ...u,
             gender: mapGenderKor(u.gender),
+            isOnline: onlineStatusMap[u._id.toString()] || false
         }));
 
         return res.status(200).json({
