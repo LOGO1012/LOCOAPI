@@ -17,6 +17,12 @@ export const initializeSocket = (server) => {
         const registeredUsers = new Set();
 
         socket.on('register', (userId) => {
+            // userId 유효성 검증 추가
+            if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+                console.warn('유효하지 않은 userId:', userId);
+                socket.emit('registrationFailed', { error: '유효하지 않은 사용자 ID' });
+                return;
+            }
             if (registeredUsers.has(`${socket.id}-${userId}`)) return;
             registeredUsers.add(`${socket.id}-${userId}`);
             socket.join(userId);
