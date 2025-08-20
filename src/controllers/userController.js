@@ -420,15 +420,25 @@ export const getPaginatedFriendsController = async (req, res) => {
 // 알림 설정 변경 (PATCH /:userId/prefs)
 export const updateUserPrefsController = async (req, res) => {
     const { userId } = req.params;
-    const { friendReqEnabled } = req.body;
+    const { friendReqEnabled, chatPreviewEnabled  } = req.body;
 
     try {
-        // 1. 사용자 환경설정 업데이트
+        // ✅ 업데이트할 데이터 객체 생성
+        const updateData = {};
+        if (typeof friendReqEnabled === 'boolean') {
+            updateData.friendReqEnabled = friendReqEnabled;
+        }
+        if (typeof chatPreviewEnabled === 'boolean') { // ✅ 추가
+            updateData.chatPreviewEnabled = chatPreviewEnabled;
+        }
+
+        // ✅ 업데이트 실행
         const updated = await User.findByIdAndUpdate(
             userId,
-            { friendReqEnabled },
-            { new: true, fields: 'friendReqEnabled' }
+            updateData, // 동적으로 생성된 업데이트 객체 사용
+            { new: true, select: 'friendReqEnabled chatPreviewEnabled' } // ✅ 필드 추가
         );
+
         if (!updated) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
