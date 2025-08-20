@@ -13,6 +13,10 @@ const onlineUsers = new Map(); // userId -> { socketId, lastSeen, isOnline }
  * @param {boolean} isOnline - 온라인 여부
  */
 export const setUserOnlineStatus = (userId, socketId, isOnline) => {
+    if (!userId) {
+        console.warn('setUserOnlineStatus: 유효하지 않은 userId:', userId);
+        return;
+    }
     if (isOnline) {
         onlineUsers.set(userId, {
             socketId,
