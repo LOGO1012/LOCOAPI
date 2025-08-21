@@ -128,7 +128,7 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null) => {
         // 4) 기존 로직 유지 ― 실제로 방에 추가
         if (!room.chatUsers.includes(userId)) {
             room.chatUsers.push(userId);
-            
+
             // 🔧 랜덤채팅에서 성별 선택 정보 저장
             if (room.roomType === 'random') {
                 // selectedGender가 없으면 방의 matchedGender를 기본값으로 사용
@@ -259,7 +259,8 @@ export const leaveChatRoomService = async (roomId, userId) => {
                     roomType:      chatRoom.roomType,
                     matchedGender: chatRoom.matchedGender,
                     ageGroup:      chatRoom.ageGroup,
-                    createdAt:     chatRoom.createdAt
+                    createdAt:     chatRoom.createdAt,
+                    genderSelections: Object.fromEntries(chatRoom.genderSelections)
                 }
             });
             await ChatRoom.deleteOne({ _id: roomId });
@@ -278,21 +279,53 @@ export const leaveChatRoomService = async (roomId, userId) => {
  * @param {{ 'meta.chatUsers': string, page?: number, size?: number }} filters
  */
 export const getChatRoomHistory = async (filters) => {
-    const page = parseInt(filters.page)  || 1;
-    const size = parseInt(filters.size)  || 100;
+    const page = parseInt(filters.page) || 1;
+    const size = parseInt(filters.size) || 100;
     const skip = (page - 1) * size;
 
-    // meta.chatUsers 필터에 걸리는 히스토리만, user 객체로 채워서 가져오기
+    // 🔧 필터 조건을 동적으로 구성
+    const query = {};
+
+    // meta.chatUsers 필터가 있을 때만 적용
+    if (filters['meta.chatUsers']) {
+        query['meta.chatUsers'] = filters['meta.chatUsers'];
+    }
+
+    console.log('📋 히스토리 쿼리 조건:', query);
+
     const histories = await ChatRoomHistory
-        .find({ 'meta.chatUsers': filters['meta.chatUsers'] })
+        .find(query)  // 🔧 동적 쿼리 사용
         .lean()
-        .populate('meta.chatUsers', 'nickname name')    // ← 여기를 추가합니다
+        .populate('meta.chatUsers', 'nickname name')
         .sort({ timestamp: -1 })
         .skip(skip)
         .limit(size);
 
-    return histories;
+    console.log('📦 조회된 히스토리 개수:', histories.length);
+
+    // 🔧 genderSelections 정보를 개별 사용자에게 매핑
+    const processedHistories = histories.map(history => {
+        if (history.meta && history.meta.genderSelections && history.meta.chatUsers) {
+            const chatUsersWithGender = history.meta.chatUsers.map(user => ({
+                ...user,
+                selectedGender: history.meta.genderSelections[user._id.toString()] || null
+            }));
+
+            return {
+                ...history,
+                meta: {
+                    ...history.meta,
+                    chatUsersWithGender // 새로운 필드 추가
+                }
+            };
+        }
+        return history;
+    });
+
+    return processedHistories;
 };
+
+
 
 /**
  * 사용자 exit 기록을 기반으로 종료한 채팅방 ID 목록 조회
