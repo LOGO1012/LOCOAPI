@@ -1,0 +1,46 @@
+// 기존 배너 경로 수정 스크립트
+// MongoDB에서 실행하거나 별도 스크립트로 실행
+
+import mongoose from 'mongoose';
+import { Banner } from './src/models/Banner.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// MongoDB 연결
+await mongoose.connect(process.env.MONGODB_URI);
+
+try {
+    // 모든 배너 조회
+    const banners = await Banner.find({});
+    
+    console.log(`총 ${banners.length}개의 배너를 찾았습니다.`);
+    
+    for (const banner of banners) {
+        if (banner.image && banner.image.path) {
+            const oldPath = banner.image.path;
+            
+            // Windows 경로가 포함되어 있다면 수정
+            if (oldPath.includes('\\') || oldPath.includes('C:') || oldPath.startsWith('uploads\\')) {
+                const filename = banner.image.filename;
+                const newPath = `uploads/banners/${filename}`;
+                
+                await Banner.findByIdAndUpdate(banner._id, {
+                    'image.path': newPath
+                });
+                
+                console.log(`✅ 배너 ${banner.title} 경로 수정:`);
+                console.log(`   이전: ${oldPath}`);
+                console.log(`   이후: ${newPath}`);
+            } else {
+                console.log(`✅ 배너 ${banner.title} 경로는 올바름: ${oldPath}`);
+            }
+        }
+    }
+    
+    console.log('🎉 배너 경로 수정 완료!');
+} catch (error) {
+    console.error('❌ 에러 발생:', error);
+} finally {
+    await mongoose.disconnect();
+}
