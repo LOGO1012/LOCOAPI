@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import session from 'express-session';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import cookieParser from "cookie-parser";
 
 import developerRoutes from './src/routes/developerRoutes.js';
@@ -29,6 +30,7 @@ import onlineStatusRoutes from './src/routes/onlineStatusRoutes.js';
 import searchRouter from './src/routes/searchRouter.js';
 import newsRoutes from './src/routes/newsRoutes.js';
 import editorRoutes from './src/routes/editorRoutes.js';
+import bannerRoutes from './src/routes/bannerRoutes.js';
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
 
@@ -41,7 +43,8 @@ const app = express();
 
 // 미들웨어 설정
 app.use(cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: [process.env.FRONTEND_URL || "http://localhost:5173",
+        "http://192.168.219.104:5173"],
     credentials: true,
 }));
 app.use(cookieParser()); // 쿠키 파서를 추가
@@ -80,6 +83,73 @@ app.use(session({
 // 정적 파일 제공 (예: uploads 폴더)
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
+// 디버깅용: 업로드된 파일 목록 확인 라우트
+app.get('/api/debug/uploads', (req, res) => {
+    try {
+        const uploadPath = path.join(process.cwd(), 'uploads', 'banners');
+        
+        if (!fs.existsSync(uploadPath)) {
+            return res.json({ 
+                success: false, 
+                message: 'uploads/banners 폴더가 존재하지 않습니다',
+                path: uploadPath 
+            });
+        }
+        
+        const files = fs.readdirSync(uploadPath);
+        res.json({
+            success: true,
+            uploadPath: uploadPath,
+            files: files,
+            fileCount: files.length
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
+});
+
+// 디버깅용: 에디터 이미지 파일 목록 확인
+app.get('/api/debug/editor-uploads', (req, res) => {
+    try {
+        const editorPath = path.join(process.cwd(), 'uploads', 'news', 'editor');
+        
+        if (!fs.existsSync(editorPath)) {
+            return res.json({ 
+                success: false, 
+                message: 'uploads/news/editor 폴더가 존재하지 않습니다',
+                path: editorPath 
+            });
+        }
+        
+        const files = fs.readdirSync(editorPath);
+        const fileDetails = files.map(file => {
+            const filePath = path.join(editorPath, file);
+            const stats = fs.statSync(filePath);
+            return {
+                name: file,
+                size: stats.size,
+                created: stats.birthtime,
+                url: `/uploads/news/editor/${file}`
+            };
+        });
+        
+        res.json({
+            success: true,
+            editorPath: editorPath,
+            files: fileDetails,
+            fileCount: files.length
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
+});
+
 // 라우터 등록
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
@@ -99,6 +169,7 @@ app.use('/api/online-status', onlineStatusRoutes);
 app.use('/api/search', searchRouter);
 app.use('/api/news', newsRoutes);
 app.use('/api/editor', editorRoutes);
+app.use('/api/banners', bannerRoutes);
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
