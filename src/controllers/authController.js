@@ -3,6 +3,7 @@
 import { kakaoAuthSchema } from '../dto/authValidator.js';
 import { kakaoLogin } from '../services/authService.js';
 import {findUserOrNoUser, getUserById} from '../services/userService.js';
+import { deleteNaverToken } from '../services/naverAuthService.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config(); // .env 파일에 정의된 환경변수 로드
@@ -242,13 +243,47 @@ export const getCurrentUser = async (req, res) => {
 
 
 /**
- * 로그아웃: Refresh 토큰 쿠키 삭제
+ * 로그아웃: Refresh 토큰 쿠키 삭제 및 네이버 토큰 무효화
  */
-export const logout = (req, res) => {
+export const logout = async (req, res) => {
     console.log('로그아웃 요청 - 쿠키 삭제 시작');
     console.log('현재 쿠키들:', req.cookies);
     console.log('요청 헤더 Origin:', req.headers.origin);
     console.log('요청 헤더 Host:', req.headers.host);
+    
+    // JWT 토큰에서 사용자 ID 추출 및 네이버 토큰 삭제
+    const refreshToken = req.cookies.refreshToken;
+    if (refreshToken) {
+        try {
+            const payload = jwt.verify(refreshToken, REFRESH_SECRET);
+            const userId = payload.userId;
+            
+            // 네이버 사용자인 경우 토큰 삭제 시도
+            if (payload.naverId) {
+                console.log('=== 네이버 사용자 토큰 삭제 시도 ===');
+                console.log('사용자 ID:', userId);
+                console.log('네이버 ID:', payload.naverId);
+                
+                const user = await getUserById(userId);
+                console.log('사용자 조회 결과:', user ? '성공' : '실패');
+                
+                if (user && user.social && user.social.naver && user.social.naver.accessToken) {
+                    console.log('네이버 액세스 토큰 발견:', user.social.naver.accessToken ? '존재함' : '없음');
+                    const deleteResult = await deleteNaverToken(user.social.naver.accessToken);
+                    if (deleteResult) {
+                        console.log('✅ 네이버 서버 토큰 무효화 성공');
+                    } else {
+                        console.warn('⚠️ 네이버 서버 토큰 무효화 실패');
+                    }
+                } else {
+                    console.warn('⚠️ 네이버 액세스 토큰을 찾을 수 없음');
+                    console.log('사용자 소셜 정보:', user?.social);
+                }
+            }
+        } catch (error) {
+            console.error('네이버 토큰 삭제 중 오류:', error);
+        }
+    }
     
     // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
     res.clearCookie('refreshToken', clearCookieOptions);
@@ -260,16 +295,28 @@ export const logout = (req, res) => {
 
 
 /**
- * 로그아웃 후 프론트 리다이렉트 (카카오 로그아웃용)
+ * 로그아웃 후 프론트 리다이렉트 (카카오/네이버 공통)
  */
 export const logoutRedirect = (req, res) => {
-    console.log('로그아웃 리다이렉트 - 쿠키 삭제 시작');
+    console.log('소셜 로그아웃 리다이렉트 - 쿠키 삭제 시작');
     console.log('현재 쿠키들:', req.cookies);
+    
+    // 세션 정리 (카카오/네이버 데이터 포함)
+    if (req.session) {
+        req.session.destroy((err) => {
+            if (err) {
+                console.error('세션 삭제 오류:', err);
+            } else {
+                console.log('세션 삭제 완료');
+            }
+        });
+    }
     
     // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
     res.clearCookie('refreshToken', clearCookieOptions);
     res.clearCookie('accessToken', clearCookieOptions);
+    res.clearCookie('connect.sid', clearCookieOptions); // 세션 쿠키도 삭제
     
-    console.log('쿠키 삭제 후 프론트로 리다이렉트');
+    console.log('쿠키 및 세션 삭제 후 프론트로 리다이렉트');
     return res.redirect(BASE_URL_FRONT);
 };
