@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import { encrypt, decrypt } from '../utils/encryption.js';
 const { Schema, model } = mongoose;
 import { User }from './UserProfile.js';
 
@@ -73,7 +72,7 @@ const chatRoomSchema = new Schema({
  * ChatMessage 스키마
  * - chatRoom: 메시지가 속한 채팅방의 ID (ChatRoom 컬렉션 참조)
  * - sender: 메시지를 보낸 사람의 ID (User 컬렉션 참조)
- * - text: 메시지 내용 (암호화 저장)
+ * - text: 메시지 내용
  * - textTime: 메시지 전송 시각 (추가로 저장할 필요가 있으면 사용)
  * - timestamps 옵션을 통해 생성 및 수정 시각을 자동 관리합니다.
  */
@@ -89,14 +88,8 @@ const chatMessageSchema = new Schema({
         required() { return !this.isSystem; }
     },
     text: {
-        type: String,                 // 메시지 내용 (암호화 저장)
-        required: true,
-        set: function(value) {
-            return value ? encrypt(value) : value;
-        },
-        get: function(value) {
-            return value ? decrypt(value) : value;
-        }
+        type: String,                 // 메시지 내용
+        required: true
     },
     textTime: {
         type: Date,
@@ -108,14 +101,15 @@ const chatMessageSchema = new Schema({
         default: false                // 기본적으로 삭제되지 않은 상태
     },
     isSystem : { type: Boolean, default: false }
-}, { 
-    timestamps: true,               // createdAt, updatedAt 필드를 자동 생성
-    toJSON: { getters: true },      // JSON 변환 시 getter 실행 (복호화)
-    toObject: { getters: true }     // Object 변환 시 getter 실행 (복호화)
-});
+}, { timestamps: true });          // createdAt, updatedAt 필드를 자동 생성
 
-// 인덱스: chatRoom, sender, text (암호화된 데이터도 인덱스 가능)
+
+
+// 인덱스: chatRoom, sender, text
 chatMessageSchema.index({ chatRoom: "text", sender: "text", text: "text" });
+
+
+
 
 const chatRoomExitSchema = new Schema({
     chatRoom: {
@@ -139,6 +133,9 @@ const chatRoomExitSchema = new Schema({
     },
 });
 
+
+
 export const ChatRoomExit = model('ChatRoomExit', chatRoomExitSchema);
+
 export const ChatRoom = model('ChatRoom', chatRoomSchema);
 export const ChatMessage = model('ChatMessage', chatMessageSchema);

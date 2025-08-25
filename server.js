@@ -7,14 +7,10 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import cookieParser from "cookie-parser";
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import mongoSanitize from 'mongo-sanitize';
 
 import developerRoutes from './src/routes/developerRoutes.js';
 
 import authRoutes from './src/routes/authRoutes.js';
-import naverAuthRoutes from './src/routes/naverAuthRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import productRoutes from './src/routes/productRoutes.js';
 import kakaoPayRoutes from './src/routes/kakaoPayRoutes.js';
@@ -45,85 +41,6 @@ connectMongoDB();
 
 const app = express();
 
-// ===========================================
-// 🛡️ 보안 미들웨어 적용
-// ===========================================
-
-// 1. Helmet - 기본 보안 헤더 설정
-app.use(helmet({
-    contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-            fontSrc: ["'self'", "https://fonts.gstatic.com"],
-            imgSrc: ["'self'", "data:", "https:", "http:"],
-            scriptSrc: ["'self'"],
-            connectSrc: ["'self'", "wss:", "ws:", "http:", "https:"],
-        },
-    },
-    hsts: {
-        maxAge: 31536000,
-        includeSubDomains: true,
-        preload: true
-    },
-    crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-
-// 2. Rate Limiting - API 호출 제한
-// 개발 환경에서는 더 여유로운 제한 설정
-const isDevelopment = process.env.NODE_ENV === 'development' || process.env.NODE_ENV !== 'production';
-
-const generalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15분
-    max: isDevelopment ? 5000 : 1000, // 개발: 5000회, 프로덕션: 1000회
-    message: {
-        error: isDevelopment 
-            ? '개발 환경: 너무 많은 요청이 발생했습니다. 잠시 후 다시 시도해주세요.'
-            : '너무 많은 요청이 발생했습니다. 15분 후 다시 시도해주세요.'
-    },
-    standardHeaders: true,
-    legacyHeaders: false
-});
-
-const loginLimiter = rateLimit({
-    windowMs: isDevelopment ? 5 * 60 * 1000 : 15 * 60 * 1000, // 개발: 5분, 프로덕션: 15분
-    max: isDevelopment ? 100 : 10, // 개발: 100회, 프로덕션: 10회
-    skipSuccessfulRequests: true,
-    message: {
-        error: isDevelopment 
-            ? '개발 환경: 로그인 시도가 너무 많습니다. 5분 후 다시 시도해주세요.'
-            : '로그인 시도가 너무 많습니다. 15분 후 다시 시도해주세요.'
-    }
-});
-
-const chatLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1분
-    max: isDevelopment ? 200 : 30, // 개발: 200개, 프로덕션: 30개
-    message: {
-        error: isDevelopment 
-            ? '개발 환경: 채팅 전송이 너무 빠릅니다. 잠시만 기다려주세요.'
-            : '채팅 전송이 너무 빠릅니다. 잠시 후 다시 시도해주세요.'
-    }
-});
-
-// Rate limiting 적용
-app.use('/api', generalLimiter);
-app.use('/api/auth', loginLimiter);
-app.use('/api/chat', chatLimiter);
-
-// 3. 입력값 보안 미들웨어
-app.use((req, res, next) => {
-    // NoSQL Injection 방지
-    req.body = mongoSanitize(req.body);
-    req.query = mongoSanitize(req.query);
-    req.params = mongoSanitize(req.params);
-    next();
-});
-
-// ===========================================
-// 기본 미들웨어 설정
-// ===========================================
-
 // 미들웨어 설정
 app.use(cors({
     origin: [process.env.FRONTEND_URL || "http://localhost:5173",
@@ -150,7 +67,7 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(express.json({ limit: '10mb' })); // JSON 크기 제한
+app.use(express.json());
 
 
 app.use(session({
@@ -159,8 +76,7 @@ app.use(session({
     saveUninitialized: false,
     cookie: {
         secure: process.env.NODE_ENV === 'production',
-        httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000 // 24시간
+        httpOnly: true
     }
 }));
 
@@ -234,66 +150,26 @@ app.get('/api/debug/editor-uploads', (req, res) => {
     }
 });
 
-// 기본 라우트
-app.get('/', (req, res) => {
-    res.json({ 
-        message: '🚀 LOCO API Server Running',
-        version: '1.0.0',
-        security: '🛡️ Enhanced Security Enabled',
-        timestamp: new Date().toISOString()
-    });
-});
-
-// ===========================================
-// 📍 API 라우터 등록
-// ===========================================
-
-// Auth routes (카카오, 네이버 로그인)
+// 라우터 등록
 app.use('/api/auth', authRoutes);
-app.use('/api/auth', naverAuthRoutes);  // 네이버 인증 라우트
+app.use('/api/user', userRoutes);
+app.use('/api/product', productRoutes);
+app.use('/api/kakao-pay', kakaoPayRoutes);
+app.use('/api/naver-pay', naverPayRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/communities', communityRoutes);
+app.use('/api/qna', qnaRoutes);
+app.use('/api/report', reportRoutes);
+app.use('/api/reportNotification', reportNotificationRoutes)
+app.use('/api/upload', uploadRoutes);
+app.use("/api/pr", prRoutes);
+app.use('/api/developer', developerRoutes);
+app.use('/api/online-status', onlineStatusRoutes);
 
-// API routes
-app.use('/api/user', userRoutes);  // 사용자 관리
-app.use('/api/product', productRoutes);  // 상품 관리
-app.use('/api/kakao-pay', kakaoPayRoutes);  // 카카오페이
-app.use('/api/naver-pay', naverPayRoutes);  // 네이버페이
-app.use('/api/chat', chatRoutes);  // 채팅 기능
-app.use('/api/communities', communityRoutes);  // 커뮤니티
-app.use('/api/qna', qnaRoutes);  // Q&A
-app.use('/api/report', reportRoutes);  // 신고 기능
-app.use('/api/reportNotification', reportNotificationRoutes);  // 신고 알림
-app.use('/api/upload', uploadRoutes);  // 파일 업로드
-app.use('/api/pr', prRoutes);  // PR 기능
-app.use('/api/developer', developerRoutes);  // 개발자 기능
-app.use('/api/online-status', onlineStatusRoutes);  // 온라인 상태
-app.use('/api/search', searchRouter);  // 검색 기능
-app.use('/api/news', newsRoutes);  // 뉴스
-app.use('/api/editor', editorRoutes);  // 에디터
-app.use('/api/banners', bannerRoutes);  // 배너 관리
-
-// 404 에러 핸들링
-app.use('*', (req, res) => {
-    res.status(404).json({
-        error: 'API 엔드포인트를 찾을 수 없습니다',
-        path: req.originalUrl,
-        method: req.method
-    });
-});
-
-// ===========================================
-// 🚨 글로벌 에러 핸들링
-// ===========================================
-app.use((error, req, res, next) => {
-    console.error('❌ Server Error:', error);
-    
-    // 프로덕션에서는 상세 에러 정보 숨김
-    const isDevelopment = process.env.NODE_ENV !== 'production';
-    
-    res.status(error.status || 500).json({
-        error: isDevelopment ? error.message : '서버 내부 오류가 발생했습니다',
-        ...(isDevelopment && { stack: error.stack })
-    });
-});
+app.use('/api/search', searchRouter);
+app.use('/api/news', newsRoutes);
+app.use('/api/editor', editorRoutes);
+app.use('/api/banners', bannerRoutes);
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
@@ -302,31 +178,12 @@ const io = initializeSocket(server);
 // 포트 설정 및 서버 실행
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log('\n' + '='.repeat(50));
-    console.log('🚀 LOCO API Server Started Successfully!');
-    console.log('📅 Time:', new Date().toLocaleString());
-    console.log('🌐 Port:', PORT);
-    console.log('🔧 Environment:', isDevelopment ? 'DEVELOPMENT 🛠️' : 'PRODUCTION 🏭');
-    console.log('🛡️ Security: Enhanced Protection Enabled');
-    console.log('🔐 Encryption: Personal Data Protected');
-    console.log('📊 Rate Limiting:', isDevelopment ? 'Development Mode (Relaxed)' : 'Production Mode (Strict)');
-    if (isDevelopment) {
-        console.log('   ├─ General API: 5000 req/15min');
-        console.log('   ├─ Login: 100 attempts/5min');
-        console.log('   └─ Chat: 200 messages/min');
-    } else {
-        console.log('   ├─ General API: 1000 req/15min');
-        console.log('   ├─ Login: 10 attempts/15min');
-        console.log('   └─ Chat: 30 messages/min');
-    }
-    console.log('🗄️ Database: MongoDB Connected');
-    console.log('⚡ Socket.IO: Real-time Communication Ready');
-    console.log('='.repeat(50) + '\n');
+    console.log(`Server is running on http://localhost:${PORT}`);
 });
 
 // 🟢 MongoDB가 준비된 뒤 별점 초기화 스케줄러 시작
 mongoose.connection.once('open', () => {
-    console.log('👍 MongoDB connected – starting schedulers');
+    console.log('MongoDB connected – starting schedulers');
     startResetStarScheduler();          // ⭐ 매너 별점 초기화
     // 필요하다면 다른 스케줄러도 여기서 시작
 });

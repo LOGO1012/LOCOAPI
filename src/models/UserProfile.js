@@ -1,6 +1,5 @@
 //PASS 받아오는거 어디넣을지
 import mongoose from "mongoose";
-import { encrypt, decrypt } from '../utils/encryption.js';
 
 const {Schema, model} = mongoose; // Schema 생성자 추출
 
@@ -10,12 +9,6 @@ const userSchema = new Schema({
     name: {
         type: String,           // 이름: 사용자의 전체 이름
         // required: true          // 필수 항목
-        set: function(value) {
-            return value ? encrypt(value) : value;
-        },
-        get: function(value) {
-            return value ? decrypt(value) : value;
-        }
     },
     nickname: {
         type: String,           // 닉네임: 사용자가 표시할 별명
@@ -33,12 +26,6 @@ const userSchema = new Schema({
         type: String,           // 전화번호: 사용자의 휴대폰 번호
         default: '',             // 기본값은 빈 문자열
         // required: true
-        set: function(value) {
-            return value ? encrypt(value) : value;
-        },
-        get: function(value) {
-            return value ? decrypt(value) : value;
-        }
     },
     pass: {
         type: String,
@@ -48,12 +35,6 @@ const userSchema = new Schema({
         type: String,             // 생년월일: 사용자의 생년월일 정보
         default: null,
         // required: true // 기본값은 null
-        set: function(value) {
-            return value ? encrypt(value) : value;
-        },
-        get: function(value) {
-            return value ? decrypt(value) : value;
-        }
     },
     coinLeft: {
         type: Number,           // 남은 재화: 사용자가 보유한 코인 또는 재화 수량
@@ -84,23 +65,11 @@ const userSchema = new Schema({
             },
             name: {                     // 카카오에서 받아온 닉네임
                 type: String,
-                default: '',
-                set: function(value) {
-                    return value ? encrypt(value) : value;
-                },
-                get: function(value) {
-                    return value ? decrypt(value) : value;
-                }
+                default: ''
             },
             phoneNumber: {                        // 카카오에서 제공한 이메일
                 type: String,
-                default: '',
-                set: function(value) {
-                    return value ? encrypt(value) : value;
-                },
-                get: function(value) {
-                    return value ? decrypt(value) : value;
-                }
+                default: ''
             },
             birthday: {                 // 카카오에서 받아온 프로필 이미지 URL
                 type: Number,
@@ -123,38 +92,31 @@ const userSchema = new Schema({
             },
             name: {                         // 네이버에서 받아온 이름
                 type: String,
-                default: '',
-                set: function(value) {
-                    return value ? encrypt(value) : value;
-                },
-                get: function(value) {
-                    return value ? decrypt(value) : value;
-                }
+                default: ''
             },
             phoneNumber: {                  // 네이버에서 받아온 전화번호 (필요 시)
                 type: String,
-                default: '',
-                set: function(value) {
-                    return value ? encrypt(value) : value;
-                },
-                get: function(value) {
-                    return value ? decrypt(value) : value;
-                }
+                default: ''
             },
-            accessToken: {                  // 네이버 액세스 토큰 (로그아웃 시 토큰 삭제용)
+            birthday: {                     // 네이버에서 받아온 생일 (MMDD 형식, 필요 시)
                 type: String,
                 default: ''
             },
-            birthday: {                     // 네이버에서 받아온 생일 정보
-                type: String,
+            birthyear: {                    // 네이버에서 받아온 출생년도 (필요 시)
+                type: Number,
                 default: ''
             },
-            gender: {                       // 네이버에서 받아온 성별 정보
+            gender: {                       // 네이버에서 받아온 성별
                 type: String,
-                enum: ['male', 'female', ''],
+                enum: ['M', 'F', ''],
                 default: ''
             }
-        }
+        },
+        providerId: {
+            type: String,         // 제공자로부터 받은 고유 ID
+            default: ''
+        },
+
     },
     profilePhoto: {
         type: String,   // 프로필 사진 URL
@@ -280,13 +242,12 @@ const userSchema = new Schema({
         type: Boolean,
         default: true // 기본값은 활성화
     },
-}, { 
-    timestamps: true,           // createdAt, updatedAt 자동 생성
-    toJSON: { getters: true },  // JSON 변환 시 getter 실행 (복호화)
-    toObject: { getters: true } // Object 변환 시 getter 실행 (복호화)
+
+}, {
+    timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
 });
 
-// 기존 인덱스는 그대로 유지 (암호화된 데이터도 인덱스 가능)
+// 텍스트 인덱스
 userSchema.index({name: "text", nickname: "text", phone: "text", gender: "text", birthdate: "text", userLv: "text"});
 
 // lolNickname을 분리해 gameName, tagLine 가상 필드로 노출
@@ -300,6 +261,7 @@ userSchema.virtual('riotTagLine').get(function () {
     const parts = this.lolNickname.split('#');
     return parts[1] || '';
 });
+
 
 // JSON으로 반환될 때 virtual 포함
 userSchema.set('toJSON', {virtuals: true});
