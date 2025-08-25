@@ -9,8 +9,6 @@ const chatRoomHistorySchema = new Schema({
         ref: 'ChatRoom',
         required: true
     },
-
-
     // 3) 이벤트 발생 시각
     timestamp: {
         type: Date,
@@ -26,7 +24,11 @@ const chatRoomHistorySchema = new Schema({
         capacity:     Number,
         matchedGender:String,
         ageGroup:     String,
-        createdAt:    Date
+        createdAt:    Date,
+        genderSelections: {
+            type: Schema.Types.Mixed, // Map 대신 Mixed 사용
+            default: {}
+        },
     }
 }, {  timestamps: false });
 
