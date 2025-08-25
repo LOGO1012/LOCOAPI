@@ -20,7 +20,7 @@ export const registerUserProfile = async (req, res, next) => {
         // 회원가입 폼 및 URL 쿼리에서 전달된 정보 추출
         // req.body 에는 카카오 정보와 추가 회원가입 정보가 모두 포함되어야 합니다.
         const { kakaoId, naverId, nickname, name, phoneNumber, birthdate, birthday, birthyear, kakaoGender, naverGender,   // 카카오에서 받은 성별
-            formGender, info } = req.body;
+            formGender, info, naverAccessToken } = req.body;
 
         // 새 사용자 생성: 상위 필드와 카카오 소셜 로그인 정보를 통합합니다.
         // 스키마에 정의된 필수 필드(name, nickname, phone, birthdate)는 반드시 제공되어야 합니다.
@@ -50,6 +50,7 @@ export const registerUserProfile = async (req, res, next) => {
                         providerId: naverId,   // 네이버 고유 사용자 ID
                         name,                  // 네이버에서 받은 이름
                         phoneNumber,           // 네이버에서 받은 전화번호 (예: mobile)
+                        accessToken: naverAccessToken || '', // 네이버 액세스 토큰 저장
                         birthday,              // 네이버에서 받은 생일 ("MM-DD" 형식)
                         birthyear,             // 네이버에서 받은 출생년도
                         gender: naverGender    // 네이버에서 받은 성별 (예: "M" 또는 "F")

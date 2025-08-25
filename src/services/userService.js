@@ -5,6 +5,7 @@ import { User } from '../models/UserProfile.js';
 import {FriendRequest} from "../models/FriendRequest.js";
 import {getMax, rechargeIfNeeded, REFILL_MS} from "../utils/chatQuota.js";
 import * as onlineStatusService from "./onlineStatusService.js";
+import { findUserByEncryptedFields, findUserByCommonIdentifiers } from '../utils/encryptedSearch.js';
 
 /**
  * findUserOrNoUser
@@ -31,23 +32,26 @@ export const findUserOrNoUser = async (kakaoUserData) => {
             "원본 birthday:", kakaoUserData.birthday,
             "Normalized Birthdate:", normalizedBirthdate);
 
-        // 네이버 providerId로 먼저 검색
+        // 카카오 providerId로 먼저 검색
         let existingUser = await User.findOne({ 'social.kakao.providerId': kakaoUserData.kakaoId });
         console.log("DEBUG: DB에서 카카오 providerId로 조회 결과:", existingUser);
 
-        // 만약 네이버 providerId가 없는 경우, 공통 식별자 기준으로 검색
+        // 만약 카카오 providerId가 없는 경우, 공통 식별자 기준으로 검색 (암호화 호환)
         if (!existingUser && kakaoUserData.name && normalizedPhone && normalizedBirthdate) {
-            console.log("DEBUG: 카카오 providerId로 사용자가 없으므로, 공통 식별자(이름, 전화번호, 생년월일)로 조회합니다:", {
+            console.log("DEBUG: 카카오 providerId로 사용자가 없으므로, 암호화 호환 검색을 시도합니다:", {
                 name: kakaoUserData.name,
                 phone: normalizedPhone,
                 birthdate: normalizedBirthdate,
             });
-            existingUser = await User.findOne({
-                name: kakaoUserData.name,
-                phone: normalizedPhone,
-                birthdate: normalizedBirthdate,
-            });
-            console.log("DEBUG: 공통 식별자로 조회한 결과:", existingUser);
+            
+            // 암호화된 필드 검색 사용
+            existingUser = await findUserByCommonIdentifiers(
+                kakaoUserData.name,
+                normalizedPhone,
+                normalizedBirthdate
+            );
+            console.log("DEBUG: 암호화 호환 검색 결과:", existingUser);
+            
             // 3. 조회된 계정에 카카오 정보가 없다면 병합 처리
             if (existingUser && (!existingUser.social.kakao || !existingUser.social.kakao.providerId)) {
                 console.log("DEBUG: 병합 전 기존 사용자의 소셜 정보:", existingUser.social);
@@ -80,7 +84,7 @@ export const findUserOrNoUser = async (kakaoUserData) => {
     }
 };
 
-// 네이버 사용자 조회 함수 추가
+// 네이버 사용자 조회 함수 수정 (암호화 호환)
 export const findUserByNaver = async (naverUserData) => {
     try {
         const normalizedBirthdate = normalizeBirthdate(naverUserData.birthyear, naverUserData.birthday);
@@ -90,304 +94,478 @@ export const findUserByNaver = async (naverUserData) => {
             "원본 birthday:", naverUserData.birthday,
             "Normalized Birthdate:", normalizedBirthdate);
 
+        // 네이버 providerId로 먼저 검색
         let existingUser = await User.findOne({ 'social.naver.providerId': naverUserData.naverId });
         console.log("DEBUG: DB에서 네이버 providerId로 조회 결과:", existingUser);
 
+        // 만약 네이버 providerId가 없는 경우, 공통 식별자 기준으로 검색 (암호화 호환)
         if (!existingUser && naverUserData.name && normalizedPhone && normalizedBirthdate) {
-            console.log("DEBUG: 네이버 providerId로 사용자가 없으므로, 공통 식별자(이름, 전화번호, 생년월일)로 조회합니다:", {
+            console.log("DEBUG: 네이버 providerId로 사용자가 없으므로, 암호화 호환 검색을 시도합니다:", {
                 name: naverUserData.name,
                 phone: normalizedPhone,
                 birthdate: normalizedBirthdate,
             });
-            existingUser = await User.findOne({
-                name: naverUserData.name,
-                phone: normalizedPhone,
-                birthdate: normalizedBirthdate,
-            });
+            
+            // 암호화된 필드 검색 사용
+            existingUser = await findUserByCommonIdentifiers(
+                naverUserData.name,
+                normalizedPhone,
+                normalizedBirthdate
+            );
+            console.log("DEBUG: 암호화 호환 검색 결과:", existingUser);
 
-            // 3. 조회된 계정에 네이버 정보가 없다면 병합 처리
+            // 조회된 계정에 네이버 정보가 없다면 병합 처리
             if (existingUser && (!existingUser.social.naver || !existingUser.social.naver.providerId)) {
                 console.log("DEBUG: 병합 전 기존 사용자의 소셜 정보:", existingUser.social);
+                
+                // 네이버 정보를 기존 계정에 병합
                 existingUser.social.naver = {
                     providerId: naverUserData.naverId,
                     name: naverUserData.name,
                     phoneNumber: naverUserData.phoneNumber,
                     birthday: naverUserData.birthday,
-                    birthyear: naverUserData.birthyear,
                     gender: naverUserData.gender,
+                    accessToken: naverUserData.access_token || ''
                 };
-                existingUser.markModified('social');  // 변경사항 수동 등록
+                existingUser.markModified('social');
                 await existingUser.save();
                 console.log("기존 계정에 네이버 정보 병합 완료");
                 console.log("DEBUG: 병합 후 사용자 정보:", existingUser);
             }
         }
 
+        // 네이버 토큰 저장 (로그인된 사용자의 토큰 업데이트)
+        if (existingUser && naverUserData.access_token) {
+            try {
+                await User.findByIdAndUpdate(existingUser._id, {
+                    'social.naver.accessToken': naverUserData.access_token
+                });
+                console.log("네이버 액세스 토큰 저장 완료");
+            } catch (tokenUpdateError) {
+                console.error("네이버 토큰 저장 실패:", tokenUpdateError);
+                // 토큰 저장 실패해도 로그인은 계속 진행
+            }
+        }
+
+        // 등록된 사용자가 없으면 회원가입 필요 상태 반환
         if (!existingUser) {
             console.log('등록된 네이버 사용자가 없습니다. 회원가입이 필요합니다.');
             return { status: 'noUser', ...naverUserData };
         }
+
+        // 등록된 사용자가 있으면 해당 사용자 객체를 반환
         return existingUser;
     } catch (error) {
-        console.error('User service error:', error.message);
+        console.error('네이버 User service error:', error.message);
         throw error;
     }
 };
 
-// 유저 정보를 불러오는 서비스 함수
 export const getUserById = async (userId) => {
     try {
-        let user = await User.findById(userId);
-        if (!user) throw new Error("사용자를 찾을 수 없습니다.");
-
-        user = await rechargeIfNeeded(user);                 // 자동 충전
-
-        const maxChatCount = getMax(user.plan?.planType);    // 플랜별 최대
-        const last = user.chatTimer ?? new Date();           // 마지막 충전 시각
-        const nextRefillAt = new Date(new Date(last).getTime() + REFILL_MS);
-
-        const data = user.toObject();
-        data.maxChatCount = maxChatCount;
-        data.nextRefillAt = nextRefillAt;                    // ISO 문자열
-        return data;
-    } catch (err) {
-        throw new Error(err.message);
+        return await User.findById(userId);
+    } catch (error) {
+        console.error('사용자 조회 오류:', error);
+        throw error;
     }
 };
 
-export const rateUser = async (userId, rating) => {
-    // rating 값 검증: 숫자이고 0 이상 5 이하인지 확인
-    if (typeof rating !== "number" || rating < 0 || rating > 5) {
-        throw new Error("Rating must be a number between 0 and 5.");
-    }
-
-    // 해당 사용자를 DB에서 찾기
-    const user = await User.findById(userId);
-    if (!user) {
-        throw new Error("User not found.");
-    }
-
-    // 기존 별점에 전달받은 rating 값을 누적 업데이트
-    user.star += rating;
-
-    // 변경사항 저장
-    await user.save();
-
-    return user;
-};
-
-/**
- * 별칭을 이용하여 사용자를 조회하는 함수
- * @param {string} nickname - 사용자의 별칭
- * @returns {Promise<Object>} 해당 사용자의 UserProfile 문서
- */
 export const getUserByNickname = async (nickname) => {
     try {
-        const user = await User.findOne({ nickname });
-        if (!user) {
-            throw new Error("User not found.");
+        return await User.findOne({ nickname });
+    } catch (error) {
+        console.error('닉네임으로 사용자 조회 오류:', error);
+        throw error;
+    }
+};
+
+export const getAllUsers = async () => {
+    try {
+        return await User.find({}, 'nickname tier profile userLv');
+    } catch (error) {
+        console.error('모든 사용자 조회 오류:', error);
+        throw error;
+    }
+};
+
+export const updateUserLevel = async (userId, newLevel) => {
+    try {
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            { userLv: newLevel },
+            { new: true }
+        );
+        return updatedUser;
+    } catch (error) {
+        console.error('사용자 레벨 업데이트 오류:', error);
+        throw error;
+    }
+};
+
+export const getLoggedInUser = async (req) => {
+    try {
+        if (!req.user) {
+            return null;
         }
+        return req.user;
+    } catch (error) {
+        console.error('로그인된 사용자 조회 오류:', error);
+        throw error;
+    }
+};
+
+export const createUser = async (userData) => {
+    try {
+        const newUser = new User(userData);
+        return await newUser.save();
+    } catch (error) {
+        console.error('사용자 생성 오류:', error);
+        throw error;
+    }
+};
+
+export const findUsersByKeyword = async (keyword) => {
+    try {
+        return await User.find({
+            $or: [
+                { nickname: { $regex: keyword, $options: 'i' } },
+                // 암호화된 name 필드는 정확한 매칭만 가능
+                // 검색 기능이 필요하면 별도의 검색 해시 필드 추가 고려
+            ]
+        });
+    } catch (error) {
+        console.error('키워드로 사용자 검색 오류:', error);
+        throw error;
+    }
+};
+
+export const updateLastActive = async (userId) => {
+    try {
+        await User.findByIdAndUpdate(userId, {
+            lastActive: new Date()
+        });
+    } catch (error) {
+        console.error('마지막 활동 시간 업데이트 오류:', error);
+        // 비중요한 기능이므로 에러 throw 하지 않음
+    }
+};
+
+export const getActiveFriends = async (userId) => {
+    try {
+        const user = await User.findById(userId).populate('friends');
+        if (!user) return [];
+        
+        return user.friends.filter(friend => 
+            friend.lastActive && 
+            (new Date() - friend.lastActive) < 30 * 60 * 1000 // 30분 이내 활동
+        );
+    } catch (error) {
+        console.error('활성 친구 조회 오류:', error);
+        return [];
+    }
+};
+
+export const isUserOnline = async (userId) => {
+    try {
+        return await onlineStatusService.isUserOnline(userId);
+    } catch (error) {
+        console.error('사용자 온라인 상태 확인 오류:', error);
+        return false;
+    }
+};
+
+// 채팅 쿼터 관련 함수들
+export const updateChatQuota = async (userId, quotaData) => {
+    try {
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            {
+                'chatQuota.current': quotaData.current,
+                'chatQuota.lastRefillTime': quotaData.lastRefillTime
+            },
+            { new: true }
+        );
+        return updatedUser;
+    } catch (error) {
+        console.error('채팅 쿼터 업데이트 오류:', error);
+        throw error;
+    }
+};
+
+export const getUserChatQuota = async (userId) => {
+    try {
+        const user = await User.findById(userId, 'chatQuota userLv');
+        if (!user) return null;
+        
+        const maxQuota = getMax(user.userLv);
+        const rechargedQuota = rechargeIfNeeded(user.chatQuota, maxQuota);
+        
+        if (rechargedQuota.current !== user.chatQuota.current) {
+            await updateChatQuota(userId, rechargedQuota);
+        }
+        
+        return {
+            current: rechargedQuota.current,
+            max: maxQuota,
+            lastRefillTime: rechargedQuota.lastRefillTime
+        };
+    } catch (error) {
+        console.error('사용자 채팅 쿼터 조회 오류:', error);
+        throw error;
+    }
+};
+
+// ===========================================
+// 🤝 친구 관련 함수들
+// ===========================================
+
+export const sendFriendRequest = async (fromUserId, toUserId) => {
+    try {
+        // 중복 요청 확인
+        const existingRequest = await FriendRequest.findOne({
+            from: fromUserId,
+            to: toUserId,
+            status: 'pending'
+        });
+        
+        if (existingRequest) {
+            throw new Error('이미 친구 요청을 보냈습니다');
+        }
+        
+        // 새 친구 요청 생성
+        const friendRequest = new FriendRequest({
+            from: fromUserId,
+            to: toUserId,
+            status: 'pending'
+        });
+        
+        return await friendRequest.save();
+    } catch (error) {
+        console.error('친구 요청 전송 오류:', error);
+        throw error;
+    }
+};
+
+export const acceptFriendRequestService = async (requestId, userId) => {
+    try {
+        const friendRequest = await FriendRequest.findById(requestId).populate('from to');
+        
+        if (!friendRequest || friendRequest.to._id.toString() !== userId) {
+            throw new Error('친구 요청을 찾을 수 없습니다');
+        }
+        
+        if (friendRequest.status !== 'pending') {
+            throw new Error('이미 처리된 친구 요청입니다');
+        }
+        
+        // 친구 관계 추가
+        await User.findByIdAndUpdate(friendRequest.from._id, {
+            $addToSet: { friends: friendRequest.to._id }
+        });
+        
+        await User.findByIdAndUpdate(friendRequest.to._id, {
+            $addToSet: { friends: friendRequest.from._id }
+        });
+        
+        // 요청 상태 업데이트
+        friendRequest.status = 'accepted';
+        await friendRequest.save();
+        
+        return friendRequest;
+    } catch (error) {
+        console.error('친구 요청 수락 오류:', error);
+        throw error;
+    }
+};
+
+export const declineFriendRequestService = async (requestId, userId) => {
+    try {
+        const friendRequest = await FriendRequest.findById(requestId);
+        
+        if (!friendRequest || friendRequest.to.toString() !== userId) {
+            throw new Error('친구 요청을 찾을 수 없습니다');
+        }
+        
+        friendRequest.status = 'declined';
+        return await friendRequest.save();
+    } catch (error) {
+        console.error('친구 요청 거절 오류:', error);
+        throw error;
+    }
+};
+
+export const getFriendRequests = async (userId) => {
+    try {
+        return await FriendRequest.find({
+            to: userId,
+            status: 'pending'
+        }).populate('from', 'nickname profile tier');
+    } catch (error) {
+        console.error('친구 요청 조회 오류:', error);
+        throw error;
+    }
+};
+
+export const getPaginatedFriends = async (userId, page = 1, limit = 20) => {
+    try {
+        const user = await User.findById(userId)
+            .populate({
+                path: 'friends',
+                select: 'nickname profile tier lastActive',
+                options: {
+                    skip: (page - 1) * limit,
+                    limit: parseInt(limit)
+                }
+            });
+        
+        if (!user) {
+            return { friends: [], total: 0, page, totalPages: 0 };
+        }
+        
+        const totalFriends = user.friends.length;
+        const totalPages = Math.ceil(totalFriends / limit);
+        
+        return {
+            friends: user.friends,
+            total: totalFriends,
+            page: parseInt(page),
+            totalPages
+        };
+    } catch (error) {
+        console.error('친구 목록 조회 오류:', error);
+        throw error;
+    }
+};
+
+export const deleteFriend = async (userId, friendId) => {
+    try {
+        // 양방향 친구 관계 제거
+        await User.findByIdAndUpdate(userId, {
+            $pull: { friends: friendId }
+        });
+        
+        await User.findByIdAndUpdate(friendId, {
+            $pull: { friends: userId }
+        });
+        
+        return true;
+    } catch (error) {
+        console.error('친구 삭제 오류:', error);
+        throw error;
+    }
+};
+
+// ===========================================
+// 🚫 차단 관련 함수들
+// ===========================================
+
+export const blockUserService = async (userId, targetUserId) => {
+    try {
+        await User.findByIdAndUpdate(userId, {
+            $addToSet: { blockedUsers: targetUserId },
+            $pull: { friends: targetUserId }
+        });
+        
+        // 상대방 친구 목록에서도 제거
+        await User.findByIdAndUpdate(targetUserId, {
+            $pull: { friends: userId }
+        });
+        
+        return true;
+    } catch (error) {
+        console.error('사용자 차단 오류:', error);
+        throw error;
+    }
+};
+
+export const unblockUserService = async (userId, targetUserId) => {
+    try {
+        await User.findByIdAndUpdate(userId, {
+            $pull: { blockedUsers: targetUserId }
+        });
+        
+        return true;
+    } catch (error) {
+        console.error('사용자 차단 해제 오류:', error);
+        throw error;
+    }
+};
+
+export const getBlockedUsersService = async (userId) => {
+    try {
+        const user = await User.findById(userId)
+            .populate('blockedUsers', 'nickname profile tier');
+        
+        return user ? user.blockedUsers : [];
+    } catch (error) {
+        console.error('차단된 사용자 목록 조회 오류:', error);
+        throw error;
+    }
+};
+
+// ===========================================
+// ⭐ 평점 관련 함수들
+// ===========================================
+
+export const rateUser = async (raterUserId, ratedUserId, rating) => {
+    try {
+        // 평점 유효성 검사
+        if (rating < 1 || rating > 5) {
+            throw new Error('평점은 1-5 사이의 값이어야 합니다');
+        }
+        
+        if (raterUserId === ratedUserId) {
+            throw new Error('자신에게는 평점을 줄 수 없습니다');
+        }
+        
+        // 기존 평점 확인
+        const ratedUser = await User.findById(ratedUserId);
+        if (!ratedUser) {
+            throw new Error('평점을 받을 사용자를 찾을 수 없습니다');
+        }
+        
+        // 평점 추가 (중복 평점 방지는 별도 로직 필요)
+        const newRating = {
+            rater: raterUserId,
+            rating: rating,
+            createdAt: new Date()
+        };
+        
+        ratedUser.ratings = ratedUser.ratings || [];
+        ratedUser.ratings.push(newRating);
+        
+        // 평균 평점 계산
+        const totalRatings = ratedUser.ratings.length;
+        const avgRating = ratedUser.ratings.reduce((sum, r) => sum + r.rating, 0) / totalRatings;
+        ratedUser.averageRating = Math.round(avgRating * 100) / 100;
+        
+        await ratedUser.save();
+        return ratedUser;
+    } catch (error) {
+        console.error('사용자 평점 오류:', error);
+        throw error;
+    }
+};
+
+// ===========================================
+// 💬 채팅 관련 함수들
+// ===========================================
+
+export const decrementChatCount = async (userId) => {
+    try {
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new Error('사용자를 찾을 수 없습니다');
+        }
+        
+        if (user.chatQuota && user.chatQuota.current > 0) {
+            user.chatQuota.current -= 1;
+            await user.save();
+        }
+        
         return user;
     } catch (error) {
-        throw new Error(error.message);
+        console.error('채팅 횟수 차감 오류:', error);
+        throw error;
     }
 };
-
-// 채팅 횟수 감소
-export const decrementChatCount = async (userId) => {
-    const user = await User.findById(userId);
-    if (!user) throw new Error("User not found.");
-
-    const max = getMax(user.plan?.planType);
-    const before = user.numOfChat ?? 0;
-    user.numOfChat = Math.max(0, before - 1);
-
-    // ‘가득찬 상태(=max)’에서 처음 사용했을 때 타이머 시작
-    if (before === max) user.chatTimer = new Date();
-
-    await user.save();
-    return user;
-};
-
-export const acceptFriendRequestService = async (requestId) => {
-    // 해당 친구 요청 조회
-    const friendRequest = await FriendRequest.findById(requestId);
-    if (!friendRequest) {
-        throw new Error("친구 요청을 찾을 수 없습니다.");
-    }
-    if (friendRequest.status !== 'pending') {
-        throw new Error("이미 처리된 친구 요청입니다.");
-    }
-
-    // 양쪽 사용자의 friends 배열에 서로의 ID 추가
-    await User.findByIdAndUpdate(friendRequest.sender, { $push: { friends: friendRequest.receiver } });
-    await User.findByIdAndUpdate(friendRequest.receiver, { $push: { friends: friendRequest.sender } });
-
-    // 친구 요청 문서를 DB에서 삭제
-    await FriendRequest.findByIdAndDelete(requestId);
-
-    return {
-        message: "친구 요청이 수락되어 삭제되었습니다.",
-        friendRequest: friendRequest
-    };
-};
-
-// 친구 요청 보내기 함수
-export const sendFriendRequest = async (senderId, receiverId) => {
-    // ❷ 수신자가 요청을 차단했는지 미리 확인
-    const receiverUser = await User.findById(receiverId).select('friendReqEnabled');
-    if (!receiverUser) throw new Error('받는 사용자를 찾을 수 없습니다.');
-    if (!receiverUser.friendReqEnabled) {
-        throw new Error('상대가 친구 요청을 차단했습니다.');
-    }
-    if (senderId === receiverId) {
-        throw new Error("자기 자신에게 친구 요청을 보낼 수 없습니다.");
-    }
-
-    // 보내는 사용자의 정보를 조회하여 이미 친구인지 확인
-    const senderUser = await User.findById(senderId);
-    if (!senderUser) {
-        throw new Error("보낸 사용자 정보를 찾을 수 없습니다.");
-    }
-
-    // 이미 친구인지 확인 (ObjectId는 문자열로 변환해서 비교)
-    const alreadyFriends = senderUser.friends.some(friendId =>
-        friendId.toString() === receiverId.toString()
-    );
-    if (alreadyFriends) {
-        throw new Error("이미 친구입니다.");
-    }
-
-    // 이미 pending 상태의 요청이 존재하는지 확인
-    const existingRequest = await FriendRequest.findOne({
-        sender: senderId,
-        receiver: receiverId,
-        status: 'pending'
-    });
-    if (existingRequest) {
-        throw new Error("이미 친구 요청을 보냈습니다.");
-    }
-
-    // 새로운 친구 요청 생성
-    const newRequest = new FriendRequest({ sender: senderId, receiver: receiverId });
-    await newRequest.save();
-    return newRequest;
-};
-
-// 친구 요청 목록 조회 함수 (수신한 pending 요청)
-export const getFriendRequests = async (receiverId) => {
-    const requests = await FriendRequest.find({
-        receiver: receiverId,
-        status: 'pending'
-    }).populate('sender', 'nickname name photo'); // 요청 보낸 사용자의 일부 정보 노출
-    return requests;
-};
-
-// 친구 요청 거절 기능: 요청 상태를 'declined'로 업데이트한 후, DB에서 삭제합니다.
-export const declineFriendRequestService = async (requestId) => {
-    // 해당 친구 요청 조회
-    const friendRequest = await FriendRequest.findById(requestId);
-    if (!friendRequest) {
-        throw new Error("친구 요청을 찾을 수 없습니다.");
-    }
-    // 이미 처리된 요청이면 에러 발생
-    if (friendRequest.status !== 'pending') {
-        throw new Error("이미 처리된 친구 요청입니다.");
-    }
-
-    // 상태를 'declined'로 업데이트한 후 저장 (로깅 등 필요할 경우 대비)
-    friendRequest.status = 'declined';
-    await friendRequest.save();
-
-    // DB에서 해당 친구 요청 알림 삭제
-    await FriendRequest.findByIdAndDelete(requestId);
-
-    return {
-        message: "친구 요청이 거절되어 삭제되었습니다.",
-        friendRequest
-    };
-};
-
-// 친구 삭제 기능
-export const deleteFriend = async (userId, friendId) => {
-    // 요청 사용자가 존재하는지 확인
-    const user = await User.findById(userId);
-    if (!user) {
-        throw new Error("사용자를 찾을 수 없습니다.");
-    }
-    // 삭제 대상 친구가 존재하는지 확인
-    const friend = await User.findById(friendId);
-    if (!friend) {
-        throw new Error("친구를 찾을 수 없습니다.");
-    }
-    // 친구 목록에 해당 친구가 있는지 확인
-    if (!user.friends.includes(friendId)) {
-        throw new Error("해당 사용자는 친구 목록에 존재하지 않습니다.");
-    }
-    // 사용자와 친구 양쪽에서 친구 id 제거
-    await User.findByIdAndUpdate(userId, { $pull: { friends: friendId } });
-    await User.findByIdAndUpdate(friendId, { $pull: { friends: userId } });
-    return { message: "친구가 삭제되었습니다." };
-};
-
-/**
- * 사용자 차단
- */
-export const blockUserService = async (userId, targetId) => {
-    const user = await User.findById(userId);
-    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-    if (!user.blockedUsers.includes(targetId)) {
-        user.blockedUsers.push(targetId);
-        await user.save();
-    }
-    return user;
-};
-
-/**
- * 차단 해제
- */
-export const unblockUserService = async (userId, targetId) => {
-    const user = await User.findById(userId);
-    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-    user.blockedUsers = user.blockedUsers.filter(id => id.toString() !== targetId);
-    await user.save();
-    return user;
-};
-
-/**
- * 차단 목록 조회
- */
-export const getBlockedUsersService = async (userId) => {
-    const user = await User.findById(userId).populate('blockedUsers', 'nickname name profilePhoto createdAt');
-    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-    return user.blockedUsers;
-};
-
-export const getPaginatedFriends = async (
-    userId,
-    offset = 0,
-    limit = 20,
-) => {
-    // friends 배열을 DB 쪽에서 잘라서 가져옴
-    const user = await User.findById(userId)
-        .slice('friends', [offset, limit])      // <- $slice 전달
-        .populate('friends', 'nickname profilePhoto'); // 필요한 필드만
-
-    if (!user) throw new Error('User not found');
-
-    // 전체 친구 수도 내려주고 싶다면 한 번 더 가볍게 조회
-    const totalCnt =
-        (await User.findById(userId).select('friends').lean())?.friends.length || 0;
-
-    // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
-    const friendIds = user.friends.map(friend => friend._id.toString());
-    const onlineStatusMap = onlineStatusService.getMultipleUserStatus(friendIds);
-    
-    const friendsWithStatus = user.friends.map(friend => ({
-        ...friend.toObject(),
-        isOnline: onlineStatusMap[friend._id.toString()] || false
-    }));
-
-    return { total: totalCnt, friends: friendsWithStatus };
-};
-

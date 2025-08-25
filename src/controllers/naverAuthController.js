@@ -1,8 +1,9 @@
 // 파일 경로: src/controllers/naverAuthController.js
 // 네이버 OAuth 콜백 요청을 처리하여 사용자 정보를 조회하고, 로그인 또는 회원가입 필요 상태를 반환합니다.
 import { naverAuthSchema } from '../dto/naverAuthValidator.js';
-import { naverLogin } from '../services/naverAuthService.js';
+import { naverLogin, deleteNaverToken } from '../services/naverAuthService.js';
 import {findUserByNaver, getUserById} from '../services/userService.js'; // 기존 userService.js의 네이버 조회 함수 사용
+import { User } from '../models/UserProfile.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -46,7 +47,7 @@ export const naverCallback = async (req, res, next) => {
         const naverUserData = await naverLogin(code, state);
         console.log('네이버 로그인 서비스 반환:', naverUserData);
 
-        // DB에서 네이버 사용자를 조회
+        // DB에서 네이버 사용자를 조회 (토큰도 함께 저장)
         const result = await findUserByNaver(naverUserData);
         if (result.status === 'noUser') {
             console.log('네이버 사용자가 존재하지 않음, 회원가입 필요');
@@ -152,11 +153,50 @@ export const naverRefreshToken = async (req, res) => {
 };
 
 /**
- * 로그아웃: Refresh 토큰 쿠키 삭제
+ * 로그아웃: 네이버 토큰 삭제 + 쿠키 삭제
  */
-export const logout = (req, res) => {
-    console.log('네이버 로그아웃 요청 - 쿠키 삭제 시작');
+export const logout = async (req, res) => {
+    console.log('네이버 로그아웃 요청 시작');
     console.log('현재 쿠키들:', req.cookies);
+    
+    try {
+        // JWT에서 사용자 ID 추출
+        const token = req.cookies.accessToken || req.cookies.refreshToken;
+        if (token) {
+            const payload = jwt.verify(token, token === req.cookies.accessToken ? JWT_SECRET : REFRESH_SECRET);
+            const userId = payload.userId;
+            
+            if (userId) {
+                console.log('사용자 ID:', userId, '의 네이버 토큰 삭제 시도');
+                
+                // 사용자 정보 조회
+                const user = await getUserById(userId);
+                if (user && user.social && user.social.naver && user.social.naver.accessToken) {
+                    console.log('네이버 액세스 토큰 발견, 삭제 API 호출');
+                    
+                    // 네이버 토큰 삭제 API 호출
+                    const deleteResult = await deleteNaverToken(user.social.naver.accessToken);
+                    
+                    if (deleteResult) {
+                        console.log('✅ 네이버 토큰 삭제 성공');
+                        
+                        // DB에서도 토큰 제거
+                        await User.findByIdAndUpdate(userId, {
+                            'social.naver.accessToken': ''
+                        });
+                        console.log('✅ DB에서 네이버 토큰 제거 완료');
+                    } else {
+                        console.warn('⚠️ 네이버 토큰 삭제 실패 또는 이미 만료됨');
+                    }
+                } else {
+                    console.log('네이버 로그인 사용자가 아니거나 토큰이 없음');
+                }
+            }
+        }
+    } catch (err) {
+        console.error('로그아웃 중 에러 발생:', err.message);
+        // 에러가 발생해도 로그아웃은 계속 진행
+    }
     
     // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
     res.clearCookie('refreshToken', clearCookieOptions);
@@ -167,16 +207,65 @@ export const logout = (req, res) => {
 };
 
 /**
- * 로그아웃 후 프론트 리다이렉트용 (필요 시)
+ * 로그아웃 후 프론트 리다이렉트용 (카카오/네이버 공통)
  */
-export const logoutRedirect = (req, res) => {
-    console.log('네이버 로그아웃 리다이렉트 - 쿠키 삭제 시작');
+export const logoutRedirect = async (req, res) => {
+    console.log('소셜 로그아웃 리다이렉트 시작');
     console.log('현재 쿠키들:', req.cookies);
+    
+    try {
+        // JWT에서 사용자 ID 추출
+        const token = req.cookies.accessToken || req.cookies.refreshToken;
+        if (token) {
+            const payload = jwt.verify(token, token === req.cookies.accessToken ? JWT_SECRET : REFRESH_SECRET);
+            const userId = payload.userId;
+            
+            if (userId) {
+                console.log('사용자 ID:', userId, '의 네이버 토큰 삭제 시도');
+                
+                // 사용자 정보 조회
+                const user = await getUserById(userId);
+                if (user && user.social && user.social.naver && user.social.naver.accessToken) {
+                    console.log('네이버 액세스 토큰 발견, 삭제 API 호출');
+                    
+                    // 네이버 토큰 삭제 API 호출
+                    const deleteResult = await deleteNaverToken(user.social.naver.accessToken);
+                    
+                    if (deleteResult) {
+                        console.log('✅ 네이버 토큰 삭제 성공');
+                        
+                        // DB에서도 토큰 제거
+                        await User.findByIdAndUpdate(userId, {
+                            'social.naver.accessToken': ''
+                        });
+                        console.log('✅ DB에서 네이버 토큰 제거 완료');
+                    } else {
+                        console.warn('⚠️ 네이버 토큰 삭제 실패 또는 이미 만료됨');
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.error('로그아웃 리다이렉트 중 에러 발생:', err.message);
+        // 에러가 발생해도 로그아웃은 계속 진행
+    }
+    
+    // 세션 정리 (네이버 데이터 포함)
+    if (req.session) {
+        req.session.destroy((err) => {
+            if (err) {
+                console.error('세션 삭제 오류:', err);
+            } else {
+                console.log('세션 삭제 완료');
+            }
+        });
+    }
     
     // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
     res.clearCookie('refreshToken', clearCookieOptions);
     res.clearCookie('accessToken', clearCookieOptions);
+    res.clearCookie('connect.sid', clearCookieOptions); // 세션 쿠키도 삭제
     
-    console.log('쿠키 삭제 후 프론트로 리다이렉트');
+    console.log('쿠키 및 세션 삭제 후 프론트로 리다이렉트');
     return res.redirect(BASE_URL_FRONT);
 };
