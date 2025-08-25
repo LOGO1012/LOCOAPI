@@ -1,5 +1,5 @@
 // utils/chatQuota.js
-const BASE = 25;                                    // 기본 허용
+const BASE = 30;                                    // 기본 허용
 const BONUS = { basic: 10, standard: 20, premium: 30 };
 export const REFILL_MS = 1 * 60 * 1000;        // 2 h → 7 200 000 ms
 
