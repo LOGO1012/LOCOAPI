@@ -1,6 +1,5 @@
 //PASS 받아오는거 어디넣을지
 import mongoose from "mongoose";
-import { encrypt, decrypt } from '../utils/encryption.js';
 
 const {Schema, model} = mongoose; // Schema 생성자 추출
 
@@ -10,12 +9,6 @@ const userSchema = new Schema({
     name: {
         type: String,           // 이름: 사용자의 전체 이름
         // required: true          // 필수 항목
-        set: function(value) {
-            return value ? encrypt(value) : value;
-        },
-        get: function(value) {
-            return value ? decrypt(value) : value;
-        }
     },
     nickname: {
         type: String,           // 닉네임: 사용자가 표시할 별명
@@ -33,12 +26,6 @@ const userSchema = new Schema({
         type: String,           // 전화번호: 사용자의 휴대폰 번호
         default: '',             // 기본값은 빈 문자열
         // required: true
-        set: function(value) {
-            return value ? encrypt(value) : value;
-        },
-        get: function(value) {
-            return value ? decrypt(value) : value;
-        }
     },
     pass: {
         type: String,
@@ -48,12 +35,6 @@ const userSchema = new Schema({
         type: String,             // 생년월일: 사용자의 생년월일 정보
         default: null,
         // required: true // 기본값은 null
-        set: function(value) {
-            return value ? encrypt(value) : value;
-        },
-        get: function(value) {
-            return value ? decrypt(value) : value;
-        }
     },
     coinLeft: {
         type: Number,           // 남은 재화: 사용자가 보유한 코인 또는 재화 수량
@@ -84,23 +65,11 @@ const userSchema = new Schema({
             },
             name: {                     // 카카오에서 받아온 닉네임
                 type: String,
-                default: '',
-                set: function(value) {
-                    return value ? encrypt(value) : value;
-                },
-                get: function(value) {
-                    return value ? decrypt(value) : value;
-                }
+                default: ''
             },
             phoneNumber: {                        // 카카오에서 제공한 이메일
                 type: String,
-                default: '',
-                set: function(value) {
-                    return value ? encrypt(value) : value;
-                },
-                get: function(value) {
-                    return value ? decrypt(value) : value;
-                }
+                default: ''
             },
             birthday: {                 // 카카오에서 받아온 프로필 이미지 URL
                 type: Number,
@@ -123,117 +92,162 @@ const userSchema = new Schema({
             },
             name: {                         // 네이버에서 받아온 이름
                 type: String,
-                default: '',
-                set: function(value) {
-                    return value ? encrypt(value) : value;
-                },
-                get: function(value) {
-                    return value ? decrypt(value) : value;
-                }
+                default: ''
             },
             phoneNumber: {                  // 네이버에서 받아온 전화번호 (필요 시)
                 type: String,
-                default: '',
-                set: function(value) {
-                    return value ? encrypt(value) : value;
-                },
-                get: function(value) {
-                    return value ? decrypt(value) : value;
-                }
+                default: ''
             },
-            birthday: {                     // 네이버에서 받아온 생일 정보
+            birthday: {                     // 네이버에서 받아온 생일 (MMDD 형식, 필요 시)
                 type: String,
                 default: ''
             },
-            gender: {                       // 네이버에서 받아온 성별 정보
+            birthyear: {                    // 네이버에서 받아온 출생년도 (필요 시)
+                type: Number,
+                default: ''
+            },
+            gender: {                       // 네이버에서 받아온 성별
                 type: String,
-                enum: ['male', 'female', ''],
+                enum: ['M', 'F', ''],
                 default: ''
             }
-        }
+        },
+        providerId: {
+            type: String,         // 제공자로부터 받은 고유 ID
+            default: ''
+        },
+
     },
-    // 게임 관련 정보
-    lolNickname: {
-        type: String,           // 리그 오브 레전드 닉네임
-        default: '',
-        index: true             // 검색을 위한 인덱스 설정
+    profilePhoto: {
+        type: String,   // 프로필 사진 URL
+        default: ''     // 기본값: 빈 문자열
     },
-    // 추가된 필드들
-    tier: {
-        type: String,           // 게임 티어 정보
-        default: ''
+    photo: {
+        type: [String],  // 문자열 배열로 여러 이미지 URL을 저장
+        default: [],  // 기본값은 빈 배열
     },
-    profile: {
-        type: String,           // 프로필 이미지 URL
-        default: ''
+    info: {
+        type: String,           // 자기소개: 사용자의 소개글
+        default: ''             // 기본값은 빈 문자열
     },
+    policy: {
+        type: Boolean,          // 약관 동의: 사용자가 약관에 동의했는지 여부 (true: 동의, false: 미동의)
+        default: false          // 기본값은 false
+    },
+
+    // 채팅 관련 정보
+    numOfChat: {
+        type: Number,           // 채팅 횟수: 사용자가 채팅한 총 횟수
+        default: 0              // 기본값은 0
+    },
+    chatTimer: {
+        type: Date,             // 채팅 충전 타이머: 다음 채팅 이용권 충전이 가능한 시각
+        default: null          // 기본값은 null (설정되지 않음)
+    },
+
+    // 매너(별점) 관련 정보
+    star: {
+        type: Number,           // 별점 누적: 사용자가 받은 매너 별의 누적 점수 (한 번에 1씩 증가)
+        default: 0              // 기본값은 0
+    },
+    // 유저 등급 및 권한 정보
     userLv: {
-        type: Number,           // 사용자 레벨 (권한 관리용)
-        default: 1              // 기본값: 일반 사용자
+        type: Number,           // 유저 등급: 일반 사용자(예: 1)부터 관리자(더 높은 값) 등급 구분
+        enum: [1, 2, 3],        // 1 = 유저 , 2 = 관리자, 3 = 우리(개발자)
+        default: 1              // 기본값은 1 (일반 사용자)
     },
-    
-    // 친구 관리
-    friends: [{
-        type: Schema.Types.ObjectId,
-        ref: 'User'
-    }],
-    
-    // 차단된 사용자 목록
-    blockedUsers: [{
-        type: Schema.Types.ObjectId,
-        ref: 'User'
-    }],
-    
-    // 평점 시스템
-    ratings: [{
-        rater: {
-            type: Schema.Types.ObjectId,
-            ref: 'User',
-            required: true
-        },
-        rating: {
-            type: Number,
-            min: 1,
-            max: 5,
-            required: true
-        },
-        createdAt: {
-            type: Date,
-            default: Date.now
-        }
-    }],
-    
-    averageRating: {
+    // 접속 및 활동 기록
+    lastLogin: {
+        type: Date,             // 마지막 로그인 시간
+        default: null
+    },
+    // 신고 누적 횟수
+    numOfReport: {
         type: Number,
-        default: 0,
-        min: 0,
-        max: 5
+        default: 0
     },
-    
-    // 채팅 쿼터 시스템
-    chatQuota: {
-        current: {
-            type: Number,
-            default: 10
+    friends: [
+        {
+            type: Schema.Types.ObjectId,          // 각 친구는 User 컬렉션의 ObjectId를 참조
+            ref: 'User'                           // 'User' 모델을 참조합니다.
+        }
+    ],
+    // ——— 차단한 사용자 목록 ———
+    blockedUsers: [
+        {
+            type: Schema.Types.ObjectId,
+            ref: 'User'
+        }
+    ],
+    plan: {
+
+        planName: {
+            type: String,       // 구독 상품명 보관
+            default: ''         // 기본값은 빈 문자열
         },
-        lastRefillTime: {
+
+        planType: {
+            type: String,
+            enum: ['none', 'basic', 'standard', 'premium', 'other'],
+            default: 'none'
+        },
+        isPlan: {
+            type: Boolean,
+            default: false
+        },
+        startDate: {
             type: Date,
-            default: Date.now
+            default: null
+        },
+        endDate: {
+            type: Date,
+            default: null
         }
     },
-    
-    // 마지막 활동 시간
-    lastActive: {
+    reportStatus: {
+        type: String,
+        enum: ['활성', '영구정지', '일시정지'],
+        default: '활성'
+    },
+    reportTimer: {
         type: Date,
-        default: Date.now
-    }
-}, { 
-    timestamps: true,           // createdAt, updatedAt 자동 생성
-    toJSON: { getters: true },  // JSON 변환 시 getter 실행 (복호화)
-    toObject: { getters: true } // Object 변환 시 getter 실행 (복호화)
+        default: null
+    },
+    //임시 후에 롤은 소셜로그인 할 것
+    // 추가된 사용자 정보 필드들
+    pubgNickname: {
+        type: String,
+        default: ''
+    },
+    suddenNickname: {
+        type: String,
+        default: ''
+    },
+    lolNickname: {
+        type: String,
+        default: ''
+    },
+    //qna는 나중에 스키마에서 땡겨올것
+    qnaHistory: {
+        type: [String], // 예를 들어 QnA 내역의 ID나 내용을 저장할 수 있습니다.
+        default: []
+    },
+    // ❶ 스키마 중간 어딘가—알림 · 환경설정 섹션 추천
+    friendReqEnabled: {
+        type: Boolean,
+        default: true      // 기존 동작과 동일한 초기값
+    },
+    // 채팅 미리보기 알림 설정
+    chatPreviewEnabled: {
+        type: Boolean,
+        default: true // 기본값은 활성화
+    },
+
+}, {
+    timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
 });
 
-// 기존 인덱스는 그대로 유지 (암호화된 데이터도 인덱스 가능)
+// 텍스트 인덱스
 userSchema.index({name: "text", nickname: "text", phone: "text", gender: "text", birthdate: "text", userLv: "text"});
 
 // lolNickname을 분리해 gameName, tagLine 가상 필드로 노출
@@ -247,6 +261,7 @@ userSchema.virtual('riotTagLine').get(function () {
     const parts = this.lolNickname.split('#');
     return parts[1] || '';
 });
+
 
 // JSON으로 반환될 때 virtual 포함
 userSchema.set('toJSON', {virtuals: true});
