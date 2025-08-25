@@ -70,39 +70,30 @@ app.use(helmet({
 }));
 
 // 2. Rate Limiting - API 호출 제한
-// 개발 환경에서는 더 여유로운 제한 설정
-const isDevelopment = process.env.NODE_ENV === 'development' || process.env.NODE_ENV !== 'production';
-
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15분
-    max: isDevelopment ? 5000 : 1000, // 개발: 5000회, 프로덕션: 1000회
+    max: 1000, // 일반 API 최대 1000회 요청
     message: {
-        error: isDevelopment 
-            ? '개발 환경: 너무 많은 요청이 발생했습니다. 잠시 후 다시 시도해주세요.'
-            : '너무 많은 요청이 발생했습니다. 15분 후 다시 시도해주세요.'
+        error: '너무 많은 요청이 발생했습니다. 15분 후 다시 시도해주세요.'
     },
     standardHeaders: true,
     legacyHeaders: false
 });
 
 const loginLimiter = rateLimit({
-    windowMs: isDevelopment ? 5 * 60 * 1000 : 15 * 60 * 1000, // 개발: 5분, 프로덕션: 15분
-    max: isDevelopment ? 100 : 10, // 개발: 100회, 프로덕션: 10회
+    windowMs: 15 * 60 * 1000, // 15분
+    max: 10, // 로그인 시도 최대 10회
     skipSuccessfulRequests: true,
     message: {
-        error: isDevelopment 
-            ? '개발 환경: 로그인 시도가 너무 많습니다. 5분 후 다시 시도해주세요.'
-            : '로그인 시도가 너무 많습니다. 15분 후 다시 시도해주세요.'
+        error: '로그인 시도가 너무 많습니다. 15분 후 다시 시도해주세요.'
     }
 });
 
 const chatLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1분
-    max: isDevelopment ? 200 : 30, // 개발: 200개, 프로덕션: 30개
+    max: 30, // 채팅 메시지 최대 30개
     message: {
-        error: isDevelopment 
-            ? '개발 환경: 채팅 전송이 너무 빠릅니다. 잠시만 기다려주세요.'
-            : '채팅 전송이 너무 빠릅니다. 잠시 후 다시 시도해주세요.'
+        error: '채팅 전송이 너무 빠릅니다. 잠시 후 다시 시도해주세요.'
     }
 });
 
@@ -306,19 +297,9 @@ server.listen(PORT, () => {
     console.log('🚀 LOCO API Server Started Successfully!');
     console.log('📅 Time:', new Date().toLocaleString());
     console.log('🌐 Port:', PORT);
-    console.log('🔧 Environment:', isDevelopment ? 'DEVELOPMENT 🛠️' : 'PRODUCTION 🏭');
     console.log('🛡️ Security: Enhanced Protection Enabled');
     console.log('🔐 Encryption: Personal Data Protected');
-    console.log('📊 Rate Limiting:', isDevelopment ? 'Development Mode (Relaxed)' : 'Production Mode (Strict)');
-    if (isDevelopment) {
-        console.log('   ├─ General API: 5000 req/15min');
-        console.log('   ├─ Login: 100 attempts/5min');
-        console.log('   └─ Chat: 200 messages/min');
-    } else {
-        console.log('   ├─ General API: 1000 req/15min');
-        console.log('   ├─ Login: 10 attempts/15min');
-        console.log('   └─ Chat: 30 messages/min');
-    }
+    console.log('📊 Rate Limiting: Active');
     console.log('🗄️ Database: MongoDB Connected');
     console.log('⚡ Socket.IO: Real-time Communication Ready');
     console.log('='.repeat(50) + '\n');
