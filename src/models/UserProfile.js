@@ -110,6 +110,10 @@ const userSchema = new Schema({
                 type: String,
                 enum: ['M', 'F', ''],
                 default: ''
+            },
+            accessToken: {                  // ✅ 네이버 연동해제를 위한 access_token 저장
+                type: String,
+                default: ''
             }
         },
         providerId: {

@@ -1,8 +1,8 @@
 // 파일 경로: src/controllers/naverAuthController.js
 // 네이버 OAuth 콜백 요청을 처리하여 사용자 정보를 조회하고, 로그인 또는 회원가입 필요 상태를 반환합니다.
 import { naverAuthSchema } from '../dto/naverAuthValidator.js';
-import { naverLogin } from '../services/naverAuthService.js';
-import {findUserByNaver, getUserById} from '../services/userService.js'; // 기존 userService.js의 네이버 조회 함수 사용
+import { naverLogin, revokeNaverToken } from '../services/naverAuthService.js';
+import { findUserByNaver, getUserById, updateUserNaverToken } from '../services/userService.js'; // ✅ updateUserNaverToken 추가
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -60,6 +60,15 @@ export const naverCallback = async (req, res, next) => {
         }
         const user = result;
         console.log('DB에서 네이버 사용자 처리 결과:', user);
+
+        // ✅ 네이버 access_token을 사용자 정보에 저장
+        try {
+            await updateUserNaverToken(user._id, naverUserData.accessToken);
+            console.log('네이버 access_token 저장 성공');
+        } catch (error) {
+            console.error('네이버 access_token 저장 실패:', error);
+            // 토큰 저장 실패해도 로그인은 진행
+        }
 
         const payload = {
             userId:   user._id,
@@ -152,31 +161,109 @@ export const naverRefreshToken = async (req, res) => {
 };
 
 /**
- * 로그아웃: Refresh 토큰 쿠키 삭제
+ * ✅ 네이버 연동해제 포함 로그아웃 처리
  */
-export const logout = (req, res) => {
-    console.log('네이버 로그아웃 요청 - 쿠키 삭제 시작');
-    console.log('현재 쿠키들:', req.cookies);
-    
-    // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
-    res.clearCookie('refreshToken', clearCookieOptions);
-    res.clearCookie('accessToken', clearCookieOptions);
-    
-    console.log('쿠키 삭제 완료');
-    return res.status(200).json({ message: "Logged out" });
+export const logout = async (req, res) => {
+    try {
+        console.log('네이버 로그아웃 요청 - 연동해제 및 쿠키 삭제 시작');
+        console.log('현재 쿠키들:', req.cookies);
+        
+        // JWT 토큰에서 사용자 ID 추출
+        const token = req.cookies.accessToken || req.cookies.refreshToken;
+        if (token) {
+            try {
+                // 토큰 디코딩해서 사용자 ID 획득
+                const decoded = jwt.decode(token);
+                if (decoded && decoded.userId) {
+                    console.log('사용자 ID 추출 성공:', decoded.userId);
+                    
+                    // 사용자 정보 조회하여 네이버 access_token 획득
+                    const user = await getUserById(decoded.userId);
+                    if (user && user.social && user.social.naver && user.social.naver.accessToken) {
+                        console.log('네이버 access_token 발견, 연동해제 시도');
+                        
+                        try {
+                            // 네이버 연동해제 API 호출
+                            await revokeNaverToken(user.social.naver.accessToken);
+                            console.log('네이버 연동해제 성공');
+                            
+                            // DB에서 네이버 토큰 삭제
+                            await updateUserNaverToken(decoded.userId, null);
+                            console.log('DB에서 네이버 토큰 삭제 완료');
+                        } catch (error) {
+                            console.error('네이버 연동해제 실패 (계속 진행):', error.message);
+                            // 연동해제 실패해도 로그아웃은 계속 진행
+                        }
+                    } else {
+                        console.log('네이버 access_token이 없음 (카카오 로그인 또는 토큰 없음)');
+                    }
+                }
+            } catch (error) {
+                console.error('토큰 디코딩 실패 (계속 진행):', error.message);
+            }
+        }
+        
+        // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
+        res.clearCookie('refreshToken', clearCookieOptions);
+        res.clearCookie('accessToken', clearCookieOptions);
+        
+        console.log('로그아웃 처리 완료');
+        return res.status(200).json({ 
+            message: "로그아웃 완료", 
+            naverRevoked: true 
+        });
+    } catch (error) {
+        console.error('로그아웃 처리 중 오류:', error);
+        // 오류가 발생해도 쿠키는 삭제
+        res.clearCookie('refreshToken', clearCookieOptions);
+        res.clearCookie('accessToken', clearCookieOptions);
+        return res.status(200).json({ 
+            message: "로그아웃 완료 (일부 오류 발생)", 
+            error: error.message 
+        });
+    }
 };
 
 /**
  * 로그아웃 후 프론트 리다이렉트용 (필요 시)
  */
-export const logoutRedirect = (req, res) => {
-    console.log('네이버 로그아웃 리다이렉트 - 쿠키 삭제 시작');
-    console.log('현재 쿠키들:', req.cookies);
-    
-    // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
-    res.clearCookie('refreshToken', clearCookieOptions);
-    res.clearCookie('accessToken', clearCookieOptions);
-    
-    console.log('쿠키 삭제 후 프론트로 리다이렉트');
-    return res.redirect(BASE_URL_FRONT);
+export const logoutRedirect = async (req, res) => {
+    try {
+        console.log('네이버 로그아웃 리다이렉트 - 연동해제 및 쿠키 삭제 시작');
+        console.log('현재 쿠키들:', req.cookies);
+        
+        // logout 함수와 동일한 로직으로 연동해제 처리
+        const token = req.cookies.accessToken || req.cookies.refreshToken;
+        if (token) {
+            try {
+                const decoded = jwt.decode(token);
+                if (decoded && decoded.userId) {
+                    const user = await getUserById(decoded.userId);
+                    if (user && user.social && user.social.naver && user.social.naver.accessToken) {
+                        try {
+                            await revokeNaverToken(user.social.naver.accessToken);
+                            await updateUserNaverToken(decoded.userId, null);
+                            console.log('네이버 연동해제 및 토큰 삭제 완료');
+                        } catch (error) {
+                            console.error('네이버 연동해제 실패 (계속 진행):', error.message);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('토큰 처리 실패 (계속 진행):', error.message);
+            }
+        }
+        
+        // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
+        res.clearCookie('refreshToken', clearCookieOptions);
+        res.clearCookie('accessToken', clearCookieOptions);
+        
+        console.log('쿠키 삭제 후 프론트로 리다이렉트');
+        return res.redirect(BASE_URL_FRONT);
+    } catch (error) {
+        console.error('로그아웃 리다이렉트 처리 중 오류:', error);
+        res.clearCookie('refreshToken', clearCookieOptions);
+        res.clearCookie('accessToken', clearCookieOptions);
+        return res.redirect(BASE_URL_FRONT);
+    }
 };

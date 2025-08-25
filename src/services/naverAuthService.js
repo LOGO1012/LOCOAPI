@@ -12,7 +12,8 @@ export const naverLogin = async (code, state) => {
             return {
                 naverId: 'test_naver_id',
                 name: '테스트네이버',
-                email: 'naver_test@example.com'
+                email: 'naver_test@example.com',
+                accessToken: 'test_access_token' // ✅ 테스트용 토큰 추가
             };
         }
 
@@ -45,18 +46,39 @@ export const naverLogin = async (code, state) => {
         const naverUser = userResponse.data.response;
         console.log('네이버 사용자 정보 조회 성공:', naverUser);
 
-        // 필요한 정보 매핑 – 추가 필드가 있으면 확장 가능
+        // ✅ access_token도 함께 반환하여 백엔드에서 저장할 수 있도록 함
         return {
             naverId: naverUser.id,
             name: naverUser.name,
             phoneNumber: naverUser.mobile,
             birthday : naverUser.birthday,
             birthyear : naverUser.birthyear,
-            gender : naverUser.gender
-
+            gender : naverUser.gender,
+            accessToken: access_token // ✅ 네이버 연동해제를 위해 access_token 반환
         };
     } catch (error) {
         console.error('네이버 로그인 서비스 에러:', error.response?.data || error.message);
+        throw error;
+    }
+};
+
+// ✅ 네이버 연동해제 API 호출 함수 추가
+export const revokeNaverToken = async (accessToken) => {
+    try {
+        console.log('네이버 연동해제 API 호출 시작...');
+        const params = new URLSearchParams({
+            grant_type: 'delete',
+            client_id: process.env.NAVER_CLIENT_ID,
+            client_secret: process.env.NAVER_CLIENT_SECRET,
+            access_token: accessToken
+        });
+
+        const response = await axios.get(`https://nid.naver.com/oauth2.0/token?${params.toString()}`);
+        
+        console.log('네이버 연동해제 성공:', response.data);
+        return response.data;
+    } catch (error) {
+        console.error('네이버 연동해제 실패:', error.response?.data || error.message);
         throw error;
     }
 };
