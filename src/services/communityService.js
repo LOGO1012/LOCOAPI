@@ -250,7 +250,6 @@ export const deleteComment = async (communityId, commentId) => {
                 $set: {
                     "comments.$.isDeleted": true,
                     "comments.$.deletedAt": new Date(),
-                    "comments.$.commentContents": "삭제된 댓글입니다."
                 },
                 $inc: { commentCount: -1 }
             },
@@ -279,7 +278,6 @@ export const deleteComment = async (communityId, commentId) => {
 
 // 대댓글 삭제: 특정 댓글 내의 replies 배열에서 해당 대댓글 삭제
 // ✅ 대댓글 soft delete
-// 대댓글 삭제: 자식 댓글(대대댓글) 존재 여부에 따른 처리
 // 대댓글 삭제: 자식 댓글(대대댓글) 존재 여부에 따른 처리
 export const deleteReply = async (communityId, commentId, replyId) => {
     // 삭제된 댓글에서도 대댓글을 찾을 수 있도록 isDeleted 조건 제거
@@ -320,7 +318,6 @@ export const deleteReply = async (communityId, commentId, replyId) => {
                 $set: {
                     "comments.$[c].replies.$[r].isDeleted": true,
                     "comments.$[c].replies.$[r].deletedAt": new Date(),
-                    "comments.$[c].replies.$[r].commentContents": "삭제된 댓글입니다."
                 },
                 $inc: { commentCount: -1 }
             },
@@ -393,9 +390,7 @@ export const deleteSubReply = async (communityId, commentId, replyId, subReplyId
 let cachedTopViewed = [];
 let cachedTopCommented = [];
 
-// 캐시를 업데이트하는 함수
-// ✅ 캐시 업데이트 함수들도 수정
-// 캐시를 업데이트하는 함수
+// ✅ 캐시 업데이트 함수
 export const updateTopCaches = async () => {
     try {
         cachedTopViewed = await Community.aggregate([
