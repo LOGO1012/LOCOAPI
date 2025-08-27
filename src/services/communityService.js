@@ -53,7 +53,20 @@ export const getCommunitiesPage = async (
     }
 
     const totalCount = await Community.countDocuments(filter);
-    const sortCriteria = sort === '인기순' ? { recommended: -1 } : { createdAt: -1 };
+    let sortCriteria;
+    switch (sort) {
+        case '인기순':
+            sortCriteria = { communityViews: -1 }; // 조회수 기준 정렬
+            break;
+        case '추천순':
+            sortCriteria = { recommended: -1 }; // 추천수 기준 정렬
+            break;
+        case '최신순':
+        default:
+            sortCriteria = { createdAt: -1 }; // 최신순 정렬
+            break;
+    }
+
 
     const communities = await Community.find(filter)
         .sort(sortCriteria)
