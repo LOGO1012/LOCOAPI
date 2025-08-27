@@ -9,13 +9,41 @@ export const getCommunitiesPage = async (
     userId,
     sort = '최신순',
     keyword = '',
-    searchType = 'title+content'
+    searchType = 'title+content',
+    period = '전체'
 ) => {
     const { page, size } = pageRequestDTO;
     const skip = (page - 1) * size;
 
     // ✅ 기본 필터에 soft delete 조건 추가
     let filter = { isDeleted: false };
+
+    // 시간 범위 필터링 추가
+    if (period !== '전체') {
+        const now = new Date();
+        let startDate;
+
+        switch (period) {
+            case '지난 1일':
+                startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                break;
+            case '지난 1주':
+                startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                break;
+            case '지난 1달':
+                startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                break;
+            case '지난 1년':
+                startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+                break;
+            default:
+                startDate = null;
+        }
+
+        if (startDate) {
+            filter.createdAt = { $gte: startDate };
+        }
+    }
 
     // 나머지 필터 로직은 동일...
     if (category === '내 글') {
@@ -53,7 +81,20 @@ export const getCommunitiesPage = async (
     }
 
     const totalCount = await Community.countDocuments(filter);
-    const sortCriteria = sort === '인기순' ? { recommended: -1 } : { createdAt: -1 };
+    let sortCriteria;
+    switch (sort) {
+        case '인기순':
+            sortCriteria = { communityViews: -1 }; // 조회수 기준 정렬
+            break;
+        case '추천순':
+            sortCriteria = { recommended: -1 }; // 추천수 기준 정렬
+            break;
+        case '최신순':
+        default:
+            sortCriteria = { createdAt: -1 }; // 최신순 정렬
+            break;
+    }
+
 
     const communities = await Community.find(filter)
         .sort(sortCriteria)
@@ -250,7 +291,6 @@ export const deleteComment = async (communityId, commentId) => {
                 $set: {
                     "comments.$.isDeleted": true,
                     "comments.$.deletedAt": new Date(),
-                    "comments.$.commentContents": "삭제된 댓글입니다."
                 },
                 $inc: { commentCount: -1 }
             },
@@ -279,7 +319,6 @@ export const deleteComment = async (communityId, commentId) => {
 
 // 대댓글 삭제: 특정 댓글 내의 replies 배열에서 해당 대댓글 삭제
 // ✅ 대댓글 soft delete
-// 대댓글 삭제: 자식 댓글(대대댓글) 존재 여부에 따른 처리
 // 대댓글 삭제: 자식 댓글(대대댓글) 존재 여부에 따른 처리
 export const deleteReply = async (communityId, commentId, replyId) => {
     // 삭제된 댓글에서도 대댓글을 찾을 수 있도록 isDeleted 조건 제거
@@ -320,7 +359,6 @@ export const deleteReply = async (communityId, commentId, replyId) => {
                 $set: {
                     "comments.$[c].replies.$[r].isDeleted": true,
                     "comments.$[c].replies.$[r].deletedAt": new Date(),
-                    "comments.$[c].replies.$[r].commentContents": "삭제된 댓글입니다."
                 },
                 $inc: { commentCount: -1 }
             },
@@ -393,20 +431,42 @@ export const deleteSubReply = async (communityId, commentId, replyId, subReplyId
 let cachedTopViewed = [];
 let cachedTopCommented = [];
 
-// 캐시를 업데이트하는 함수
-// ✅ 캐시 업데이트 함수들도 수정
-// 캐시를 업데이트하는 함수
+// ✅ 캐시 업데이트 함수 - 카테고리 정보 추가, 최근 일주일 기준으로 변경
 export const updateTopCaches = async () => {
     try {
+        // ✅ 최근 일주일 날짜 계산
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+        // ✅ 최근 일주일 최다 조회 (카테고리 정보 추가)
         cachedTopViewed = await Community.aggregate([
-            { $match: { isDeleted: false } }, // ✅ 삭제되지 않은 것만
+            {
+                $match: {
+                    isDeleted: false,
+                    createdAt: { $gte: oneWeekAgo }
+                }
+            },
             { $sort: { communityViews: -1 } },
             { $limit: 10 },
-            { $project: { communityTitle: 1, communityViews: 1 } }
+            {
+                $project: {
+                    communityTitle: 1,
+                    communityViews: 1,
+                    createdAt: 1,
+                    communityCategory: 1, // ✅ 카테고리 정보 추가
+                    _id: 1 // ✅ 게시글 ID도 추가 (링크 연결용)
+                }
+            }
         ]);
 
+        // ✅ 최근 일주일 최다 댓글 (카테고리 정보 추가)
         cachedTopCommented = await Community.aggregate([
-            { $match: { isDeleted: false } }, // ✅ 삭제되지 않은 것만
+            {
+                $match: {
+                    isDeleted: false,
+                    createdAt: { $gte: oneWeekAgo }
+                }
+            },
             {
                 $addFields: {
                     totalComments: {
@@ -483,10 +543,18 @@ export const updateTopCaches = async () => {
             },
             { $sort: { totalComments: -1 } },
             { $limit: 10 },
-            { $project: { communityTitle: 1, totalComments: 1 } }
+            {
+                $project: {
+                    communityTitle: 1,
+                    totalComments: 1,
+                    createdAt: 1,
+                    communityCategory: 1, // ✅ 카테고리 정보 추가
+                    _id: 1 // ✅ 게시글 ID도 추가 (링크 연결용)
+                }
+            }
         ]);
 
-        console.log('Top caches updated successfully.');
+        console.log('Top caches updated successfully (recent week basis with category info).');
     } catch (err) {
         console.error('Failed to update top caches:', err);
     }
@@ -501,9 +569,10 @@ cron.schedule('0 0 * * *', async () => {
     await updateTopCaches();
 });
 
-// API에서 캐시된 데이터를 반환하도록 수정
+// ✅ API에서 캐시된 데이터를 반환 (이제 최근 일주일 데이터)
 export const getTopViewedCommunities = async () => {
-    return cachedTopViewed;
+    return cachedTopViewed.length > 0 ? cachedTopViewed :
+        [{ message: "최근 일주일 동안 게시글이 없습니다." }];
 };
 
 export const getTopCommentedCommunities = async () => {
