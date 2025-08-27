@@ -253,5 +253,7 @@ communitySchema.index({ isDeleted: 1 });
 communitySchema.index({ createdAt: -1 }); // 날짜 정렬용
 communitySchema.index({ isDeleted: 1, createdAt: -1 }); // 복합 인덱스 (필터링과 정렬)
 communitySchema.index({ communityViews: -1, createdAt: -1 }); // 조회수와 날짜 복합 인덱스
+communitySchema.index({ isDeleted: 1, createdAt: -1, communityViews: -1 });
+communitySchema.index({ isDeleted: 1, createdAt: -1, recommended: -1 });
 
 export const Community = model('Community', communitySchema);

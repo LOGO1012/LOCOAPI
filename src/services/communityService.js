@@ -9,13 +9,41 @@ export const getCommunitiesPage = async (
     userId,
     sort = '최신순',
     keyword = '',
-    searchType = 'title+content'
+    searchType = 'title+content',
+    period = '전체'
 ) => {
     const { page, size } = pageRequestDTO;
     const skip = (page - 1) * size;
 
     // ✅ 기본 필터에 soft delete 조건 추가
     let filter = { isDeleted: false };
+
+    // 시간 범위 필터링 추가
+    if (period !== '전체') {
+        const now = new Date();
+        let startDate;
+
+        switch (period) {
+            case '지난 1일':
+                startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                break;
+            case '지난 1주':
+                startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                break;
+            case '지난 1달':
+                startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                break;
+            case '지난 1년':
+                startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+                break;
+            default:
+                startDate = null;
+        }
+
+        if (startDate) {
+            filter.createdAt = { $gte: startDate };
+        }
+    }
 
     // 나머지 필터 로직은 동일...
     if (category === '내 글') {

@@ -12,6 +12,7 @@ export const getCommunities = async (req, res) => {
         const sort = req.query.sort || '최신순';
         const keyword = req.query.keyword || '';  // 추가
         const searchType = req.query.searchType     || 'title+content';
+        const period = req.query.period || '전체';
 
         const pageRequestDTO = new PageRequestDTO(page, size);
         const pageResult = await communityService.getCommunitiesPage(
@@ -20,7 +21,8 @@ export const getCommunities = async (req, res) => {
             userId,
             sort,
             keyword,
-            searchType
+            searchType,
+            period
         );
         res.status(200).json(pageResult);
     } catch (error) {
