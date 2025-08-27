@@ -391,3 +391,30 @@ export const getPaginatedFriends = async (
     return { total: totalCnt, friends: friendsWithStatus };
 };
 
+// ✅ 네이버 access_token 업데이트 함수 추가
+export const updateUserNaverToken = async (userId, accessToken) => {
+    try {
+        console.log('네이버 토큰 업데이트 시작:', userId, accessToken ? 'token_present' : 'token_null');
+        
+        const updateData = accessToken 
+            ? { 'social.naver.accessToken': accessToken }
+            : { $unset: { 'social.naver.accessToken': 1 } };
+        
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            updateData,
+            { new: true }
+        );
+        
+        if (!updatedUser) {
+            throw new Error('사용자를 찾을 수 없습니다');
+        }
+        
+        console.log('네이버 토큰 업데이트 성공');
+        return updatedUser;
+    } catch (error) {
+        console.error('네이버 토큰 업데이트 실패:', error);
+        throw error;
+    }
+};
+
