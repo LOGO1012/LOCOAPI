@@ -56,12 +56,21 @@ const buildImageArray = async (req) => {
     const raw = req.body.communityImages || [];
     const urls = (Array.isArray(raw) ? raw : [raw]).filter(Boolean);
 
-    const downloaded = [];
+    const processed = [];
+
     for (const u of urls) {
-        const saved = await saveRemoteImage(u);
-        if (saved) downloaded.push(saved);
+        // ✅ 기존 이미지 경로인지 확인 (/uploads/로 시작하는 경우)
+        if (u.startsWith('/uploads/') || u.startsWith('uploads/')) {
+            // 기존 이미지는 그대로 유지
+            processed.push(u.startsWith('/') ? u : `/${u}`);
+        } else {
+            // 외부 URL만 다운로드 처리
+            const saved = await saveRemoteImage(u);
+            if (saved) processed.push(saved);
+        }
     }
-    return [...fromUpload, ...downloaded];
+
+    return [...fromUpload, ...processed];
 };
 
 // 커뮤니티 생성
