@@ -48,31 +48,67 @@ export const getCommunity = async (req, res) => {
     }
 };
 
-/* 공통 유틸: multipart 파일 + URL 문자열을 모두 받아 배열로 만든다 */
-const buildImageArray = async (req) => {
-    const fromUpload = (req.files || []).map(f => `/uploads/${f.filename}`);
+/* 이미지 경로 타입 판별 함수 */
+const isLocalImagePath = (path) => {
+    if (!path || typeof path !== 'string') return false;
 
-    // 문자열 입력(배열·단일 모두 허용)
+    // 로컬 이미지 경로 패턴들
+    const localPatterns = [
+        '/uploads/',
+        '/posts/',
+        '/comments/',
+        '/replies/',
+        '/subreplies/',
+        'uploads/',
+        'posts/',
+        'comments/',
+        'replies/',
+        'subreplies/'
+    ];
+
+    return localPatterns.some(pattern => path.startsWith(pattern));
+};
+
+/* 공통 유틸: multipart 파일 + URL 문자열을 모두 받아 배열로 만든다 */
+const buildImageArray = async (req, folderType = 'posts') => {
+
+    const fromUpload = (req.files || []).map(f => `/${folderType}/${f.filename}`);
+
     const raw = req.body.communityImages || [];
     const urls = (Array.isArray(raw) ? raw : [raw]).filter(Boolean);
 
     const processed = [];
 
     for (const u of urls) {
-        // ✅ 기존 이미지 경로인지 확인 (/uploads/로 시작하는 경우)
-        if (u.startsWith('/uploads/') || u.startsWith('uploads/')) {
-            // 기존 이미지는 그대로 유지
-            processed.push(u.startsWith('/') ? u : `/${u}`);
+        console.log(`처리 중인 이미지: ${u}`);
+
+        if (isLocalImagePath(u)) {
+            // 기존 로컬 이미지는 그대로 유지
+            const normalizedPath = u.startsWith('/') ? u : `/${u}`;
+            processed.push(normalizedPath);
+            console.log(`기존 이미지로 처리: ${normalizedPath}`);
+        } else if (u.startsWith('http') || u.startsWith('//') || u.startsWith('data:')) {
+            // 외부 URL이나 Data URL만 다운로드 처리
+            try {
+                console.log(`외부 이미지 다운로드 시도: ${u}`);
+                const saved = await saveRemoteImage(u, folderType);
+                if (saved) {
+                    processed.push(saved);
+                    console.log(`다운로드 성공: ${saved}`);
+                }
+            } catch (error) {
+                console.error(`이미지 다운로드 실패 (${u}):`, error.message);
+                // 다운로드 실패한 이미지는 무시하고 계속 진행
+            }
         } else {
-            // 외부 URL만 다운로드 처리
-            const saved = await saveRemoteImage(u);
-            if (saved) processed.push(saved);
+            console.warn(`알 수 없는 이미지 형식: ${u}`);
         }
     }
 
-    return [...fromUpload, ...processed];
-};
+    const result = [...fromUpload, ...processed];
 
+    return result;
+};
 // 커뮤니티 생성
 export const createCommunity = async (req, res) => {
     try {
@@ -161,12 +197,10 @@ export const addComment = async (req, res) => {
     try {
         const { id } = req.params;
         const commentData = { ...req.body };
-
-        // ✅ 익명 여부 처리
         commentData.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
 
         if (req.file) {
-            commentData.commentImage = `/uploads/${req.file.filename}`;
+            commentData.commentImage = `/comments/${req.file.filename}`; // 수정됨
         }
 
         const updatedCommunity = await communityService.addComment(id, commentData);
@@ -181,12 +215,10 @@ export const addReply = async (req, res) => {
     try {
         const { id, commentId } = req.params;
         const replyData = { ...req.body };
-
-        // ✅ 익명 여부 처리
         replyData.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
 
         if (req.file) {
-            replyData.replyImage = `/uploads/${req.file.filename}`;
+            replyData.replyImage = `/replies/${req.file.filename}`; // 수정됨
         }
 
         const updatedCommunity = await communityService.addReply(id, commentId, replyData);
@@ -201,12 +233,10 @@ export const addSubReply = async (req, res) => {
     try {
         const { id, commentId, replyId } = req.params;
         const subReplyData = { ...req.body };
-
-        // ✅ 익명 여부 처리
         subReplyData.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
 
         if (req.file) {
-            subReplyData.subReplyImage = `/uploads/${req.file.filename}`;
+            subReplyData.subReplyImage = `/subreplies/${req.file.filename}`; // 수정됨
         }
 
         const updatedCommunity = await communityService.addSubReply(id, commentId, replyId, subReplyData);
