@@ -187,6 +187,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false) => {
         : { chatRoom: roomId, isDeleted: false }; // 기본: 삭제되지 않은 메시지만
     return await ChatMessage.find(filter)
         .populate('sender')       // 닉네임·이름 모두 필요하면 name도 추가
+        .sort({ createdAt: 1 })
         .exec();
 };
 
