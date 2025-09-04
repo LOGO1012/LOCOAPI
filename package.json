@@ -13,6 +13,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.879.0",
     "axios": "^1.7.9",
     "bcryptjs": "^3.0.1",
     "body-parser": "^1.20.3",
