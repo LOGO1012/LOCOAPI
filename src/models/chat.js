@@ -96,6 +96,18 @@ const chatMessageSchema = new Schema({
         default: Date.now             // 메시지 전송 시각을 별도로 기록 (timestamps 외에 추가 정보로 활용 가능)
         //index: true                   // 생성 시각 인덱스 (TTL 인덱스 설정 가능)
     },
+    // 읽음 상태 관리 필드 추가
+    readBy: [{
+        user: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+            required: true
+        },
+        readAt: {
+            type: Date,
+            default: Date.now
+        }
+    }],
     isDeleted: {
         type: Boolean,
         default: false                // 기본적으로 삭제되지 않은 상태
@@ -107,7 +119,37 @@ const chatMessageSchema = new Schema({
 
 // 인덱스: chatRoom, sender, text
 chatMessageSchema.index({ chatRoom: "text", sender: "text", text: "text" });
+chatMessageSchema.index({ chatRoom: 1, textTime: -1 });
+chatMessageSchema.index({ 'readBy.user': 1 });
 
+/**
+ * RoomEntry 스키마 - 채팅방 입장 시간 기록
+ */
+const roomEntrySchema = new Schema({
+    room: {
+        type: Schema.Types.ObjectId,
+        ref: 'ChatRoom',
+        required: true
+    },
+    user: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    entryTime: {
+        type: Date,
+        default: Date.now
+    },
+    // 마지막 활동 시간 (선택적)
+    lastActiveTime: {
+        type: Date,
+        default: Date.now
+    }
+}, { timestamps: true });
+
+// 인덱스 추가 (성능 최적화)
+roomEntrySchema.index({ room: 1, user: 1 }, { unique: true });
+roomEntrySchema.index({ entryTime: -1 });
 
 
 
@@ -134,7 +176,7 @@ const chatRoomExitSchema = new Schema({
 });
 
 
-
+export const RoomEntry = model('RoomEntry', roomEntrySchema);
 export const ChatRoomExit = model('ChatRoomExit', chatRoomExitSchema);
 
 export const ChatRoom = model('ChatRoom', chatRoomSchema);
