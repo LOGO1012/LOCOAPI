@@ -68,6 +68,25 @@ export const initializeSocket = (server) => {
             }
         });
 
+        // 메시지 읽음 처리 이벤트 추가
+        socket.on('markAsRead', async ({ roomId, userId }, callback) => {
+            try {
+                const result = await chatService.markMessagesAsRead(roomId, userId);
+
+                // 채팅방의 다른 사용자들에게 읽음 처리 알림
+                socket.to(roomId).emit('messagesRead', {
+                    roomId,
+                    userId,
+                    readCount: result.modifiedCount
+                });
+
+                callback({ success: true, readCount: result.modifiedCount });
+            } catch (error) {
+                console.error('메시지 읽음 처리 실패:', error);
+                callback({ success: false, error: error.message });
+            }
+        });
+
         // 메시지 전송 이벤트
         socket.on("sendMessage", async ({ chatRoom, sender, text }, callback) => {
             try {
@@ -106,7 +125,8 @@ export const initializeSocket = (server) => {
                         chatRoom,
                         roomType: roomDoc.roomType,
                         message:  messageWithNickname,
-                        notification: `${senderNick}: ${text}`
+                        notification: `${senderNick}: ${text}`,
+                        timestamp: new Date()
                     });
                 });
 

@@ -204,3 +204,68 @@ export const getChatRoomHistory = async (req, res) => {
     }
 };
 
+/**
+ * 메시지 읽음 처리 컨트롤러
+ */
+export const markMessagesAsRead = async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const { userId } = req.body;
+
+        const result = await chatService.markMessagesAsRead(roomId, userId);
+        res.status(200).json({
+            success: true,
+            message: '메시지를 읽음으로 표시했습니다.',
+            modifiedCount: result.modifiedCount
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * 안읽은 메시지 개수 조회
+ */
+export const getUnreadCount = async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const { userId } = req.query;
+
+        const count = await chatService.getUnreadMessageCount(roomId, userId);
+        res.status(200).json({ unreadCount: count });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * 채팅방 입장 시간 기록 컨트롤러
+ */
+export const recordRoomEntry = async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const { userId, entryTime } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: '사용자 ID가 필요합니다.'
+            });
+        }
+
+        const result = await chatService.recordRoomEntry(roomId, userId, entryTime);
+
+        res.status(200).json({
+            success: true,
+            message: result.isUpdate ? '입장 시간이 업데이트되었습니다.' : '입장 시간이 기록되었습니다.',
+            entryTime: result.entryTime,
+            isUpdate: result.isUpdate
+        });
+    } catch (error) {
+        console.error('채팅방 입장 시간 기록 실패:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};

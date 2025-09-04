@@ -1,4 +1,4 @@
-import {ChatRoom, ChatMessage, ChatRoomExit} from '../models/chat.js';
+import {ChatRoom, ChatMessage, ChatRoomExit, RoomEntry} from '../models/chat.js';
 import {User} from "../models/UserProfile.js";
 import { ChatRoomHistory } from "../models/chatRoomHistory.js";
 
@@ -151,6 +151,121 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null) => {
 };
 
 /**
+ * 메시지를 읽음으로 표시
+ */
+export const markMessagesAsRead = async (roomId, userId) => {
+    try {
+        // 해당 채팅방에서 본인이 보내지 않은 메시지들 중 아직 읽지 않은 메시지들을 읽음 처리
+        const result = await ChatMessage.updateMany(
+            {
+                chatRoom: roomId,
+                sender: { $ne: userId }, // 본인이 보낸 메시지 제외
+                'readBy.user': { $ne: userId } // 아직 읽지 않은 메시지만
+            },
+            {
+                $push: {
+                    readBy: {
+                        user: userId,
+                        readAt: new Date()
+                    }
+                }
+            }
+        );
+
+        return result;
+    } catch (error) {
+        throw new Error(`메시지 읽음 처리 실패: ${error.message}`);
+    }
+};
+
+/**
+ * 특정 메시지를 읽음으로 표시
+ */
+export const markSingleMessageAsRead = async (messageId, userId) => {
+    try {
+        const result = await ChatMessage.findByIdAndUpdate(
+            messageId,
+            {
+                $addToSet: {
+                    readBy: {
+                        user: userId,
+                        readAt: new Date()
+                    }
+                }
+            },
+            { new: true }
+        );
+
+        return result;
+    } catch (error) {
+        throw new Error(`단일 메시지 읽음 처리 실패: ${error.message}`);
+    }
+};
+
+/**
+ * 채팅방의 안읽은 메시지 개수 조회
+ */
+export const getUnreadMessageCount = async (roomId, userId) => {
+    try {
+        const count = await ChatMessage.countDocuments({
+            chatRoom: roomId,
+            sender: { $ne: userId }, // 본인이 보낸 메시지 제외
+            'readBy.user': { $ne: userId } // 읽지 않은 메시지만
+        });
+
+        return count;
+    } catch (error) {
+        throw new Error(`안읽은 메시지 개수 조회 실패: ${error.message}`);
+    }
+};
+
+/**
+ * 채팅방 입장 시간 기록
+ */
+export const recordRoomEntry = async (roomId, userId, entryTime = null) => {
+    try {
+        const timestamp = entryTime ? new Date(entryTime) : new Date();
+
+        // 기존 입장 기록이 있는지 확인
+        const existingEntry = await RoomEntry.findOne({
+            room: roomId,
+            user: userId
+        });
+
+        if (existingEntry) {
+            // 기존 기록 업데이트
+            existingEntry.entryTime = timestamp;
+            existingEntry.lastActiveTime = timestamp;
+            await existingEntry.save();
+
+            return {
+                success: true,
+                entryTime: existingEntry.entryTime,
+                isUpdate: true
+            };
+        } else {
+            // 새 입장 기록 생성
+            const newEntry = new RoomEntry({
+                room: roomId,
+                user: userId,
+                entryTime: timestamp,
+                lastActiveTime: timestamp
+            });
+
+            await newEntry.save();
+
+            return {
+                success: true,
+                entryTime: newEntry.entryTime,
+                isUpdate: false
+            };
+        }
+    } catch (error) {
+        throw new Error(`채팅방 입장 시간 기록 실패: ${error.message}`);
+    }
+};
+
+/**
  * 메시지 저장
  */
 export const saveMessage = async (chatRoom, sender, text) => {
@@ -170,7 +285,17 @@ export const saveMessage = async (chatRoom, sender, text) => {
                 photo: user.photo};
         }
 
-        const newMessage = new ChatMessage({ chatRoom, sender, text });
+        // 메시지 저장 시 readBy 필드 초기화 (발신자는 자동으로 읽음 처리)
+        const newMessage = new ChatMessage({
+            chatRoom,
+            sender,
+            text,
+            readBy: [{
+                user: sender._id,
+                readAt: new Date()
+            }]
+        });
+
         return await newMessage.save();
     } catch (error) {
         throw new Error(error.message);
@@ -187,6 +312,8 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false) => {
         : { chatRoom: roomId, isDeleted: false }; // 기본: 삭제되지 않은 메시지만
     return await ChatMessage.find(filter)
         .populate('sender')       // 닉네임·이름 모두 필요하면 name도 추가
+        .populate('readBy.user', 'nickname')
+        .sort({ createdAt: 1 })
         .exec();
 };
 

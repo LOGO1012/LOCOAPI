@@ -38,4 +38,12 @@ router.patch('/rooms/:roomId/active', chatController.updateRoomActive);
 
 router.get('/search/chat-room-history', chatController.getChatRoomHistory);
 
+// 메시지 읽음 처리
+router.patch('/rooms/:roomId/read', chatController.markMessagesAsRead);
+
+// 안읽은 메시지 개수 조회
+router.get('/rooms/:roomId/unread', chatController.getUnreadCount);
+
+router.post('/rooms/:roomId/entry', chatController.recordRoomEntry);
+
 export default router;
