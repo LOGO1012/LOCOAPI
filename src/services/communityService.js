@@ -571,8 +571,7 @@ cron.schedule('0 0 * * *', async () => {
 
 // ✅ API에서 캐시된 데이터를 반환 (이제 최근 일주일 데이터)
 export const getTopViewedCommunities = async () => {
-    return cachedTopViewed.length > 0 ? cachedTopViewed :
-        [{ message: "최근 일주일 동안 게시글이 없습니다." }];
+    return cachedTopViewed;
 };
 
 export const getTopCommentedCommunities = async () => {
