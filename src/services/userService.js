@@ -1,57 +1,81 @@
-// src/services/userService.js
-import {normalizeBirthdate} from "../utils/normalizeBirthdate.js";
-import {normalizePhoneNumber} from "../utils/normalizePhoneNumber.js";
+// src/services/userService.js (암호화 및 캐시 통합 버전) - 최종 완성
+import { normalizeBirthdate } from "../utils/normalizeBirthdate.js";
+import { normalizePhoneNumber } from "../utils/normalizePhoneNumber.js";
 import { User } from '../models/UserProfile.js';
-import {FriendRequest} from "../models/FriendRequest.js";
-import {getMax, rechargeIfNeeded, REFILL_MS} from "../utils/chatQuota.js";
+import { FriendRequest } from "../models/FriendRequest.js";
+import { getMax, rechargeIfNeeded, REFILL_MS } from "../utils/chatQuota.js";
 import * as onlineStatusService from "./onlineStatusService.js";
+import ComprehensiveEncryption from "../utils/encryption/comprehensiveEncryption.js";
+import IntelligentCache from "../utils/cache/intelligentCache.js";
 
-/**
- * findUserOrNoUser
- * - 카카오 소셜 로그인으로부터 받은 사용자 데이터를 기반으로
- *   UserProfile 컬렉션에서 해당 사용자를 조회합니다.
- * - 사용자가 존재하면 해당 UserProfile 문서를 반환하고,
- *   존재하지 않으면 { status: 'noUser', ...kakaoUserData } 형태의 객체를 반환합니다.
- *
- * @param {Object} kakaoUserData - 카카오에서 받은 사용자 정보
- * @param {number} kakaoUserData.kakaoId - 카카오 고유 사용자 ID
- * @param {string} kakaoUserData.nickname - 카카오에서 받은 닉네임
- * @param {string} kakaoUserData.profileImage - 카카오에서 받은 프로필 이미지 URL
- * @param {string} kakaoUserData.email - 카카오에서 받은 이메일 주소
- * @returns {Promise<Object>} - 기존 사용자(UserProfile 문서) 또는 회원가입 필요 상태 객체
- * @throws {Error} - DB 작업 중 오류 발생 시 에러를 던집니다.
- */
+// ============================================================================
+//   소셜 로그인 관련 함수
+// ============================================================================
+
+
+// 카카오 로그인 시 사용자 찾기 또는 회원가입 필요 판단
+//역할:
+// 카카오 ID로 기존 사용자 검색
+// 없으면 이름+전화번호+생년월일로 기존 계정 찾기
+// 기존 계정에 카카오 정보 병합
+// 완전 신규면 회원가입 필요 알림
 export const findUserOrNoUser = async (kakaoUserData) => {
     try {
-        // DB에서 'social.kakao.providerId' 필드를 기준으로 카카오 사용자 조회
         const normalizedBirthdate = normalizeBirthdate(kakaoUserData.birthyear, kakaoUserData.birthday);
         const normalizedPhone = normalizePhoneNumber(kakaoUserData.phoneNumber);
+
         console.log("DEBUG: 카카오 데이터 - 이름:", kakaoUserData.name,
             "전화번호:", normalizedPhone,
             "원본 birthday:", kakaoUserData.birthday,
             "Normalized Birthdate:", normalizedBirthdate);
 
-        // 네이버 providerId로 먼저 검색
-        let existingUser = await User.findOne({ 'social.kakao.providerId': kakaoUserData.kakaoId });
-        console.log("DEBUG: DB에서 카카오 providerId로 조회 결과:", existingUser);
+        let existingUser = null;
 
-        // 만약 네이버 providerId가 없는 경우, 공통 식별자 기준으로 검색
+        if (process.env.ENABLE_ENCRYPTION === 'true') {
+            try {
+                existingUser = await ComprehensiveEncryption.findUserBySocialId(
+                    User, 'kakao', kakaoUserData.kakaoId
+                );
+                console.log("DEBUG: 해시 기반 카카오 검색 결과:", !!existingUser);
+            } catch (error) {
+                console.warn("해시 기반 검색 실패, 기존 방식 사용:", error);
+            }
+        }
+
+        if (!existingUser) {
+            existingUser = await User.findOne({ 'social.kakao.providerId': kakaoUserData.kakaoId });
+            console.log("DEBUG: 기존 방식 카카오 검색 결과:", !!existingUser);
+        }
+
         if (!existingUser && kakaoUserData.name && normalizedPhone && normalizedBirthdate) {
-            console.log("DEBUG: 카카오 providerId로 사용자가 없으므로, 공통 식별자(이름, 전화번호, 생년월일)로 조회합니다:", {
-                name: kakaoUserData.name,
-                phone: normalizedPhone,
-                birthdate: normalizedBirthdate,
-            });
-            existingUser = await User.findOne({
-                name: kakaoUserData.name,
-                phone: normalizedPhone,
-                birthdate: normalizedBirthdate,
-            });
-            console.log("DEBUG: 공통 식별자로 조회한 결과:", existingUser);
-            // 3. 조회된 계정에 카카오 정보가 없다면 병합 처리
+            console.log("DEBUG: 공통 식별자로 조회 시작");
+
+            if (process.env.ENABLE_ENCRYPTION === 'true') {
+                const nameHash = ComprehensiveEncryption.createSearchHash(kakaoUserData.name);
+                const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
+                const birthdateHash = ComprehensiveEncryption.createSearchHash(normalizedBirthdate);
+
+                existingUser = await User.findOne({
+                    name_hash: nameHash,
+                    phone_hash: phoneHash,
+                    birthdate_hash: birthdateHash,
+                });
+                console.log("DEBUG: 해시 기반 공통 식별자 검색 결과:", !!existingUser);
+            }
+
+            if (!existingUser) {
+                existingUser = await User.findOne({
+                    name: kakaoUserData.name,
+                    phone: normalizedPhone,
+                    birthdate: normalizedBirthdate,
+                });
+                console.log("DEBUG: 평문 기반 공통 식별자 검색 결과:", !!existingUser);
+            }
+
             if (existingUser && (!existingUser.social.kakao || !existingUser.social.kakao.providerId)) {
-                console.log("DEBUG: 병합 전 기존 사용자의 소셜 정보:", existingUser.social);
-                existingUser.social.kakao = {
+                console.log("DEBUG: 카카오 정보 병합 시작");
+
+                const kakaoData = {
                     providerId: kakaoUserData.kakaoId,
                     name: kakaoUserData.name,
                     phoneNumber: kakaoUserData.phoneNumber,
@@ -59,67 +83,115 @@ export const findUserOrNoUser = async (kakaoUserData) => {
                     birthyear: kakaoUserData.birthyear,
                     gender: kakaoUserData.gender,
                 };
-                existingUser.markModified('social');  // 변경사항 수동 등록
+
+                if (process.env.ENABLE_ENCRYPTION === 'true') {
+                    const encryptedKakaoData = {
+                        providerId: kakaoUserData.kakaoId,
+                        providerId_hash: ComprehensiveEncryption.hashProviderId(kakaoUserData.kakaoId),
+                        name: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.name),
+                        phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.phoneNumber),
+                        birthday: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.birthday.toString()),
+                        birthyear: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.birthyear.toString()),
+                        gender: kakaoUserData.gender,
+                    };
+                    existingUser.social.kakao = encryptedKakaoData;
+                } else {
+                    existingUser.social.kakao = kakaoData;
+                }
+
+                existingUser.markModified('social');
                 await existingUser.save();
+                await IntelligentCache.invalidateUserCache(existingUser._id);
                 console.log("기존 계정에 카카오 정보 병합 완료");
-                console.log("DEBUG: 병합 후 사용자 정보:", existingUser);
             }
         }
 
-        // 등록된 사용자가 없으면 로그 출력 후 회원가입 필요 상태 객체 반환
         if (!existingUser) {
-            console.log('등록된 사용자가 없습니다. 회원가입이 필요합니다.'); // 오류헨들링코드
+            console.log('등록된 사용자가 없습니다. 회원가입이 필요합니다.');
             return { status: 'noUser', ...kakaoUserData };
         }
 
-        // 등록된 사용자가 있으면 해당 사용자 객체를 반환
         return existingUser;
-    } catch (error) { // 오류헨들링코드
+    } catch (error) {
         console.error('User service error:', error.message);
         throw error;
     }
 };
-
-// 네이버 사용자 조회 함수 추가
+// 네이버 로그인 시 사용자 찾기
+// findUserOrNoUser와 동일하지만 네이버 로그인용
 export const findUserByNaver = async (naverUserData) => {
     try {
         const normalizedBirthdate = normalizeBirthdate(naverUserData.birthyear, naverUserData.birthday);
         const normalizedPhone = normalizePhoneNumber(naverUserData.phoneNumber);
-        console.log("DEBUG: 네이버 데이터 - 이름:", naverUserData.name,
-            "전화번호:", normalizedPhone,
-            "원본 birthday:", naverUserData.birthday,
-            "Normalized Birthdate:", normalizedBirthdate);
 
-        let existingUser = await User.findOne({ 'social.naver.providerId': naverUserData.naverId });
-        console.log("DEBUG: DB에서 네이버 providerId로 조회 결과:", existingUser);
+        let existingUser = null;
+
+        if (process.env.ENABLE_ENCRYPTION === 'true') {
+            try {
+                existingUser = await ComprehensiveEncryption.findUserBySocialId(
+                    User, 'naver', naverUserData.naverId
+                );
+            } catch (error) {
+                console.warn("해시 기반 검색 실패, 기존 방식 사용:", error);
+            }
+        }
+
+        if (!existingUser) {
+            existingUser = await User.findOne({ 'social.naver.providerId': naverUserData.naverId });
+        }
 
         if (!existingUser && naverUserData.name && normalizedPhone && normalizedBirthdate) {
-            console.log("DEBUG: 네이버 providerId로 사용자가 없으므로, 공통 식별자(이름, 전화번호, 생년월일)로 조회합니다:", {
-                name: naverUserData.name,
-                phone: normalizedPhone,
-                birthdate: normalizedBirthdate,
-            });
-            existingUser = await User.findOne({
-                name: naverUserData.name,
-                phone: normalizedPhone,
-                birthdate: normalizedBirthdate,
-            });
+            if (process.env.ENABLE_ENCRYPTION === 'true') {
+                const nameHash = ComprehensiveEncryption.createSearchHash(naverUserData.name);
+                const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
+                const birthdateHash = ComprehensiveEncryption.createSearchHash(normalizedBirthdate);
 
-            // 3. 조회된 계정에 네이버 정보가 없다면 병합 처리
+                existingUser = await User.findOne({
+                    name_hash: nameHash,
+                    phone_hash: phoneHash,
+                    birthdate_hash: birthdateHash,
+                });
+            }
+
+            if (!existingUser) {
+                existingUser = await User.findOne({
+                    name: naverUserData.name,
+                    phone: normalizedPhone,
+                    birthdate: normalizedBirthdate,
+                });
+            }
+
             if (existingUser && (!existingUser.social.naver || !existingUser.social.naver.providerId)) {
-                console.log("DEBUG: 병합 전 기존 사용자의 소셜 정보:", existingUser.social);
-                existingUser.social.naver = {
+                const naverData = {
                     providerId: naverUserData.naverId,
                     name: naverUserData.name,
                     phoneNumber: naverUserData.phoneNumber,
                     birthday: naverUserData.birthday,
                     birthyear: naverUserData.birthyear,
                     gender: naverUserData.gender,
+                    accessToken: naverUserData.accessToken || '',
                 };
-                existingUser.markModified('social');  // 변경사항 수동 등록
+
+                if (process.env.ENABLE_ENCRYPTION === 'true') {
+                    const encryptedNaverData = {
+                        providerId: naverUserData.naverId,
+                        providerId_hash: ComprehensiveEncryption.hashProviderId(naverUserData.naverId),
+                        name: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.name),
+                        phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.phoneNumber),
+                        birthday: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.birthday),
+                        birthyear: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.birthyear.toString()),
+                        gender: naverUserData.gender,
+                        accessToken: naverUserData.accessToken || '',
+                    };
+                    existingUser.social.naver = encryptedNaverData;
+                } else {
+                    existingUser.social.naver = naverData;
+                }
+
+                existingUser.markModified('social');
                 await existingUser.save();
+                await IntelligentCache.invalidateUserCache(existingUser._id);
                 console.log("기존 계정에 네이버 정보 병합 완료");
-                console.log("DEBUG: 병합 후 사용자 정보:", existingUser);
             }
         }
 
@@ -127,6 +199,7 @@ export const findUserByNaver = async (naverUserData) => {
             console.log('등록된 네이버 사용자가 없습니다. 회원가입이 필요합니다.');
             return { status: 'noUser', ...naverUserData };
         }
+
         return existingUser;
     } catch (error) {
         console.error('User service error:', error.message);
@@ -134,66 +207,113 @@ export const findUserByNaver = async (naverUserData) => {
     }
 };
 
-// 유저 정보를 불러오는 서비스 함수
+export const updateUserNaverToken = async (userId, accessToken) => {
+    try {
+        const updateData = accessToken ? { 'social.naver.accessToken': accessToken } : { $unset: { 'social.naver.accessToken': 1 } };
+        const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true });
+        if (!updatedUser) throw new Error('사용자를 찾을 수 없습니다');
+        await IntelligentCache.invalidateUserCache(userId);
+        return updatedUser;
+    } catch (error) {
+        console.error('네이버 토큰 업데이트 실패:', error);
+        throw error;
+    }
+};
+
+
+// ============================================================================
+//   기본 사용자 조회 함수
+// ============================================================================
+
+// 사용자 상세 정보 조회 (채팅 할당량 포함)
+//사용자 기본 정보 조회
+// 채팅 할당량 계산 및 자동 충전
+// 실시간 만나이 정보 제공
 export const getUserById = async (userId) => {
     try {
         let user = await User.findById(userId);
         if (!user) throw new Error("사용자를 찾을 수 없습니다.");
 
-        user = await rechargeIfNeeded(user);                 // 자동 충전
+        user = await rechargeIfNeeded(user);
 
-        const maxChatCount = getMax(user.plan?.planType);    // 플랜별 최대
-        const last = user.chatTimer ?? new Date();           // 마지막 충전 시각
+        const maxChatCount = getMax(user.plan?.planType);
+        const last = user.chatTimer ?? new Date();
         const nextRefillAt = new Date(new Date(last).getTime() + REFILL_MS);
 
         const data = user.toObject();
         data.maxChatCount = maxChatCount;
-        data.nextRefillAt = nextRefillAt;                    // ISO 문자열
+        data.nextRefillAt = nextRefillAt;
+
+        // 🔧 birthdate 기반 만나이 계산
+        if (user.birthdate) {
+            try {
+                const ageInfo = await IntelligentCache.getCachedUserAge(userId);
+                if (ageInfo) {
+                    data.calculatedAge = ageInfo.age;
+                    data.ageGroup = ageInfo.ageGroup;
+                    data.isMinor = ageInfo.isMinor;
+                } else {
+                    // 캐시가 없으면 실시간 계산
+                    const decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+                    if (decryptedBirthdate) {
+                        const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+                        const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+                        const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+
+                        data.calculatedAge = age;
+                        data.ageGroup = ageGroup;
+                        data.isMinor = isMinor;
+
+                        // 캐시 저장
+                        await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
+                    }
+                }
+            } catch (error) {
+                console.error('만나이 정보 조회 실패:', error);
+            }
+        }
+
         return data;
     } catch (err) {
         throw new Error(err.message);
     }
 };
 
-export const rateUser = async (userId, rating) => {
-    // rating 값 검증: 숫자이고 0 이상 5 이하인지 확인
-    if (typeof rating !== "number" || rating < 0 || rating > 5) {
-        throw new Error("Rating must be a number between 0 and 5.");
-    }
-
-    // 해당 사용자를 DB에서 찾기
-    const user = await User.findById(userId);
-    if (!user) {
-        throw new Error("User not found.");
-    }
-
-    // 기존 별점에 전달받은 rating 값을 누적 업데이트
-    user.star += rating;
-
-    // 변경사항 저장
-    await user.save();
-
-    return user;
-};
-
-/**
- * 별칭을 이용하여 사용자를 조회하는 함수
- * @param {string} nickname - 사용자의 별칭
- * @returns {Promise<Object>} 해당 사용자의 UserProfile 문서
- */
+// 닉네임으로 사용자 찾기
+//닉네임 기반 사용자 검색
 export const getUserByNickname = async (nickname) => {
     try {
         const user = await User.findOne({ nickname });
-        if (!user) {
-            throw new Error("User not found.");
-        }
+        if (!user) throw new Error("User not found.");
         return user;
     } catch (error) {
         throw new Error(error.message);
     }
 };
 
-// 채팅 횟수 감소
+// 사용자 별점 평가
+//매너 평가 시스템 (별점 누적)
+export const rateUser = async (userId, rating) => {
+    if (typeof rating !== "number" || rating < 0 || rating > 5) {
+        throw new Error("Rating must be a number between 0 and 5.");
+    }
+    const user = await User.findById(userId);
+    if (!user) throw new Error("User not found.");
+    user.star += rating;
+    await user.save();
+    await IntelligentCache.invalidateUserCache(userId);
+    return user;
+};
+
+
+
+// ============================================================================
+//    채팅 관련 함수
+// ============================================================================
+
+// 채팅 횟수 차감
+// 채팅 사용 시 남은 횟수 -1
+// 최대 횟수에서 처음 차감 시 타이머 시작
 export const decrementChatCount = async (userId) => {
     const user = await User.findById(userId);
     if (!user) throw new Error("User not found.");
@@ -202,71 +322,102 @@ export const decrementChatCount = async (userId) => {
     const before = user.numOfChat ?? 0;
     user.numOfChat = Math.max(0, before - 1);
 
-    // ‘가득찬 상태(=max)’에서 처음 사용했을 때 타이머 시작
     if (before === max) user.chatTimer = new Date();
 
     await user.save();
+    await IntelligentCache.invalidateUserCache(userId);
     return user;
 };
 
-export const acceptFriendRequestService = async (requestId) => {
-    // 해당 친구 요청 조회
-    const friendRequest = await FriendRequest.findById(requestId);
-    if (!friendRequest) {
-        throw new Error("친구 요청을 찾을 수 없습니다.");
-    }
-    if (friendRequest.status !== 'pending') {
-        throw new Error("이미 처리된 친구 요청입니다.");
-    }
+// 채팅방에서 표시할 간단한 사용자 정보
+// 채팅방에서 빠른 로딩을 위한 최소 정보 제공 (캐시 활용)
+export const getChatUserInfo = async (userId) => {
+    try {
+        let userInfo = await IntelligentCache.getChatUserInfo(userId);
+        if (!userInfo) {
+            const user = await User.findById(userId).select("nickname profilePhoto gender star birthdate").lean();
+            if (!user) return null;
 
-    // 양쪽 사용자의 friends 배열에 서로의 ID 추가
+            userInfo = {
+                nickname: user.nickname,
+                profilePhoto: user.profilePhoto,
+                gender: user.gender,
+                star: user.star,
+            };
+
+            // 🔧 birthdate가 있을 때만 만나이 계산
+            if (user.birthdate) {
+                try {
+                    const decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+                    if (decryptedBirthdate) {
+                        userInfo.age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+                        userInfo.ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+                        userInfo.isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+                    }
+                } catch (error) {
+                    console.error('만나이 계산 실패:', error);
+                }
+            }
+
+            await IntelligentCache.cacheChatUserInfo(userId, userInfo, user.birthdate);
+        }
+        return userInfo;
+    } catch (error) {
+        throw error;
+    }
+};
+
+
+// ============================================================================
+//    친구 관리 함수
+// ============================================================================
+
+// 친구 요청 수락
+// 친구 요청 수락 처리, 양방향 친구 관계 생성, 요청 기록 삭제
+export const acceptFriendRequestService = async (requestId) => {
+    // 해당 친구요청 조회
+    const friendRequest = await FriendRequest.findById(requestId);
+
+    if (!friendRequest) throw new Error("친구 요청을 찾을 수 없습니다.");
+
+    if (friendRequest.status !== 'pending') throw new Error("이미 처리된 친구 요청입니다.");
+
+    // 양쪽 사용자의 친구 배열에 서로의 ID추가
     await User.findByIdAndUpdate(friendRequest.sender, { $push: { friends: friendRequest.receiver } });
     await User.findByIdAndUpdate(friendRequest.receiver, { $push: { friends: friendRequest.sender } });
 
     // 친구 요청 문서를 DB에서 삭제
     await FriendRequest.findByIdAndDelete(requestId);
 
-    return {
-        message: "친구 요청이 수락되어 삭제되었습니다.",
-        friendRequest: friendRequest
-    };
+    await IntelligentCache.invalidateUserCache(friendRequest.sender);
+    await IntelligentCache.invalidateUserCache(friendRequest.receiver);
+
+    return { message: "친구 요청이 수락되어 삭제되었습니다.", friendRequest: friendRequest };
 };
 
-// 친구 요청 보내기 함수
+// 친구 요청 보내기
+// 친구 요청 가능 여부 확인 (설정, 중복, 차단 등)
+// 새로운 친구 요청 생성
 export const sendFriendRequest = async (senderId, receiverId) => {
-    // ❷ 수신자가 요청을 차단했는지 미리 확인
+
+    // 수신자가 요청을 차단했는지 미리 확인
     const receiverUser = await User.findById(receiverId).select('friendReqEnabled');
     if (!receiverUser) throw new Error('받는 사용자를 찾을 수 없습니다.');
-    if (!receiverUser.friendReqEnabled) {
-        throw new Error('상대가 친구 요청을 차단했습니다.');
-    }
-    if (senderId === receiverId) {
-        throw new Error("자기 자신에게 친구 요청을 보낼 수 없습니다.");
-    }
+    if (!receiverUser.friendReqEnabled) throw new Error('상대가 친구 요청을 차단했습니다.');
+
+    if (senderId === receiverId) throw new Error("자기 자신에게 친구 요청을 보낼 수 없습니다.");
 
     // 보내는 사용자의 정보를 조회하여 이미 친구인지 확인
     const senderUser = await User.findById(senderId);
-    if (!senderUser) {
-        throw new Error("보낸 사용자 정보를 찾을 수 없습니다.");
-    }
+    if (!senderUser) throw new Error("보낸 사용자 정보를 찾을 수 없습니다.");
 
-    // 이미 친구인지 확인 (ObjectId는 문자열로 변환해서 비교)
-    const alreadyFriends = senderUser.friends.some(friendId =>
-        friendId.toString() === receiverId.toString()
-    );
-    if (alreadyFriends) {
-        throw new Error("이미 친구입니다.");
-    }
+    // 이미 친구인지 확인
+    const alreadyFriends = senderUser.friends.some(friendId => friendId.toString() === receiverId.toString());
+    if (alreadyFriends) throw new Error("이미 친구입니다.");
 
-    // 이미 pending 상태의 요청이 존재하는지 확인
-    const existingRequest = await FriendRequest.findOne({
-        sender: senderId,
-        receiver: receiverId,
-        status: 'pending'
-    });
-    if (existingRequest) {
-        throw new Error("이미 친구 요청을 보냈습니다.");
-    }
+    // 이미 패딩 상태의 요청이 존재하는지 확인
+    const existingRequest = await FriendRequest.findOne({ sender: senderId, receiver: receiverId, status: 'pending' });
+    if (existingRequest) throw new Error("이미 친구 요청을 보냈습니다.");
 
     // 새로운 친구 요청 생성
     const newRequest = new FriendRequest({ sender: senderId, receiver: receiverId });
@@ -274,115 +425,78 @@ export const sendFriendRequest = async (senderId, receiverId) => {
     return newRequest;
 };
 
-// 친구 요청 목록 조회 함수 (수신한 pending 요청)
+// 받은 친구 요청 목록
+// 내가 받은 대기 중인 친구 요청 조회
 export const getFriendRequests = async (receiverId) => {
-    const requests = await FriendRequest.find({
-        receiver: receiverId,
-        status: 'pending'
-    }).populate('sender', 'nickname name photo'); // 요청 보낸 사용자의 일부 정보 노출
+    const requests = await FriendRequest.find({ receiver: receiverId, status: 'pending' }).populate('sender', 'nickname name photo');
     return requests;
 };
 
-// 친구 요청 거절 기능: 요청 상태를 'declined'로 업데이트한 후, DB에서 삭제합니다.
+// 친구 요청 거절 요청 상태를 DECLINED로 업데이트 한 후 DB에서 삭제
 export const declineFriendRequestService = async (requestId) => {
+
     // 해당 친구 요청 조회
     const friendRequest = await FriendRequest.findById(requestId);
-    if (!friendRequest) {
-        throw new Error("친구 요청을 찾을 수 없습니다.");
-    }
-    // 이미 처리된 요청이면 에러 발생
-    if (friendRequest.status !== 'pending') {
-        throw new Error("이미 처리된 친구 요청입니다.");
-    }
+    if (!friendRequest) throw new Error("친구 요청을 찾을 수 없습니다.");
 
-    // 상태를 'declined'로 업데이트한 후 저장 (로깅 등 필요할 경우 대비)
+    // 이미 처리된 요청이면 에러 발생
+    if (friendRequest.status !== 'pending') throw new Error("이미 처리된 친구 요청입니다.");
+
+    // 상태를 declined로 업데이트 한 후 저장 (로깅등 필요할 경우 대비)
     friendRequest.status = 'declined';
     await friendRequest.save();
 
     // DB에서 해당 친구 요청 알림 삭제
     await FriendRequest.findByIdAndDelete(requestId);
 
-    return {
-        message: "친구 요청이 거절되어 삭제되었습니다.",
-        friendRequest
-    };
+    return { message: "친구 요청이 거절되어 삭제되었습니다.", friendRequest };
 };
 
-// 친구 삭제 기능
+// 친구 삭제
 export const deleteFriend = async (userId, friendId) => {
-    // 요청 사용자가 존재하는지 확인
+
+    //요청 사용자가 존재하는지 확인
     const user = await User.findById(userId);
-    if (!user) {
-        throw new Error("사용자를 찾을 수 없습니다.");
-    }
+    if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+
     // 삭제 대상 친구가 존재하는지 확인
     const friend = await User.findById(friendId);
-    if (!friend) {
-        throw new Error("친구를 찾을 수 없습니다.");
-    }
+    if (!friend) throw new Error("친구를 찾을 수 없습니다.");
+
     // 친구 목록에 해당 친구가 있는지 확인
-    if (!user.friends.includes(friendId)) {
-        throw new Error("해당 사용자는 친구 목록에 존재하지 않습니다.");
-    }
-    // 사용자와 친구 양쪽에서 친구 id 제거
+    if (!user.friends.includes(friendId)) throw new Error("해당 사용자는 친구 목록에 존재하지 않습니다.");
+
+    // 사용자와 친구 양쪽에서 친구 ID 제거
     await User.findByIdAndUpdate(userId, { $pull: { friends: friendId } });
     await User.findByIdAndUpdate(friendId, { $pull: { friends: userId } });
+
+    // 캐싱
+    await IntelligentCache.invalidateUserCache(userId);
+    await IntelligentCache.invalidateUserCache(friendId);
+
     return { message: "친구가 삭제되었습니다." };
 };
 
-/**
- * 사용자 차단
- */
-export const blockUserService = async (userId, targetId) => {
-    const user = await User.findById(userId);
-    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-    if (!user.blockedUsers.includes(targetId)) {
-        user.blockedUsers.push(targetId);
-        await user.save();
-    }
-    return user;
-};
+// 친구 목록 페이지네이션 조회
+// 친구 목록 페이지별 조회
+// 온라인 상태 정보 포함
+// 성능 최적화 (필요한 만큼만 로딩)
+export const getPaginatedFriends = async (userId, offset = 0, limit = 20) => {
 
-/**
- * 차단 해제
- */
-export const unblockUserService = async (userId, targetId) => {
-    const user = await User.findById(userId);
-    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-    user.blockedUsers = user.blockedUsers.filter(id => id.toString() !== targetId);
-    await user.save();
-    return user;
-};
-
-/**
- * 차단 목록 조회
- */
-export const getBlockedUsersService = async (userId) => {
-    const user = await User.findById(userId).populate('blockedUsers', 'nickname name profilePhoto createdAt');
-    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-    return user.blockedUsers;
-};
-
-export const getPaginatedFriends = async (
-    userId,
-    offset = 0,
-    limit = 20,
-) => {
     // friends 배열을 DB 쪽에서 잘라서 가져옴
     const user = await User.findById(userId)
-        .slice('friends', [offset, limit])      // <- $slice 전달
-        .populate('friends', 'nickname profilePhoto'); // 필요한 필드만
+        .slice('friends', [offset, limit])
+        .populate('friends', 'nickname profilePhoto');
 
     if (!user) throw new Error('User not found');
 
     // 전체 친구 수도 내려주고 싶다면 한 번 더 가볍게 조회
-    const totalCnt =
-        (await User.findById(userId).select('friends').lean())?.friends.length || 0;
+    const totalCnt = (await User.findById(userId).select('friends').lean())?.friends.length || 0;
 
-    // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
+    // 온라인 상태 정보 추가(배치로 효율적 처리)
     const friendIds = user.friends.map(friend => friend._id.toString());
     const onlineStatusMap = onlineStatusService.getMultipleUserStatus(friendIds);
-    
+
     const friendsWithStatus = user.friends.map(friend => ({
         ...friend.toObject(),
         isOnline: onlineStatusMap[friend._id.toString()] || false
@@ -391,30 +505,471 @@ export const getPaginatedFriends = async (
     return { total: totalCnt, friends: friendsWithStatus };
 };
 
-// ✅ 네이버 access_token 업데이트 함수 추가
-export const updateUserNaverToken = async (userId, accessToken) => {
+// ============================================================================
+//    차단 관리 함수
+// ============================================================================
+
+// 사용자 차단
+export const blockUserService = async (userId, targetId) => {
+    const user = await User.findById(userId);
+    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+    if (!user.blockedUsers.includes(targetId)) {
+        user.blockedUsers.push(targetId);
+        await user.save();
+        await IntelligentCache.invalidateUserCache(userId);
+    }
+    return user;
+};
+
+// 차단 해제
+export const unblockUserService = async (userId, targetId) => {
+    const user = await User.findById(userId);
+    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+    user.blockedUsers = user.blockedUsers.filter(id => id.toString() !== targetId);
+    await user.save();
+    await IntelligentCache.invalidateUserCache(userId);
+    return user;
+};
+
+// 차단 목록 조회
+export const getBlockedUsersService = async (userId) => {
+    const user = await User.findById(userId).populate('blockedUsers', 'nickname name profilePhoto createdAt');
+    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+    return user.blockedUsers;
+};
+
+
+
+
+// ============================================================================
+// 🎯 새로운 고급 기능들 (기존 함수명과 분리)  (암호화 & 캐시 시스템)
+// ============================================================================
+// 새 사용자 생성 (KMS 암호화 적용) - 수정된 버전
+export const createUser = async (userData) => {
     try {
-        console.log('네이버 토큰 업데이트 시작:', userId, accessToken ? 'token_present' : 'token_null');
-        
-        const updateData = accessToken 
-            ? { 'social.naver.accessToken': accessToken }
-            : { $unset: { 'social.naver.accessToken': 1 } };
-        
-        const updatedUser = await User.findByIdAndUpdate(
-            userId,
-            updateData,
-            { new: true }
-        );
-        
-        if (!updatedUser) {
-            throw new Error('사용자를 찾을 수 없습니다');
+        console.log('🔧 createUser 시작 - 입력 데이터:', {
+            hasName: !!userData.name,
+            hasNickname: !!userData.nickname,
+            nickname: userData.nickname,
+            hasPhone: !!userData.phone,
+            hasBirthdate: !!userData.birthdate,
+            gender: userData.gender
+        });
+
+        // 🔧 필수 필드 검증 (서비스 레벨에서도 한 번 더)
+        if (!userData.nickname || userData.nickname.trim() === '') {
+            throw new Error('nickname은 필수 필드입니다.');
         }
-        
-        console.log('네이버 토큰 업데이트 성공');
-        return updatedUser;
+
+        // 🔧 KMS 암호화 처리를 더 안전하게
+        let encryptedUserData;
+        try {
+            console.log('🔐 KMS 암호화 시작...');
+            encryptedUserData = ComprehensiveEncryption.encryptUserData(userData);
+            console.log('✅ KMS 암호화 완료');
+        } catch (encryptionError) {
+            console.error('❌ KMS 암호화 실패:', encryptionError.message);
+            throw new Error(`사용자 데이터 암호화 실패: ${encryptionError.message}`);
+        }
+
+        // 🔧 사용자 생성 전 데이터 확인
+        console.log('🔧 DB 저장 전 데이터 확인:', {
+            hasNickname: !!encryptedUserData.nickname,
+            nickname: encryptedUserData.nickname,
+            hasGender: !!encryptedUserData.gender,
+            gender: encryptedUserData.gender,
+            dataKeys: Object.keys(encryptedUserData)
+        });
+
+        // 🔧 User 모델 생성 시 더 명시적으로
+        const user = new User({
+            ...encryptedUserData,
+            // 필수 필드들을 명시적으로 다시 설정
+            nickname: encryptedUserData.nickname,
+            gender: encryptedUserData.gender || 'select',
+        });
+
+        console.log('🔧 User 인스턴스 생성 완료, KMS 암호화 데이터로 저장 시도 중...');
+
+        const savedUser = await user.save();
+        console.log('✅ DB 저장 성공 (KMS 암호화):', {
+            id: savedUser._id,
+            nickname: savedUser.nickname,
+            gender: savedUser.gender,
+            hasEncryptedName: !!savedUser.name,
+            hasEncryptedPhone: !!savedUser.phone,
+            hasEncryptedBirthdate: !!savedUser.birthdate
+        });
+
+        // 🔧 나이 정보 캐싱 (에러가 발생해도 사용자 생성은 성공)
+        if (savedUser.birthdate) {
+            try {
+                console.log('📊 나이 정보 캐싱 시작...');
+                const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(savedUser.birthdate);
+                if (decryptedBirthdate) {
+                    const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+                    const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+                    const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+                    await IntelligentCache.cacheUserAge(savedUser._id, age, ageGroup, isMinor);
+                    console.log('✅ 나이 정보 캐싱 완료');
+                }
+            } catch (error) {
+                console.warn('⚠️ 나이 캐싱 실패 (사용자 생성은 성공):', error.message);
+            }
+        }
+
+        // 🔧 채팅 사용자 정보 캐싱 (에러가 발생해도 사용자 생성은 성공)
+        try {
+            console.log('💬 채팅 사용자 정보 캐싱 시작...');
+            await IntelligentCache.cacheChatUserInfo(savedUser._id, {
+                nickname: savedUser.nickname,
+                profilePhoto: savedUser.profilePhoto || '',
+                gender: savedUser.gender,
+                star: savedUser.star || 0,
+            }, savedUser.birthdate);
+            console.log('✅ 채팅 사용자 정보 캐싱 완료');
+        } catch (error) {
+            console.warn('⚠️ 채팅 정보 캐싱 실패 (사용자 생성은 성공):', error.message);
+        }
+
+        return savedUser;
+
     } catch (error) {
-        console.error('네이버 토큰 업데이트 실패:', error);
+        console.error('❌ createUser 실패:', {
+            message: error.message,
+            name: error.name,
+            stack: error.stack,
+            userData: {
+                nickname: userData?.nickname,
+                hasName: !!userData?.name,
+                hasPhone: !!userData?.phone
+            }
+        });
+
+        // 🔧 에러를 다시 던지되, 더 명확한 메시지와 함께
+        if (error.name === 'ValidationError') {
+            const validationDetails = Object.keys(error.errors).map(key =>
+                `${key}: ${error.errors[key].message}`
+            ).join(', ');
+            throw new Error(`사용자 데이터 검증 실패: ${validationDetails}`);
+        }
+
+        if (error.code === 11000) {
+            throw new Error('이미 사용 중인 닉네임입니다.');
+        }
+
+        // KMS 관련 에러
+        if (error.message.includes('KMS') || error.message.includes('암호화')) {
+            throw new Error(`KMS 암호화 처리 실패: ${error.message}`);
+        }
+
         throw error;
     }
 };
 
+// 전화번호로 사용자 찾기 (암호화 지원)
+// 해시 기반 빠른 검색, 암호화된 전화번호 매칭, 기존 평문 데이터 호환
+export const findUserByPhone = async (phoneNumber) => {
+    try {
+        if (process.env.ENABLE_ENCRYPTION === 'true') {
+            const phoneHash = ComprehensiveEncryption.createPhoneHash(phoneNumber);
+            const users = await User.find({ phone_hash: phoneHash });
+            for (const user of users) {
+                const decryptedPhone = ComprehensiveEncryption.decryptPersonalInfo(user.phone);
+                if (decryptedPhone === phoneNumber) return user;
+            }
+        }
+        return await User.findOne({ phone: phoneNumber });
+    } catch (error) {
+        throw error;
+    }
+};
+
+// 이름으로 사용자 찾기 (실명 검색)
+// 실명 기반 사용자 검색 (고객지원용)
+export const findUserByName = async (name) => {
+    try {
+        if (process.env.ENABLE_ENCRYPTION === 'true') {
+            const nameHash = ComprehensiveEncryption.createSearchHash(name);
+            const users = await User.find({ name_hash: nameHash });
+            for (const user of users) {
+                const decryptedName = ComprehensiveEncryption.decryptPersonalInfo(user.name);
+                if (decryptedName === name) return user;
+            }
+        }
+        return await User.findOne({ name: name });
+    } catch (error) {
+        throw error;
+    }
+};
+
+// 나이대별 사용자 검색
+// 연령대 기반 매칭 시스템, 성별 필터링 지원, 실시간 만나이 계산
+export const findUsersByAgeRange = async (minAge, maxAge, gender = null) => {
+    try {
+        const filter = {};
+        if (gender && gender !== 'select') filter.gender = gender;
+
+        // 🔧 birthdate가 있는 사용자만 조회
+        const users = await User.find({
+            ...filter,
+            birthdate: { $ne: "", $exists: true }
+        }).select('nickname profilePhoto gender birthdate star').lean();
+
+        const filteredUsers = users.filter(user => {
+            try {
+                const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+                if (!decryptedBirthdate) return false;
+
+                const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+                return age !== null && age >= minAge && age <= maxAge;
+            } catch (error) {
+                return false;
+            }
+        }).map(user => {
+            const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+            const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+
+            return {
+                ...user,
+                age,
+                ageGroup: ComprehensiveEncryption.getAgeGroup(decryptedBirthdate),
+                isMinor: ComprehensiveEncryption.isMinor(decryptedBirthdate)
+            };
+        });
+
+        return filteredUsers;
+    } catch (error) {
+        throw error;
+    }
+};
+
+// 안전한 매칭 사용자 조회 (미성년자 보호)
+// 미성년자(19세 미만)는 동일 연령대만 매칭, 성인은 성인끼리만 매칭, 청소년 보호법 준수
+export const getSafeMatchingUsers = async (currentUserId) => {
+    try {
+        const currentUser = await User.findById(currentUserId).lean();
+        if (!currentUser || !currentUser.birthdate) return [];
+
+        const currentUserBirthdate = ComprehensiveEncryption.decryptPersonalInfo(currentUser.birthdate);
+        if (!currentUserBirthdate) return [];
+
+        const isCurrentUserMinor = ComprehensiveEncryption.isMinor(currentUserBirthdate);
+
+        // 🔧 미성년자 보호: 동일 연령대만 매칭
+        if (isCurrentUserMinor) {
+            return await findUsersByAgeRange(0, 18, currentUser.gender);
+        } else {
+            return await findUsersByAgeRange(19, 100, currentUser.gender);
+        }
+    } catch (error) {
+        throw error;
+    }
+};
+
+// 특정 연령대 사용자 조회
+// 연령대별 사용자 그룹핑, 캐시 활용으로 빠른 조회, 매칭 알고리즘 지원
+export const getUsersByAgeGroup = async (ageGroup) => {
+    try {
+        let users = await IntelligentCache.getCachedAgeGroupUsers(ageGroup);
+
+        if (!users) {
+            // 🔧 birthdate가 있는 사용자만 조회
+            const allUsers = await User.find({
+                birthdate: { $ne: "", $exists: true }
+            }).select('nickname profilePhoto gender birthdate star').lean();
+
+            users = allUsers.filter(user => {
+                try {
+                    const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+                    if (!decryptedBirthdate) return false;
+
+                    const userAgeGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+                    return userAgeGroup === ageGroup;
+                } catch (error) {
+                    return false;
+                }
+            }).map(user => {
+                const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+                return {
+                    ...user,
+                    age: ComprehensiveEncryption.calculateAge(decryptedBirthdate),
+                    ageGroup: ComprehensiveEncryption.getAgeGroup(decryptedBirthdate),
+                    isMinor: ComprehensiveEncryption.isMinor(decryptedBirthdate)
+                };
+            });
+
+            await IntelligentCache.cacheAgeGroupUsers(ageGroup, users);
+        }
+
+        return users;
+    } catch (error) {
+        throw error;
+    }
+};
+
+// 관리자용 복호화된 사용자 정보
+// 관리자/고객지원 전용, 모든 개인정보 복호화, 실시간 나이 정보 포함
+export const getDecryptedUserForAdmin = async (userId) => {
+    try {
+        console.log(`🔐 관리자용 복호화 시작: ${userId}`);
+        
+        // 1️⃣ 캐시에서 복호화된 데이터 확인
+        let decryptedUser = await IntelligentCache.getDecryptedUser(userId);
+        if (decryptedUser) {
+            console.log(`✅ 캐시에서 복호화 데이터 발견: ${userId}`);
+            return decryptedUser;
+        }
+
+        // 2️⃣ DB에서 원본 데이터 조회
+        const user = await User.findById(userId).lean();
+        if (!user) {
+            console.log(`❌ 사용자를 찾을 수 없음: ${userId}`);
+            return null;
+        }
+
+        console.log(`📋 원본 데이터 조회 완료: ${userId}`, {
+            hasName: !!user.name,
+            hasPhone: !!user.phone,
+            hasBirthdate: !!user.birthdate,
+            namePreview: user.name ? user.name.substring(0, 20) + '...' : 'null'
+        });
+
+        // 3️⃣ 암호화 모드 확인 및 복호화 수행
+        if (process.env.ENABLE_ENCRYPTION === 'true') {
+            console.log(`🔓 KMS 복호화 모드 활성화`);
+            
+            // 기본 정보 복호화
+            decryptedUser = {
+                ...user,
+                // 원본 암호화 필드 보존 (디버깅용)
+                _encrypted_name: user.name,
+                _encrypted_phone: user.phone,
+                _encrypted_birthdate: user.birthdate,
+                
+                // 복호화된 필드 추가
+                decrypted_name: user.name ? 
+                    ComprehensiveEncryption.decryptPersonalInfo(user.name) : '',
+                decrypted_phone: user.phone ? 
+                    ComprehensiveEncryption.decryptPersonalInfo(user.phone) : '',
+                decrypted_birthdate: user.birthdate ? 
+                    ComprehensiveEncryption.decryptPersonalInfo(user.birthdate) : '',
+            };
+
+            // 소셜 정보 복호화
+            if (user.social?.kakao) {
+                decryptedUser.social.kakao = {
+                    ...user.social.kakao,
+                    decrypted_name: user.social.kakao.name ? 
+                        ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.name) : '',
+                    decrypted_phoneNumber: user.social.kakao.phoneNumber ? 
+                        ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.phoneNumber) : '',
+                    decrypted_birthday: user.social.kakao.birthday ? 
+                        ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.birthday) : '',
+                    decrypted_birthyear: user.social.kakao.birthyear ? 
+                        ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.birthyear) : ''
+                };
+            }
+
+            if (user.social?.naver) {
+                decryptedUser.social.naver = {
+                    ...user.social.naver,
+                    decrypted_name: user.social.naver.name ? 
+                        ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.name) : '',
+                    decrypted_phoneNumber: user.social.naver.phoneNumber ? 
+                        ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.phoneNumber) : '',
+                    decrypted_birthday: user.social.naver.birthday ? 
+                        ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.birthday) : '',
+                    decrypted_birthyear: user.social.naver.birthyear ? 
+                        ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.birthyear) : ''
+                };
+            }
+
+            // 나이 정보 계산
+            if (decryptedUser.decrypted_birthdate) {
+                decryptedUser.calculated_age = ComprehensiveEncryption.calculateAge(decryptedUser.decrypted_birthdate);
+                decryptedUser.age_group = ComprehensiveEncryption.getAgeGroup(decryptedUser.decrypted_birthdate);
+                decryptedUser.is_minor = ComprehensiveEncryption.isMinor(decryptedUser.decrypted_birthdate);
+            }
+
+            console.log(`✅ KMS 복호화 완료: ${userId}`, {
+                decrypted_name: decryptedUser.decrypted_name ? decryptedUser.decrypted_name.substring(0, 3) + '***' : 'null',
+                decrypted_phone: decryptedUser.decrypted_phone ? decryptedUser.decrypted_phone.substring(0, 3) + '***' : 'null',
+                calculated_age: decryptedUser.calculated_age
+            });
+        } else {
+            console.log(`🔓 평문 모드 (암호화 비활성화)`);
+            decryptedUser = {
+                ...user,
+                decrypted_name: user.name || '',
+                decrypted_phone: user.phone || '',
+                decrypted_birthdate: user.birthdate || '',
+                calculated_age: user.birthdate ? ComprehensiveEncryption.calculateAge(user.birthdate) : null,
+                age_group: user.birthdate ? ComprehensiveEncryption.getAgeGroup(user.birthdate) : null,
+                is_minor: user.birthdate ? ComprehensiveEncryption.isMinor(user.birthdate) : false
+            };
+        }
+
+        // 4️⃣ 캐시에 저장
+        await IntelligentCache.cacheDecryptedUser(userId, decryptedUser);
+        console.log(`💾 복호화 데이터 캐시 저장 완료: ${userId}`);
+
+        return decryptedUser;
+    } catch (error) {
+        console.error(`❌ 관리자용 복호화 실패: ${userId}`, error);
+        throw error;
+    }
+};
+
+
+// 사용자 정보 업데이트 (암호화 자동 적용)
+// 개인정보 자동 암호화, 캐시 무효화, 해시 필드 자동 갱신
+export const updateUser = async (userId, updateData) => {
+    try {
+        const encryptedUpdateData = ComprehensiveEncryption.encryptUserData(updateData);
+        const updatedUser = await User.findByIdAndUpdate(userId, encryptedUpdateData, { new: true });
+        await IntelligentCache.invalidateUserCache(userId);
+
+        // 🔧 birthdate 업데이트 시 만나이 캐시 갱신
+        if (updateData.birthdate && updatedUser.birthdate) {
+            try {
+                const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(updatedUser.birthdate);
+                if (decryptedBirthdate) {
+                    const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+                    const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+                    const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+                    await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
+                }
+            } catch (error) {
+                console.error('업데이트 후 만나이 캐싱 실패:', error);
+            }
+        }
+        return updatedUser;
+    } catch (error) {
+        throw error;
+    }
+};
+
+// 나이 정보만 빠르게 조회
+// 캐시 우선 나이 정보 조회, 매칭 시스템에서 성능 최적화, 실시간 만나이 계산
+export const getUserAgeInfo = async (userId) => {
+    try {
+        let ageInfo = await IntelligentCache.getCachedUserAge(userId);
+        if (!ageInfo) {
+            const user = await User.findById(userId).select('birthdate').lean();
+            if (!user || !user.birthdate) return null;
+            const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+            if (!decryptedBirthdate) return null;
+
+            // 🔧 birthdate 기반 만나이 계산
+            const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+            const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+            const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+            ageInfo = { age, ageGroup, isMinor };
+            await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
+        }
+        return ageInfo;
+    } catch (error) {
+        throw error;
+    }
+};

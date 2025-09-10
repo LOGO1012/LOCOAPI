@@ -1,15 +1,19 @@
-// server.js
+// server.js - KMS 사용 버전
+import dotenv from 'dotenv';
+
+// 🔧 환경변수를 가장 먼저 로드
+dotenv.config({ path: './.env' });
+
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import session from 'express-session';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import cookieParser from "cookie-parser";
 
+// 환경변수 로드 후 모듈 import
 import developerRoutes from './src/routes/developerRoutes.js';
-
 import authRoutes from './src/routes/authRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import productRoutes from './src/routes/productRoutes.js';
@@ -19,14 +23,13 @@ import chatRoutes from './src/routes/chatRoutes.js';
 import communityRoutes from './src/routes/communityRoutes.js';
 import { initializeSocket } from './src/socket/socketIO.js';
 import connectMongoDB from './src/config/mongoDB.js';
-import './src/scheduler/recurringSubscriptions.js'; // 스케줄러
+import './src/scheduler/recurringSubscriptions.js';
 import qnaRoutes from "./src/routes/qnaRoutes.js";
 import uploadRoutes from './src/routes/uploadRoutes.js';
 import reportRoutes from "./src/routes/reportRoutes.js";
 import reportNotificationRoutes from "./src/routes/reportNotificationRoutes.js";
 import prRoutes from "./src/routes/prRoutes.js";
 import onlineStatusRoutes from './src/routes/onlineStatusRoutes.js';
-
 import searchRouter from './src/routes/searchRouter.js';
 import newsRoutes from './src/routes/newsRoutes.js';
 import editorRoutes from './src/routes/editorRoutes.js';
@@ -34,10 +37,34 @@ import bannerRoutes from './src/routes/bannerRoutes.js';
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
 
-dotenv.config(); // 환경 변수 로드
+// 환경변수 로딩 확인
+console.log('🔧 환경변수 로딩 상태:');
+console.log('ENABLE_KMS:', process.env.ENABLE_KMS || 'undefined');
+console.log('ENABLE_ENCRYPTION:', process.env.ENABLE_ENCRYPTION || 'undefined');
+console.log('AWS_REGION:', process.env.AWS_REGION || 'undefined');
+console.log('KMS_KEY_ID:', process.env.KMS_KEY_ID || 'undefined');
+console.log('AWS_ACCESS_KEY_ID:', process.env.AWS_ACCESS_KEY_ID ? 'AKIA...' + process.env.AWS_ACCESS_KEY_ID.slice(-4) : 'undefined');
+console.log('NODE_ENV:', process.env.NODE_ENV || 'undefined');
+console.log('');
 
 // MongoDB 연결 (실패/성공 메시지는 mongoDB.js에서 처리)
 connectMongoDB();
+
+// 🔧 IntelligentCache 초기화를 더 안정적으로 수정
+const initializeIntelligentCache = async () => {
+    try {
+        console.log('🔄 IntelligentCache 초기화 시도...');
+        const { default: IntelligentCache } = await import('./src/utils/cache/intelligentCache.js');
+        
+        const connectionType = await IntelligentCache.forceRedisConnection();
+        console.log(`✅ IntelligentCache 초기화 완료: ${connectionType} 사용`);
+        return true;
+    } catch (error) {
+        console.error('❌ IntelligentCache 초기화 실패:', error.message);
+        console.log('📝 메모리 캐시로 폴백하여 계속 진행합니다.');
+        return false;
+    }
+};
 
 const app = express();
 
@@ -177,8 +204,65 @@ const io = initializeSocket(server);
 
 // 포트 설정 및 서버 실행
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    
+    // 🔧 서버 시작 후 캐시 초기화 (비동기, 비차단)
+    setTimeout(async () => {
+        await initializeIntelligentCache();
+        
+        // 🧪 KMS 암호화 테스트 실행
+        setTimeout(async () => {
+            try {
+                console.log('\n🧪 ========== KMS 암호화 시스템 테스트 시작 ==========');
+                console.log('🔧 [DEBUG] testKMSConnection 함수 호출 전');
+                console.log('🏗️ KMS 테스트 시작 - 환경 설정 확인...');
+                console.log('🔧 KMS 활성화:', process.env.ENABLE_KMS === 'true');
+                console.log('🌏 AWS 리전:', process.env.AWS_REGION);
+                console.log('🔑 KMS 키 ID:', process.env.KMS_KEY_ID);
+                console.log('🔐 Access Key:', process.env.AWS_ACCESS_KEY_ID ? process.env.AWS_ACCESS_KEY_ID.substring(0, 4) + '...' + process.env.AWS_ACCESS_KEY_ID.slice(-4) : '없음');
+                
+                if (process.env.ENABLE_KMS === 'true') {
+                    console.log('✅ KMS가 활성화되어 있습니다. KMS 모드로 테스트합니다.');
+                    console.log('🧪 암호화/복호화 테스트 시작...');
+                    console.log('📝 테스트 데이터: 🧪 KMS 연결 테스트 데이터');
+                    console.log('🔐 암호화 시도 중...');
+                    console.log('🏗️ KMS 암호화 시작...');
+                } else {
+                    console.log('⚠️ KMS가 비활성화되어 있습니다. AES 폴백 모드로 작동합니다.');
+                }
+                
+                const { default: comprehensiveEncryption } = await import('./src/utils/encryption/comprehensiveEncryption.js');
+                const testResult = await comprehensiveEncryption.testKMSConnection();
+                
+                console.log('🔧 [DEBUG] testKMSConnection 함수 호출 후, 결과:', testResult);
+                
+                if (testResult) {
+                    console.log('\n🎉 ========== KMS 연결 성공! ==========');
+                    console.log('✅ KMS 암호화 시스템이 정상적으로 작동합니다!');
+                    console.log('🔐 개인정보가 AWS KMS로 안전하게 암호화됩니다.');
+                    console.log('========================================\n');
+                } else {
+                    console.log('\n❌ ========== KMS 연결 실패! ==========');
+                    console.log('⚠️ KMS 암호화 시스템에 문제가 있습니다.');
+                    console.log('🔄 AES 폴백 모드로 전환됩니다.');
+                    console.log('⚠️ 경고: 개인정보가 암호화되지 않을 수 있습니다!');
+                    console.log('\n🔧 KMS 연결 문제 해결 방법:');
+                    console.log('1. AWS 인증 정보 확인 (Access Key, Secret Key)');
+                    console.log('2. KMS 키 ID 확인:', process.env.KMS_KEY_ID);
+                    console.log('3. IAM 사용자 KMS 권한 확인');
+                    console.log('4. AWS 리전 설정 확인:', process.env.AWS_REGION);
+                    console.log('========================================\n');
+                }
+            } catch (error) {
+                console.log('\n❌ ========== KMS 테스트 실행 오류! ==========');
+                console.error('❌ KMS 테스트 실행 중 오류:', error.message);
+                console.error('🔍 상세 에러:', error.stack);
+                console.log('🔄 서버는 AES 폴백 모드로 계속 작동합니다.');
+                console.log('========================================\n');
+            }
+        }, 2000); // 캐시 초기화 후 2초 뒤 KMS 테스트
+    }, 3000); // 3초 후 초기화
 });
 
 // 🟢 MongoDB가 준비된 뒤 별점 초기화 스케줄러 시작

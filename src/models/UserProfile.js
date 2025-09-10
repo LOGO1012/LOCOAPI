@@ -1,5 +1,6 @@
 //PASS 받아오는거 어디넣을지
 import mongoose from "mongoose";
+import ComprehensiveEncryption from '../utils/encryption/comprehensiveEncryption.js';
 
 const {Schema, model} = mongoose; // Schema 생성자 추출
 
@@ -7,8 +8,13 @@ const {Schema, model} = mongoose; // Schema 생성자 추출
 const userSchema = new Schema({
     // 기본 프로필 정보
     name: {
-        type: String,           // 이름: 사용자의 전체 이름
-        // required: true          // 필수 항목
+        type: String,           // 이름: 사용자의 전체 이름 (암호화됨)
+        default: ''
+    },
+    // ✅ 새로운 검색용 해시 필드들 추가
+    name_hash: {
+        type: String,           // 실명 검색용 해시
+        index: true
     },
     nickname: {
         type: String,           // 닉네임: 사용자가 표시할 별명
@@ -23,19 +29,26 @@ const userSchema = new Schema({
     },
     // 추가 연락처 정보
     phone: {
-        type: String,           // 전화번호: 사용자의 휴대폰 번호
+        type: String,           // 전화번호: 사용자의 휴대폰 번호 (암호화됨)
         default: '',             // 기본값은 빈 문자열
-        // required: true
+    },
+    phone_hash: {
+        type: String,           // 전화번호 검색용 해시
+        index: true
     },
     pass: {
         type: String,
         required: false // 실제로 비밀번호를 저장할 계획이라면 required: true 로 설정하고, 해시 처리를 고려하세요.
     },
     birthdate: {
-        type: String,             // 생년월일: 사용자의 생년월일 정보
-        default: null,
-        // required: true // 기본값은 null
+        type: String,             // 생년월일: 사용자의 생년월일 정보 (암호화됨)
+        default: '',
     },
+    birthdate_hash: {
+        type: String,           // 생년월일 검색용 해시
+        index: true
+    },
+    // ❌ age 필드 완전 제거 (birthdate 기반 실시간 계산으로 대체)
     coinLeft: {
         type: Number,           // 남은 재화: 사용자가 보유한 코인 또는 재화 수량
         default: 0              // 기본값은 0
@@ -56,62 +69,70 @@ const userSchema = new Schema({
         },                      // 넥슨 연동
         default: ''             // 기본값은 빈 문자열
     },
-    // 소셜 로그인 정보 (추가 선택 사항)
+    // 소셜 로그인 정보 (추가 선택 사항) - 암호화 적용
     social: {
         kakao: {
-            providerId: {                   // 카카오에서 발급받은 고유 ID (예: 1234567890)
+            providerId: {                   // 카카오에서 발급받은 고유 ID (점진적으로 해시로 변경)
                 type: String,
                 default: ''
             },
-            name: {                     // 카카오에서 받아온 닉네임
+            providerId_hash: {              // ✅ 새로운 해시 필드
+                type: String,
+                index: true
+            },
+            name: {                     // 카카오에서 받아온 닉네임 (암호화됨)
                 type: String,
                 default: ''
             },
-            phoneNumber: {                        // 카카오에서 제공한 이메일
+            phoneNumber: {                        // 카카오에서 제공한 전화번호 (암호화됨)
                 type: String,
                 default: ''
             },
-            birthday: {                 // 카카오에서 받아온 프로필 이미지 URL
-                type: Number,
+            birthday: {                 // 카카오에서 받아온 생일 (암호화됨)
+                type: String,
                 default: ''
             },
-            birthyear: {                 // 카카오에서 받아온 프로필 이미지 URL
-                type: Number,
+            birthyear: {                 // 카카오에서 받아온 출생년도 (암호화됨)
+                type: String,
                 default: ''
             },
-            gender: {                 // 카카오에서 받아온 프로필 이미지 URL
+            gender: {                 // 카카오에서 받아온 성별 (평문 유지)
                 type: String,           // 성별: 사용자의 성별
                 enum: ['male', 'female', ''], // 허용 값: 남성, 여성, 기타
                 default: ''
             }
         },
         naver: {
-            providerId: {                   // 네이버에서 발급받은 고유 ID
+            providerId: {                   // 네이버에서 발급받은 고유 ID (점진적으로 해시로 변경)
                 type: String,
                 default: ''
             },
-            name: {                         // 네이버에서 받아온 이름
+            providerId_hash: {              // ✅ 새로운 해시 필드
+                type: String,
+                index: true
+            },
+            name: {                         // 네이버에서 받아온 이름 (암호화됨)
                 type: String,
                 default: ''
             },
-            phoneNumber: {                  // 네이버에서 받아온 전화번호 (필요 시)
+            phoneNumber: {                  // 네이버에서 받아온 전화번호 (암호화됨)
                 type: String,
                 default: ''
             },
-            birthday: {                     // 네이버에서 받아온 생일 (MMDD 형식, 필요 시)
+            birthday: {                     // 네이버에서 받아온 생일 (암호화됨)
                 type: String,
                 default: ''
             },
-            birthyear: {                    // 네이버에서 받아온 출생년도 (필요 시)
-                type: Number,
+            birthyear: {                    // 네이버에서 받아온 출생년도 (암호화됨)
+                type: String,
                 default: ''
             },
-            gender: {                       // 네이버에서 받아온 성별
+            gender: {                       // 네이버에서 받아온 성별 (평문 유지)
                 type: String,
                 enum: ['M', 'F', ''],
                 default: ''
             },
-            accessToken: {                  // ✅ 네이버 연동해제를 위한 access_token 저장
+            accessToken: {                  // ✅ 네이버 연동해제를 위한 access_token 저장 (평문)
                 type: String,
                 default: ''
             }
@@ -236,7 +257,7 @@ const userSchema = new Schema({
         type: [String], // 예를 들어 QnA 내역의 ID나 내용을 저장할 수 있습니다.
         default: []
     },
-    // ❶ 스키마 중간 어딘가—알림 · 환경설정 섹션 추천
+    // ❶ 스키마 중간 어딘가—알림 · 환경설정 섹션 추천
     friendReqEnabled: {
         type: Boolean,
         default: true      // 기존 동작과 동일한 초기값
@@ -251,8 +272,63 @@ const userSchema = new Schema({
     timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
 });
 
-// 텍스트 인덱스
+// 🎯 가상 필드로 실시간 나이 계산 (birthdate 기반)
+userSchema.virtual('calculatedAge').get(function() {
+  if (!this.birthdate) return null; // birthdate가 없으면 null 반환
+  
+  try {
+    // 암호화된 생년월일 복호화
+    const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(this.birthdate);
+    if (!decryptedBirthdate) return null;
+    
+    // 한국 만 나이 계산
+    return ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+  } catch (error) {
+    console.error('나이 계산 실패:', error);
+    return null;
+  }
+});
+
+// 🎯 나이 그룹 가상 필드
+userSchema.virtual('ageGroup').get(function() {
+  if (!this.birthdate) return null;
+  
+  try {
+    const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(this.birthdate);
+    if (!decryptedBirthdate) return null;
+    
+    return ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+  } catch (error) {
+    console.error('나이 그룹 계산 실패:', error);
+    return null;
+  }
+});
+
+// 🎯 미성년자 여부 가상 필드
+userSchema.virtual('isMinor').get(function() {
+  if (!this.birthdate) return null;
+  
+  try {
+    const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(this.birthdate);
+    if (!decryptedBirthdate) return null;
+    
+    return ComprehensiveEncryption.isMinor(decryptedBirthdate);
+  } catch (error) {
+    console.error('미성년자 확인 실패:', error);
+    return null;
+  }
+});
+
+// 텍스트 인덱스 (해시 필드 추가)
 userSchema.index({name: "text", nickname: "text", phone: "text", gender: "text", birthdate: "text", userLv: "text"});
+
+// ✅ 새로운 인덱스 설정 (암호화 지원)
+userSchema.index({ nickname: "text" }); // 닉네임 검색
+userSchema.index({ phone_hash: 1 }); // 전화번호 검색
+userSchema.index({ name_hash: 1 }); // 실명 검색
+userSchema.index({ gender: 1 }); // 성별 필터
+userSchema.index({ "social.kakao.providerId_hash": 1 }); // 카카오 로그인
+userSchema.index({ "social.naver.providerId_hash": 1 }); // 네이버 로그인
 
 // lolNickname을 분리해 gameName, tagLine 가상 필드로 노출
 userSchema.virtual('riotGameName').get(function () {
@@ -266,39 +342,9 @@ userSchema.virtual('riotTagLine').get(function () {
     return parts[1] || '';
 });
 
-
 // JSON으로 반환될 때 virtual 포함
 userSchema.set('toJSON', {virtuals: true});
 userSchema.set('toObject', {virtuals: true});
 
 //      모델을 'User' 컬렉션으로 생성 및 내보내기
 export const User = model('User', userSchema);
-
-
-// lastActive: {
-//     type: Date,             // 마지막 활동 시간 (예: 채팅, 페이지 방문 등)
-//     default: null
-// },
-
-// // 사용자 환경 설정 (옵션)
-// preferences: {
-//     theme: {
-//         type: String,         // 테마: 'light', 'dark' 등
-//         default: 'light'
-//     },
-//     language: {
-//         type: String,         // 언어 설정
-//         default: 'ko'
-//     }
-//     // 추가적인 환경 설정 항목들 추가 가능
-// },
-
-// // 보안 관련 (로그인 시도 관리)
-// loginAttempts: {
-//     type: Number,           // 로그인 실패 횟수
-//     default: 0
-// },
-// lockUntil: {
-//     type: Date,             // 계정이 잠긴 시각 (로그인 실패가 누적되면 잠금 해제 시각)
-//     default: null
-// }
