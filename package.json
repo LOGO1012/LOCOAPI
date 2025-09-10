@@ -6,7 +6,15 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "migrate:encryption": "node scripts/migrateToEncryption.js",
+    "test:redis": "node scripts/testRedisConnection.js",
+    "setup:kms": "node scripts/setupKMS.js",
+    "setup:kms:create-key": "node scripts/setupKMS.js --create-key",
+    "test:kms": "node aws-kms-test-fixed.js",
+    "test:encryption": "node scripts/setupKMS.js --test-only",
+    "quick:kms-test": "node quick-kms-test.js",
+    "create:kms-key": "node create-loco-kms-key.js"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +27,7 @@
     "body-parser": "^1.20.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "crypto-js": "^4.2.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
