@@ -1,0 +1,563 @@
+// src/utils/encryption/kmsEncryption.js
+import { KMSClient, EncryptCommand, DecryptCommand, GenerateDataKeyCommand } from '@aws-sdk/client-kms';
+import CryptoJS from "crypto-js";
+
+class KMSEncryptionSystem {
+  constructor() {
+    // KMS 클라이언트 초기화
+    this.kmsClient = new KMSClient({ 
+      region: process.env.AWS_REGION || 'ap-northeast-2',
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+      }
+    });
+
+    // 환경 설정
+    this.kmsKeyId = process.env.KMS_KEY_ID || 'alias/loco-user-data';
+    this.enableKMS = process.env.ENABLE_KMS === 'true';
+    this.fallbackKey = process.env.ENCRYPTION_SECRET || 'loco-fallback-key';
+    
+    // 데이터 키 캐시 (성능 최적화)
+    this.dataKeyCache = new Map();
+    this.cacheMaxSize = parseInt(process.env.KMS_CACHE_MAX_SIZE) || 100;
+    this.cacheExpiry = parseInt(process.env.KMS_CACHE_EXPIRY) || 30 * 60 * 1000; // 30분
+    
+    // 통계 추적
+    this.stats = {
+      totalEncryptions: 0,
+      totalDecryptions: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      errors: 0
+    };
+    
+    console.log(`🔐 KMS 암호화 시스템 초기화: ${this.enableKMS ? 'KMS 활성화' : 'Fallback 모드'}`);
+    console.log(`🔑 KMS Key ID: ${this.kmsKeyId}`);
+  }
+
+  // 🔑 데이터 키 생성/캐시 관리
+  async getDataKey(keySpec = 'AES_256') {
+    const cacheKey = `datakey_${keySpec}`;
+    const cached = this.dataKeyCache.get(cacheKey);
+    
+    // 캐시된 키가 유효한지 확인
+    if (cached && (Date.now() - cached.timestamp) < this.cacheExpiry) {
+      this.stats.cacheHits++;
+      return cached.key;
+    }
+
+    this.stats.cacheMisses++;
+
+    try {
+      const command = new GenerateDataKeyCommand({
+        KeyId: this.kmsKeyId,
+        KeySpec: keySpec
+      });
+      
+      const response = await this.kmsClient.send(command);
+      const dataKey = {
+        plaintext: response.Plaintext,
+        encrypted: response.CiphertextBlob,
+        timestamp: Date.now()
+      };
+
+      // 캐시 크기 관리
+      if (this.dataKeyCache.size >= this.cacheMaxSize) {
+        const oldestKey = Array.from(this.dataKeyCache.keys())[0];
+        this.dataKeyCache.delete(oldestKey);
+      }
+
+      this.dataKeyCache.set(cacheKey, { key: dataKey, timestamp: Date.now() });
+      return dataKey;
+    } catch (error) {
+      this.stats.errors++;
+      console.error('❌ KMS 데이터 키 생성 실패:', error.message);
+      
+      // 개발환경에서는 fallback, 운영환경에서는 에러
+      if (process.env.NODE_ENV === 'development' && process.env.DEV_USE_FALLBACK === 'true') {
+        console.log('🔄 개발환경: Fallback 모드로 전환');
+        return null; // fallback 사용 신호
+      }
+      
+      throw error;
+    }
+  }
+
+  // 🔐 개인정보 암호화 (KMS + AES 하이브리드)
+  async encryptPersonalInfo(data, userContext = {}) {
+    if (!data) return null;
+
+    this.stats.totalEncryptions++;
+
+    try {
+      if (!this.enableKMS) {
+        return this.fallbackEncrypt(data);
+      }
+
+      // KMS로 데이터 키 생성
+      const dataKey = await this.getDataKey();
+      
+      // 데이터 키 생성 실패 시 fallback
+      if (!dataKey) {
+        return this.fallbackEncrypt(data);
+      }
+      
+      // 사용자 컨텍스트 정보로 추가 보안
+      const context = {
+        userId: userContext.userId || 'anonymous',
+        dataType: userContext.dataType || 'personal',
+        timestamp: Date.now().toString()
+      };
+
+      // AES-256으로 실제 데이터 암호화
+      const encrypted = CryptoJS.AES.encrypt(
+        JSON.stringify({ data, context }), 
+        Buffer.from(dataKey.plaintext).toString('base64')
+      ).toString();
+
+      return {
+        encrypted,
+        dataKeyEncrypted: Buffer.from(dataKey.encrypted).toString('base64'),
+        algorithm: 'KMS-AES256',
+        context,
+        version: '1.0'
+      };
+
+    } catch (error) {
+      this.stats.errors++;
+      console.error('❌ KMS 개인정보 암호화 실패:', error.message);
+      
+      // 폴백: 기존 방식 사용
+      return this.fallbackEncrypt(data);
+    }
+  }
+
+  // 🔓 개인정보 복호화
+  async decryptPersonalInfo(encryptedData, userContext = {}) {
+    if (!encryptedData) return null;
+
+    this.stats.totalDecryptions++;
+
+    try {
+      // KMS 암호화된 데이터인지 확인
+      if (typeof encryptedData === 'object' && encryptedData.algorithm === 'KMS-AES256') {
+        return await this.kmsDecrypt(encryptedData, userContext);
+      }
+      
+      // 레거시 데이터 처리
+      return this.fallbackDecrypt(encryptedData);
+
+    } catch (error) {
+      this.stats.errors++;
+      console.error('❌ 개인정보 복호화 실패:', error.message);
+      return this.fallbackDecrypt(encryptedData);
+    }
+  }
+
+  // KMS 복호화
+  async kmsDecrypt(encryptedData, userContext = {}) {
+    try {
+      // 데이터 키 복호화
+      const decryptCommand = new DecryptCommand({
+        CiphertextBlob: Buffer.from(encryptedData.dataKeyEncrypted, 'base64')
+      });
+      
+      const keyResponse = await this.kmsClient.send(decryptCommand);
+      const plaintextKey = Buffer.from(keyResponse.Plaintext).toString('base64');
+
+      // 실제 데이터 복호화
+      const bytes = CryptoJS.AES.decrypt(encryptedData.encrypted, plaintextKey);
+      const decryptedStr = bytes.toString(CryptoJS.enc.Utf8);
+      const { data, context } = JSON.parse(decryptedStr);
+
+      // 컨텍스트 검증 (선택적)
+      if (userContext.strictValidation) {
+        this.validateContext(context, userContext);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('❌ KMS 복호화 실패:', error.message);
+      throw error;
+    }
+  }
+
+  // 🔒 소셜 로그인 정보 직접 KMS 암호화 (최고 보안)
+  async encryptSocialInfo(socialData, provider, userId) {
+    try {
+      if (!this.enableKMS) {
+        return this.fallbackEncrypt(JSON.stringify(socialData));
+      }
+
+      const context = {
+        userId: userId || 'anonymous',
+        provider,
+        dataType: 'social_login',
+        timestamp: Date.now().toString()
+      };
+
+      // 직접 KMS 암호화 (더 높은 보안 레벨)
+      const encryptCommand = new EncryptCommand({
+        KeyId: this.kmsKeyId,
+        Plaintext: Buffer.from(JSON.stringify({ socialData, context })),
+        EncryptionContext: context
+      });
+
+      const response = await this.kmsClient.send(encryptCommand);
+      
+      return {
+        encrypted: Buffer.from(response.CiphertextBlob).toString('base64'),
+        algorithm: 'KMS-DIRECT',
+        context,
+        version: '1.0'
+      };
+
+    } catch (error) {
+      console.error('❌ 소셜정보 KMS 암호화 실패:', error.message);
+      return this.fallbackEncrypt(JSON.stringify(socialData));
+    }
+  }
+
+  // 🔓 소셜 로그인 정보 복호화
+  async decryptSocialInfo(encryptedData) {
+    if (!encryptedData) return null;
+
+    try {
+      if (typeof encryptedData === 'object' && encryptedData.algorithm === 'KMS-DIRECT') {
+        const decryptCommand = new DecryptCommand({
+          CiphertextBlob: Buffer.from(encryptedData.encrypted, 'base64'),
+          EncryptionContext: encryptedData.context
+        });
+
+        const response = await this.kmsClient.send(decryptCommand);
+        const decryptedStr = Buffer.from(response.Plaintext).toString('utf8');
+        const { socialData } = JSON.parse(decryptedStr);
+
+        return socialData;
+      }
+
+      // 레거시 데이터
+      return JSON.parse(this.fallbackDecrypt(encryptedData));
+
+    } catch (error) {
+      console.error('❌ 소셜정보 복호화 실패:', error.message);
+      return JSON.parse(this.fallbackDecrypt(encryptedData));
+    }
+  }
+
+  // 🔄 배치 암호화 (다수 사용자 데이터 처리)
+  async encryptUserBatch(users, batchSize = 10) {
+    const results = [];
+    
+    for (let i = 0; i < users.length; i += batchSize) {
+      const batch = users.slice(i, i + batchSize);
+      const batchPromises = batch.map(async (user) => {
+        try {
+          const encrypted = await this.encryptUserData(user);
+          return { success: true, userId: user._id, data: encrypted };
+        } catch (error) {
+          return { success: false, userId: user._id, error: error.message };
+        }
+      });
+
+      const batchResults = await Promise.allSettled(batchPromises);
+      results.push(...batchResults.map(r => r.value || r.reason));
+      
+      // 배치 간 잠시 대기 (API 제한 방지)
+      if (i + batchSize < users.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    return results;
+  }
+
+  // 📊 암호화 통계 및 모니터링
+  getEncryptionStats() {
+    const cacheHitRate = this.stats.cacheHits + this.stats.cacheMisses > 0 
+      ? (this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses) * 100).toFixed(2)
+      : 0;
+
+    return {
+      kmsEnabled: this.enableKMS,
+      dataKeyCacheSize: this.dataKeyCache.size,
+      cacheHitRate: `${cacheHitRate}%`,
+      totalEncryptions: this.stats.totalEncryptions,
+      totalDecryptions: this.stats.totalDecryptions,
+      errors: this.stats.errors,
+      lastActivity: new Date().toISOString()
+    };
+  }
+
+  // 🧹 캐시 정리
+  clearExpiredCache() {
+    const now = Date.now();
+    for (const [key, value] of this.dataKeyCache.entries()) {
+      if (now - value.timestamp > this.cacheExpiry) {
+        this.dataKeyCache.delete(key);
+      }
+    }
+  }
+
+  // 폴백 암호화 (기존 방식)
+  fallbackEncrypt(data) {
+    try {
+      return CryptoJS.AES.encrypt(data.toString(), this.fallbackKey).toString();
+    } catch (error) {
+      console.error('❌ 폴백 암호화 실패:', error);
+      return data; // 최후 폴백
+    }
+  }
+
+  // 폴백 복호화 (기존 방식)
+  fallbackDecrypt(encryptedData) {
+    try {
+      // 이미 평문인 경우 체크
+      if (!encryptedData.toString().includes("U2FsdGVk")) {
+        return encryptedData; // 이미 평문
+      }
+      
+      const bytes = CryptoJS.AES.decrypt(encryptedData, this.fallbackKey);
+      return bytes.toString(CryptoJS.enc.Utf8) || encryptedData;
+    } catch (error) {
+      console.error('❌ 폴백 복호화 실패:', error);
+      return encryptedData; // 최후 폴백
+    }
+  }
+
+  // 컨텍스트 검증
+  validateContext(storedContext, expectedContext) {
+    if (expectedContext.userId && storedContext.userId !== expectedContext.userId) {
+      throw new Error('사용자 ID 불일치');
+    }
+    
+    if (expectedContext.dataType && storedContext.dataType !== expectedContext.dataType) {
+      throw new Error('데이터 타입 불일치');
+    }
+  }
+
+  // 🔐 사용자 데이터 통합 암호화
+  async encryptUserData(userData) {
+    const encrypted = { ...userData };
+
+    // 암호화 활성화 확인
+    if (!this.enableKMS && process.env.ENABLE_ENCRYPTION !== 'true') {
+      return encrypted; // 암호화 비활성화 시 원본 반환
+    }
+
+    // 기본 개인정보 암호화 (KMS + 해시)
+    if (userData.name) {
+      encrypted.name = await this.encryptPersonalInfo(userData.name, {
+        userId: userData._id?.toString(),
+        dataType: 'name'
+      });
+      encrypted.name_hash = this.createSearchHash(userData.name);
+    }
+
+    if (userData.phone) {
+      encrypted.phone = await this.encryptPersonalInfo(userData.phone, {
+        userId: userData._id?.toString(),
+        dataType: 'phone'
+      });
+      encrypted.phone_hash = this.createPhoneHash(userData.phone);
+    }
+
+    if (userData.birthdate) {
+      encrypted.birthdate = await this.encryptPersonalInfo(userData.birthdate, {
+        userId: userData._id?.toString(),
+        dataType: 'birthdate'
+      });
+      encrypted.birthdate_hash = this.createSearchHash(userData.birthdate);
+    }
+
+    // 소셜 정보 차등 처리
+    if (userData.social) {
+      if (userData.social.kakao) {
+        encrypted.social = encrypted.social || {};
+        encrypted.social.kakao = await this.encryptSocialInfo(
+          userData.social.kakao, 
+          'kakao', 
+          userData._id?.toString()
+        );
+      }
+
+      if (userData.social.naver) {
+        encrypted.social = encrypted.social || {};
+        encrypted.social.naver = await this.encryptSocialInfo(
+          userData.social.naver, 
+          'naver', 
+          userData._id?.toString()
+        );
+      }
+    }
+
+    return encrypted;
+  }
+
+  // 🔓 사용자 데이터 일괄 복호화 (관리자용 + 나이 계산)
+  async decryptUserData(encryptedUserData) {
+    const decrypted = { ...encryptedUserData };
+
+    // 기본 개인정보 복호화
+    if (encryptedUserData.name) {
+      decrypted.decrypted_name = await this.decryptPersonalInfo(encryptedUserData.name);
+    }
+
+    if (encryptedUserData.phone) {
+      decrypted.decrypted_phone = await this.decryptPersonalInfo(encryptedUserData.phone);
+    }
+
+    if (encryptedUserData.birthdate) {
+      decrypted.decrypted_birthdate = await this.decryptPersonalInfo(encryptedUserData.birthdate);
+      
+      // 🎯 복호화된 생년월일로 나이 계산
+      if (decrypted.decrypted_birthdate) {
+        decrypted.calculated_age = this.calculateAge(decrypted.decrypted_birthdate);
+        decrypted.age_group = this.getAgeGroup(decrypted.decrypted_birthdate);
+        decrypted.is_minor = this.isMinor(decrypted.decrypted_birthdate);
+      }
+    }
+
+    // 소셜 정보 복호화
+    if (encryptedUserData.social) {
+      if (encryptedUserData.social.kakao) {
+        decrypted.social = decrypted.social || {};
+        decrypted.social.kakao = await this.decryptSocialInfo(encryptedUserData.social.kakao);
+      }
+
+      if (encryptedUserData.social.naver) {
+        decrypted.social = decrypted.social || {};
+        decrypted.social.naver = await this.decryptSocialInfo(encryptedUserData.social.naver);
+      }
+    }
+
+    return decrypted;
+  }
+
+  // 🔍 소셜 로그인 사용자 검색 (KMS 지원)
+  async findUserBySocialId(User, provider, providerId) {
+    try {
+      // providerId 해시로 검색 (KMS는 해시 검색만 지원)
+      const providerIdHash = this.hashProviderId(providerId);
+      const hashField = `social.${provider}.providerId_hash`;
+      
+      const user = await User.findOne({ [hashField]: providerIdHash });
+      if (user) return user;
+      
+      // 기존 방식으로 폴백 (레거시 데이터)
+      const legacyField = `social.${provider}.providerId`;
+      return await User.findOne({ [legacyField]: providerId });
+      
+    } catch (error) {
+      console.error('소셜 사용자 검색 실패:', error);
+      // 최후 폴백
+      const legacyField = `social.${provider}.providerId`;
+      return await User.findOne({ [legacyField]: providerId });
+    }
+  }
+
+  // 검색용 해시 생성 (일반)
+  createSearchHash(data) {
+    if (!data) return null;
+    try {
+      return CryptoJS.SHA256(data.toString()).toString();
+    } catch (error) {
+      console.error("해시 생성 실패:", error);
+      return null;
+    }
+  }
+
+  // providerId 전용 해시 (해시만, 암호화 없음)
+  hashProviderId(providerId) {
+    if (!providerId) return null;
+    try {
+      return CryptoJS.SHA256(providerId.toString()).toString();
+    } catch (error) {
+      console.error("providerId 해시 실패:", error);
+      return providerId.toString(); // 실패 시 원본 반환
+    }
+  }
+
+  // 전화번호 특수 해시 (마지막 4자리 기반)
+  createPhoneHash(phoneNumber) {
+    if (!phoneNumber) return null;
+    try {
+      const lastFour = phoneNumber.toString().slice(-4);
+      return CryptoJS.SHA256(lastFour).toString();
+    } catch (error) {
+      console.error("전화번호 해시 실패:", error);
+      return null;
+    }
+  }
+
+  // 🎯 한국 만 나이 정확 계산 (핵심 메서드)
+  calculateAge(birthdate) {
+    if (!birthdate) return null;
+    
+    try {
+      // 다양한 날짜 형식 지원
+      let parsedDate;
+      if (birthdate.includes('-')) {
+        // YYYY-MM-DD 또는 YYYY-M-D 형식
+        parsedDate = new Date(birthdate + 'T00:00:00.000Z');
+      } else if (birthdate.length === 8) {
+        // YYYYMMDD 형식
+        const year = birthdate.substring(0, 4);
+        const month = birthdate.substring(4, 6);
+        const day = birthdate.substring(6, 8);
+        parsedDate = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+      } else {
+        parsedDate = new Date(birthdate);
+      }
+      
+      if (isNaN(parsedDate.getTime())) return null;
+      
+      const today = new Date();
+      const birthYear = parsedDate.getUTCFullYear();
+      const birthMonth = parsedDate.getUTCMonth();
+      const birthDay = parsedDate.getUTCDate();
+      
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth();
+      const currentDay = today.getDate();
+      
+      // 기본 나이 계산
+      let age = currentYear - birthYear;
+      
+      // 생일이 지나지 않았으면 1살 빼기
+      if (currentMonth < birthMonth || 
+          (currentMonth === birthMonth && currentDay < birthDay)) {
+        age--;
+      }
+      
+      return age >= 0 ? age : null;
+    } catch (error) {
+      console.error('만나이 계산 오류:', error);
+      return null;
+    }
+  }
+
+  // 🎯 나이 범위별 분류 (한국 기준 매칭용)
+  getAgeGroup(birthdate) {
+    const age = this.calculateAge(birthdate);
+    if (age === null) return 'unknown';
+    
+    if (age < 13) return 'child';        // 어린이
+    if (age < 20) return 'teen';         // 청소년 (만 13-19세)
+    if (age < 30) return 'twenties';     // 20대
+    if (age < 40) return 'thirties';     // 30대
+    if (age < 50) return 'forties';      // 40대
+    if (age < 60) return 'fifties';      // 50대
+    if (age < 70) return 'sixties';      // 60대
+    return 'senior';                     // 70세 이상
+  }
+
+  // 🎯 미성년자 여부 확인 (한국 청소년보호법 준수)
+  isMinor(birthdate) {
+    const age = this.calculateAge(birthdate);
+    return age !== null && age < 19; // 한국 기준: 만 19세 미만
+  }
+}
+
+export default new KMSEncryptionSystem();
