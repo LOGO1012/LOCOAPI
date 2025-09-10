@@ -81,7 +81,7 @@ export const getAllChatRooms = async (filters) => {
 /**
  * 채팅방에 사용자 추가
  * @param {string} roomId - 채팅방 ID
- * @param {string} userId - 사용자 ID  
+ * @param {string} userId - 사용자 ID
  * @param {string} selectedGender - 선택한 성별 카테고리 (opposite/any/same)
  */
 export const addUserToRoom = async (roomId, userId, selectedGender = null) => {
