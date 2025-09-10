@@ -821,11 +821,12 @@ export const getUsersByAgeGroup = async (ageGroup) => {
 
 // 관리자용 복호화된 사용자 정보
 // 관리자/고객지원 전용, 모든 개인정보 복호화, 실시간 나이 정보 포함
+// src/services/userService.js - getDecryptedUserForAdmin 최종 수정본
 export const getDecryptedUserForAdmin = async (userId) => {
     try {
         console.log(`🔐 관리자용 복호화 시작: ${userId}`);
-        
-        // 1️⃣ 캐시에서 복호화된 데이터 확인
+
+        // 1️⃣ 캐시 확인
         let decryptedUser = await IntelligentCache.getDecryptedUser(userId);
         if (decryptedUser) {
             console.log(`✅ 캐시에서 복호화 데이터 발견: ${userId}`);
@@ -839,98 +840,185 @@ export const getDecryptedUserForAdmin = async (userId) => {
             return null;
         }
 
-        console.log(`📋 원본 데이터 조회 완료: ${userId}`, {
-            hasName: !!user.name,
-            hasPhone: !!user.phone,
-            hasBirthdate: !!user.birthdate,
-            namePreview: user.name ? user.name.substring(0, 20) + '...' : 'null'
-        });
+        console.log(`📋 원본 데이터 조회 완료: ${userId}`);
+        decryptedUser = { ...user }; // 복사본 생성
 
-        // 3️⃣ 암호화 모드 확인 및 복호화 수행
-        if (process.env.ENABLE_ENCRYPTION === 'true') {
-            console.log(`🔓 KMS 복호화 모드 활성화`);
-            
-            // 기본 정보 복호화
-            decryptedUser = {
-                ...user,
-                // 원본 암호화 필드 보존 (디버깅용)
-                _encrypted_name: user.name,
-                _encrypted_phone: user.phone,
-                _encrypted_birthdate: user.birthdate,
-                
-                // 복호화된 필드 추가
-                decrypted_name: user.name ? 
-                    ComprehensiveEncryption.decryptPersonalInfo(user.name) : '',
-                decrypted_phone: user.phone ? 
-                    ComprehensiveEncryption.decryptPersonalInfo(user.phone) : '',
-                decrypted_birthdate: user.birthdate ? 
-                    ComprehensiveEncryption.decryptPersonalInfo(user.birthdate) : '',
-            };
+        // 3️⃣ 복호화가 필요한 필드 목록 정의
+        const fieldsToDecrypt = [
+            { source: 'name', target: 'decrypted_name' },
+            { source: 'phone', target: 'decrypted_phone' },
+            { source: 'birthdate', target: 'decrypted_birthdate' },
+        ];
 
-            // 소셜 정보 복호화
-            if (user.social?.kakao) {
-                decryptedUser.social.kakao = {
-                    ...user.social.kakao,
-                    decrypted_name: user.social.kakao.name ? 
-                        ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.name) : '',
-                    decrypted_phoneNumber: user.social.kakao.phoneNumber ? 
-                        ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.phoneNumber) : '',
-                    decrypted_birthday: user.social.kakao.birthday ? 
-                        ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.birthday) : '',
-                    decrypted_birthyear: user.social.kakao.birthyear ? 
-                        ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.birthyear) : ''
-                };
-            }
+        if (user.social?.kakao) {
+            fieldsToDecrypt.push(
+                { source: ['social', 'kakao', 'name'], target: ['social', 'kakao', 'decrypted_name'] },
+                { source: ['social', 'kakao', 'phoneNumber'], target: ['social', 'kakao', 'decrypted_phoneNumber'] },
+                { source: ['social', 'kakao', 'birthday'], target: ['social', 'kakao', 'decrypted_birthday'] },
+                { source: ['social', 'kakao', 'birthyear'], target: ['social', 'kakao', 'decrypted_birthyear'] }
+            );
+        }
+        // (필요시 네이버도 추가)
 
-            if (user.social?.naver) {
-                decryptedUser.social.naver = {
-                    ...user.social.naver,
-                    decrypted_name: user.social.naver.name ? 
-                        ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.name) : '',
-                    decrypted_phoneNumber: user.social.naver.phoneNumber ? 
-                        ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.phoneNumber) : '',
-                    decrypted_birthday: user.social.naver.birthday ? 
-                        ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.birthday) : '',
-                    decrypted_birthyear: user.social.naver.birthyear ? 
-                        ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.birthyear) : ''
-                };
-            }
+        // 4️⃣ Promise.all로 모든 필드를 병렬 복호화 (매우 효율적)
+        await Promise.all(
+            fieldsToDecrypt.map(async (field) => {
+                // 경로를 따라 원본 데이터 가져오기 (예: user.social.kakao.name)
+                const originalValue = Array.isArray(field.source)
+                    ? field.source.reduce((obj, key) => (obj && obj[key] !== 'undefined') ? obj[key] : undefined, user)
+                    : user[field.source];
 
-            // 나이 정보 계산
-            if (decryptedUser.decrypted_birthdate) {
-                decryptedUser.calculated_age = ComprehensiveEncryption.calculateAge(decryptedUser.decrypted_birthdate);
-                decryptedUser.age_group = ComprehensiveEncryption.getAgeGroup(decryptedUser.decrypted_birthdate);
-                decryptedUser.is_minor = ComprehensiveEncryption.isMinor(decryptedUser.decrypted_birthdate);
-            }
+                let decryptedValue = null;
+                if (originalValue) {
+                    try {
+                        decryptedValue = await ComprehensiveEncryption.decryptPersonalInfo(originalValue);
+                    } catch (e) {
+                        console.warn(`⚠️ 필드 '${field.source.join('.')}' 복호화 중 오류 발생:`, e.message);
+                        decryptedValue = `[복호화 오류: ${e.message}]`; // 오류 발생 시 명시적 표시
+                    }
+                }
 
-            console.log(`✅ KMS 복호화 완료: ${userId}`, {
-                decrypted_name: decryptedUser.decrypted_name ? decryptedUser.decrypted_name.substring(0, 3) + '***' : 'null',
-                decrypted_phone: decryptedUser.decrypted_phone ? decryptedUser.decrypted_phone.substring(0, 3) + '***' : 'null',
-                calculated_age: decryptedUser.calculated_age
-            });
-        } else {
-            console.log(`🔓 평문 모드 (암호화 비활성화)`);
-            decryptedUser = {
-                ...user,
-                decrypted_name: user.name || '',
-                decrypted_phone: user.phone || '',
-                decrypted_birthdate: user.birthdate || '',
-                calculated_age: user.birthdate ? ComprehensiveEncryption.calculateAge(user.birthdate) : null,
-                age_group: user.birthdate ? ComprehensiveEncryption.getAgeGroup(user.birthdate) : null,
-                is_minor: user.birthdate ? ComprehensiveEncryption.isMinor(user.birthdate) : false
-            };
+                // 경로를 따라 대상 객체에 값 설정 (예: decryptedUser.social.kakao.decrypted_name)
+                if (Array.isArray(field.target)) {
+                    let current = decryptedUser;
+                    for (let i = 0; i < field.target.length - 1; i++) {
+                        current = current[field.target[i]] = current[field.target[i]] || {};
+                    }
+                    current[field.target[field.target.length - 1]] = decryptedValue || '';
+                } else {
+                    decryptedUser[field.target] = decryptedValue || '';
+                }
+            })
+        );
+
+        // 5️⃣ 나이 정보 계산 (복호화된 데이터 기반)
+        if (decryptedUser.decrypted_birthdate) {
+            decryptedUser.calculated_age = ComprehensiveEncryption.calculateAge(decryptedUser.decrypted_birthdate);
+            decryptedUser.age_group = ComprehensiveEncryption.getAgeGroup(decryptedUser.decrypted_birthdate);
+            decryptedUser.is_minor = ComprehensiveEncryption.isMinor(decryptedUser.decrypted_birthdate);
         }
 
-        // 4️⃣ 캐시에 저장
+        console.log(`✅ 복호화 및 데이터 처리 완료: ${userId}`);
+
+        // 6️⃣ 캐시에 저장
         await IntelligentCache.cacheDecryptedUser(userId, decryptedUser);
-        console.log(`💾 복호화 데이터 캐시 저장 완료: ${userId}`);
 
         return decryptedUser;
     } catch (error) {
-        console.error(`❌ 관리자용 복호화 실패: ${userId}`, error);
-        throw error;
+        console.error(`❌ 관리자용 복호화 전체 실패: ${userId}`, error);
+        throw error; // 에러를 상위로 전파
     }
 };
+// export const getDecryptedUserForAdmin = async (userId) => {
+//     try {
+//         console.log(`🔐 관리자용 복호화 시작: ${userId}`);
+//
+//         // 1️⃣ 캐시에서 복호화된 데이터 확인
+//         let decryptedUser = await IntelligentCache.getDecryptedUser(userId);
+//         if (decryptedUser) {
+//             console.log(`✅ 캐시에서 복호화 데이터 발견: ${userId}`);
+//             return decryptedUser;
+//         }
+//
+//         // 2️⃣ DB에서 원본 데이터 조회
+//         const user = await User.findById(userId).lean();
+//         if (!user) {
+//             console.log(`❌ 사용자를 찾을 수 없음: ${userId}`);
+//             return null;
+//         }
+//
+//         console.log(`📋 원본 데이터 조회 완료: ${userId}`, {
+//             hasName: !!user.name,
+//             hasPhone: !!user.phone,
+//             hasBirthdate: !!user.birthdate,
+//             namePreview: user.name ? user.name.substring(0, 20) + '...' : 'null'
+//         });
+//
+//         // 3️⃣ 암호화 모드 확인 및 복호화 수행
+//         if (process.env.ENABLE_ENCRYPTION === 'true') {
+//             console.log(`🔓 KMS 복호화 모드 활성화`);
+//
+//             // 기본 정보 복호화
+//             decryptedUser = {
+//                 ...user,
+//                 // 원본 암호화 필드 보존 (디버깅용)
+//                 _encrypted_name: user.name,
+//                 _encrypted_phone: user.phone,
+//                 _encrypted_birthdate: user.birthdate,
+//
+//                 // 복호화된 필드 추가
+//                 decrypted_name: user.name ?
+//                     await ComprehensiveEncryption.decryptPersonalInfo(user.name) : '',
+//                 decrypted_phone: user.phone ?
+//                     await ComprehensiveEncryption.decryptPersonalInfo(user.phone) : '',
+//                 decrypted_birthdate: user.birthdate ?
+//                     await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate) : '',
+//             };
+//
+//             // 소셜 정보 복호화
+//             if (user.social?.kakao) {
+//                 decryptedUser.social.kakao = {
+//                     ...user.social.kakao,
+//                     decrypted_name: user.social.kakao.name ?
+//                         await ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.name) : '',
+//                     decrypted_phoneNumber: user.social.kakao.phoneNumber ?
+//                         await ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.phoneNumber) : '',
+//                     decrypted_birthday: user.social.kakao.birthday ?
+//                         await ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.birthday) : '',
+//                     decrypted_birthyear: user.social.kakao.birthyear ?
+//                         await ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.birthyear) : ''
+//                 };
+//             }
+//
+//             if (user.social?.naver) {
+//                 decryptedUser.social.naver = {
+//                     ...user.social.naver,
+//                     decrypted_name: user.social.naver.name ?
+//                         ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.name) : '',
+//                     decrypted_phoneNumber: user.social.naver.phoneNumber ?
+//                         ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.phoneNumber) : '',
+//                     decrypted_birthday: user.social.naver.birthday ?
+//                         ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.birthday) : '',
+//                     decrypted_birthyear: user.social.naver.birthyear ?
+//                         ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.birthyear) : ''
+//                 };
+//             }
+//
+//             // 나이 정보 계산
+//             if (decryptedUser.decrypted_birthdate) {
+//                 decryptedUser.calculated_age = ComprehensiveEncryption.calculateAge(decryptedUser.decrypted_birthdate);
+//                 decryptedUser.age_group = ComprehensiveEncryption.getAgeGroup(decryptedUser.decrypted_birthdate);
+//                 decryptedUser.is_minor = ComprehensiveEncryption.isMinor(decryptedUser.decrypted_birthdate);
+//             }
+//
+//             console.log(`✅ KMS 복호화 완료: ${userId}`, {
+//                 decrypted_name: decryptedUser.decrypted_name ? decryptedUser.decrypted_name.substring(0, 3) + '***' : 'null',
+//                 decrypted_phone: decryptedUser.decrypted_phone ? decryptedUser.decrypted_phone.substring(0, 3) + '***' : 'null',
+//                 calculated_age: decryptedUser.calculated_age
+//             });
+//         } else {
+//             console.log(`🔓 평문 모드 (암호화 비활성화)`);
+//             decryptedUser = {
+//                 ...user,
+//                 decrypted_name: user.name || '',
+//                 decrypted_phone: user.phone || '',
+//                 decrypted_birthdate: user.birthdate || '',
+//                 calculated_age: user.birthdate ? ComprehensiveEncryption.calculateAge(user.birthdate) : null,
+//                 age_group: user.birthdate ? ComprehensiveEncryption.getAgeGroup(user.birthdate) : null,
+//                 is_minor: user.birthdate ? ComprehensiveEncryption.isMinor(user.birthdate) : false
+//             };
+//         }
+//
+//         // 4️⃣ 캐시에 저장
+//         await IntelligentCache.cacheDecryptedUser(userId, decryptedUser);
+//         console.log(`💾 복호화 데이터 캐시 저장 완료: ${userId}`);
+//
+//         return decryptedUser;
+//     } catch (error) {
+//         console.error(`❌ 관리자용 복호화 실패: ${userId}`, error);
+//         throw error;
+//     }
+// };
 
 
 // 사용자 정보 업데이트 (암호화 자동 적용)

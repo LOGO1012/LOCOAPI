@@ -7,6 +7,20 @@ import CryptoJS from 'crypto-js';
  * 🔐 최적화된 KMS 암호화 시스템 - 완전 재작성
  */
 class OptimalKMSEncryption {
+
+    /**
+     * 🔄 실시간 환경 설정 재검증
+     */
+    revalidateConfig() {
+        const currentKMSState = process.env.ENABLE_KMS === 'true';
+        if (this.kmsEnabled !== currentKMSState) {
+            console.log('⚠️ [실시간] KMS 상태 불일치 감지! 설정을 업데이트합니다.');
+            this.initializeConfig(); // 모든 설정을 새로고침
+            this._kmsClient = null; // KMS 클라이언트 재생성 강제
+        }
+    }
+
+
     constructor() {
         console.log('🏗️ KMS 암호화 시스템 초기화 시작...');
         
@@ -124,6 +138,7 @@ class OptimalKMSEncryption {
      * 🔐 개인정보 암호화 (메인 함수)
      */
     async encryptPersonalInfo(plaintext) {
+        this.revalidateConfig();
         if (!plaintext || typeof plaintext !== 'string') {
             return '';
         }
@@ -154,6 +169,7 @@ class OptimalKMSEncryption {
      * 🔓 개인정보 복호화 (메인 함수)
      */
     async decryptPersonalInfo(encryptedData) {
+        this.revalidateConfig();
         if (!encryptedData) {
             return '';
         }
