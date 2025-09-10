@@ -38,6 +38,18 @@ function translateRiotError(err, step) {
     return new Error(`[${step}] Riot API 호출 실패: ${err.message}`);
 }
 
+function translateLane(lane) {
+    const laneMap = {
+        'TOP': '탑',
+        'JUNGLE': '정글',
+        'MIDDLE': '미드',
+        'BOTTOM': '원딜',
+        'UTILITY': '서포터',
+        'SUPPORT': '서포터'
+    };
+    return laneMap[lane] || lane || '알 수 없음';
+}
+
 export async function getLoLRecordByRiotId(riotId) {
     // 1) Riot ID 파싱
     const [gameName, tagLine] = riotId.split('#');
@@ -111,7 +123,10 @@ export async function getLoLRecordByRiotId(riotId) {
                 championImage: getChampionImageUrl(p.championName, version), // 챔피언 이미지 URL 추가
                 win: p.win,
                 kda: ((p.kills + p.assists) / Math.max(1, p.deaths)).toFixed(2),
-                cs: p.totalMinionsKilled + p.neutralMinionsKilled,
+                kills: p.kills,
+                deaths: p.deaths,
+                assists: p.assists,
+                lane: translateLane(p.teamPosition || p.individualPosition),
                 duration: m.info.gameDuration
             };
         });

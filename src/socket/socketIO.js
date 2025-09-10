@@ -13,73 +13,77 @@ export const initializeSocket = (server) => {
     io.on('connection', (socket) => {
         console.log('🔗 새로운 클라이언트 연결됨:', socket.id);
 
-        // 사용자 등록: 클라이언트가 자신의 userId를 보내면 해당 userId 기반의 개인룸에 join합니다.
         const registeredUsers = new Set();
 
         socket.on('register', (userId) => {
-            // userId 유효성 검증 추가
             if (!userId || typeof userId !== 'string' || userId.trim() === '') {
                 console.warn('유효하지 않은 userId:', userId);
                 socket.emit('registrationFailed', { error: '유효하지 않은 사용자 ID' });
                 return;
             }
+
             if (registeredUsers.has(`${socket.id}-${userId}`)) return;
             registeredUsers.add(`${socket.id}-${userId}`);
             socket.join(userId);
-            
-            // 🔧 온라인 상태 설정
+
             onlineStatusService.setUserOnlineStatus(userId, socket.id, true);
-            
-            // 🔧 개발자 페이지에 온라인 상태 변경 알림
             io.emit('userStatusChanged', {
                 userId,
                 isOnline: true,
                 timestamp: new Date()
             });
-            
+
             console.log(`사용자 ${userId} 등록됨 (socket: ${socket.id})`);
         });
 
-        // 채팅방 참가
-        socket.on('joinRoom', async (roomId) => {
+        // ✅ 채팅방 참가 - roomType에 따라 구분 처리
+        socket.on('joinRoom', async (roomId, roomType = 'random') => {
             socket.join(roomId);
-            console.log(`📌 클라이언트 ${socket.id}가 방 ${roomId}에 참가`);
+            console.log(`📌 클라이언트 ${socket.id}가 방 ${roomId}에 참가 (타입: ${roomType})`);
 
             try {
                 const chatRoom = await ChatRoom.findById(roomId);
-                if (!chatRoom) return console.log("채팅방을 찾을 수 없습니다.");
+                if (!chatRoom) {
+                    console.log("채팅방을 찾을 수 없습니다.");
+                    return;
+                }
 
-                    /* 1) 퇴장자 조회 */
-                    const exited = await ChatRoomExit.distinct('user', { chatRoom: roomId });
+                const exited = await ChatRoomExit.distinct('user', { chatRoom: roomId });
+                const activeUsers = chatRoom.chatUsers.filter(u =>
+                    !exited.some(id => id.equals(u))
+                );
 
-                    /* 2) 현재 남아 있는 인원(activeUsers) 산출 */
-                    const activeUsers = chatRoom.chatUsers.filter(u =>
-                        !exited.some(id => id.equals(u))
-                    );
-
-                // 현재 채팅방의 인원 수와 최대 인원 수를 클라이언트에 전달
-                io.to(roomId).emit('roomJoined', {
+                const eventData = {
+                    roomId: roomId, // ✅ roomId 포함
+                    roomType: roomType, // ✅ roomType 포함
                     chatUsers: chatRoom.chatUsers,
                     activeUsers,
                     capacity: chatRoom.capacity,
-                });
+                };
+
+                // ✅ roomType에 따라 다른 이벤트 발송
+                if (roomType === 'friend') {
+                    // ChatOverlay (친구 채팅)용 - 개별 소켓에만 전송
+                    socket.emit('friendRoomJoined', eventData);
+                } else if (roomType === 'random') {
+                    // ChatRoom (랜덤 채팅)용 - 방 전체에 전송
+                    io.to(roomId).emit('roomJoined', eventData);
+                }
+
             } catch (error) {
                 console.error("채팅방 정보 가져오기 오류:", error);
             }
         });
 
-        // 메시지 읽음 처리 이벤트 추가
+        // 메시지 읽음 처리 이벤트
         socket.on('markAsRead', async ({ roomId, userId }, callback) => {
             try {
                 const result = await chatService.markMessagesAsRead(roomId, userId);
-
-                // 채팅방의 다른 사용자들에게 읽음 처리 알림
                 socket.to(roomId).emit('messagesRead', {
                     roomId,
                     userId,
                     readCount: result.modifiedCount
                 });
-
                 callback({ success: true, readCount: result.modifiedCount });
             } catch (error) {
                 console.error('메시지 읽음 처리 실패:', error);
@@ -87,50 +91,43 @@ export const initializeSocket = (server) => {
             }
         });
 
-        // 메시지 전송 이벤트
-        socket.on("sendMessage", async ({ chatRoom, sender, text }, callback) => {
+        // ✅ 메시지 전송 이벤트 - roomType 포함
+        socket.on("sendMessage", async ({ chatRoom, sender, text, roomType = 'random' }, callback) => {
             try {
-                /* 0) sender 문자열·객체 대비, ObjectId 캐스팅 */
-                const senderId    = typeof sender === "object" ? sender._id : sender;
+                const senderId = typeof sender === "object" ? sender._id : sender;
                 const senderObjId = new mongoose.Types.ObjectId(senderId);
 
-                /* 1) 메시지 저장 */
                 const message = await chatService.saveMessage(chatRoom, senderId, text);
-
-                /* 2) 발신자 닉네임 조회 */
                 const senderUser = await userService.getUserById(senderId);
                 const senderNick = senderUser ? senderUser.nickname : "알 수 없음";
 
-                /* 3) 프런트로 송신할 메시지 형태 */
                 const messageWithNickname = {
                     ...message.toObject(),
-                    sender: { id: senderId, nickname: senderNick }
+                    sender: { id: senderId, nickname: senderNick },
+                    roomType: roomType // ✅ roomType 추가
                 };
 
-                /* 4) 방 내부 실시간 전송 */
+                // 방 내부 실시간 전송
                 io.to(chatRoom).emit("receiveMessage", messageWithNickname);
 
-                /* 5) 퇴장자·발신자 제외, 알림 대상 추출 */
-                const roomDoc     = await ChatRoom.findById(chatRoom);
-                const exitedUsers = await ChatRoomExit.distinct("user", { chatRoom });   // ObjectId 배열
-
+                // 개인 알림 전송
+                const roomDoc = await ChatRoom.findById(chatRoom);
+                const exitedUsers = await ChatRoomExit.distinct("user", { chatRoom });
                 const targets = roomDoc.chatUsers.filter(uid =>
-                    !uid.equals(senderObjId) &&                  // 발신자 제외
-                    !exitedUsers.some(ex => ex.equals(uid))      // 퇴장자 제외
+                    !uid.equals(senderObjId) &&
+                    !exitedUsers.some(ex => ex.equals(uid))
                 );
 
-                /* 6) 개인 알림 전송 */
                 targets.forEach(uid => {
                     io.to(uid.toString()).emit("chatNotification", {
                         chatRoom,
-                        roomType: roomDoc.roomType,
-                        message:  messageWithNickname,
+                        roomType: roomType, // ✅ 실제 roomType 사용
+                        message: messageWithNickname,
                         notification: `${senderNick}: ${text}`,
                         timestamp: new Date()
                     });
                 });
 
-                /* 7) 클라이언트 콜백 */
                 callback({ success: true, message: messageWithNickname });
             } catch (err) {
                 console.error("❌ 메시지 처리 오류:", err);
@@ -139,49 +136,57 @@ export const initializeSocket = (server) => {
         });
 
         socket.on("deleteMessage", ({ messageId, roomId }) => {
-            // 해당 방의 모든 클라이언트에게 삭제 이벤트 전송
             socket.to(roomId).emit("messageDeleted", { messageId });
         });
 
-        socket.on('leaveRoom', async ({ roomId, userId }) => {
-            socket.leave(roomId);                         // 소켓은 일단 방에서 분리
+        // ✅ 방 나가기 - roomType에 따라 구분 처리
+        socket.on('leaveRoom', async ({ roomId, userId, roomType = 'random' }) => {
+            socket.leave(roomId);
 
-            /* 1) 방 상태 확인 */
-            const room = await ChatRoom.findById(roomId).select('status');
-            const isWaiting = room?.status === 'waiting';
+            try {
+                const room = await ChatRoom.findById(roomId).select('status');
+                const isWaiting = room?.status === 'waiting';
 
-            /* 2) waiting 방이면 인원만 갱신하고 메시지 송신은 생략 */
-            if (isWaiting) {
-                // 필요하다면 인원 목록 재전송
-                io.to(roomId).emit('waitingLeft', { userId });
-                return;
+                if (isWaiting) {
+                    // ✅ roomType에 따라 다른 이벤트 발송
+                    if (roomType === 'friend') {
+                        io.to(roomId).emit('friendWaitingLeft', { userId, roomId });
+                    } else {
+                        io.to(roomId).emit('waitingLeft', { userId, roomId });
+                    }
+                    return;
+                }
+
+                // active 방일 때 처리
+                if (roomType === 'friend') {
+                    // 친구 채팅방 나가기 (시스템 메시지 없음)
+                    io.to(roomId).emit('friendUserLeft', { userId, roomId });
+                } else {
+                    // 랜덤 채팅방 나가기 (시스템 메시지 포함)
+                    io.to(roomId).emit('userLeft', { userId, roomId });
+
+                    const user = await userService.getUserById(userId);
+                    const nickname = user ? user.nickname : '알 수 없음';
+                    const sysText = `${nickname} 님이 퇴장했습니다.`;
+                    const saved = await chatService.saveSystemMessage(roomId, sysText);
+
+                    io.to(roomId).emit('systemMessage', {
+                        ...saved.toObject(),
+                        sender: { _id: 'system', nickname: 'SYSTEM' }
+                    });
+                }
+            } catch (error) {
+                console.error('방 나가기 처리 오류:', error);
             }
-
-            /* 3) active 방일 때만 퇴장 알림·시스템 메시지 처리 */
-            io.to(roomId).emit('userLeft', { userId });   // 실시간 리스트 갱신
-
-            const user    = await userService.getUserById(userId);
-            const nickname = user ? user.nickname : '알 수 없음';
-            const sysText  = `${nickname} 님이 퇴장했습니다.`;
-
-            const saved = await chatService.saveSystemMessage(roomId, sysText);
-            io.to(roomId).emit('systemMessage', {
-                ...saved.toObject(),
-                sender: { _id: 'system', nickname: 'SYSTEM' }
-            });
         });
 
         // 클라이언트 연결 해제
         socket.on('disconnect', () => {
             console.log('❌ 클라이언트 연결 해제:', socket.id);
-            
-            // 🔧 소켓 ID로 사용자 찾기
+
             const userId = onlineStatusService.findUserBySocketId(socket.id);
             if (userId) {
-                // 🔧 오프라인 상태 설정
                 onlineStatusService.setUserOnlineStatus(userId, null, false);
-                
-                // 🔧 개발자 페이지에 오프라인 상태 변경 알림
                 io.emit('userStatusChanged', {
                     userId,
                     isOnline: false,
