@@ -6,8 +6,11 @@ dotenv.config();
 console.log('REDIS_PASSWORD:', process.env.REDIS_PASSWORD ? '설정됨' : '설정안됨');
 // Redis 클라이언트 생성
 const redisClient = redis.createClient({
-    host: 'localhost',
-    port: 6379,
+    socket: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: process.env.REDIS_PORT || 6379,
+        connectTimeout: parseInt(process.env.REDIS_CONNECT_TIMEOUT) || 3000,
+    },
     password: process.env.REDIS_PASSWORD,
 });
 

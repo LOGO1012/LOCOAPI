@@ -28,6 +28,46 @@ const router = express.Router();
 // 회원가입
 router.post('/register', registerUserProfile);
 
+// 🔧 디버깅용 임시 엔드포인트 (서버 상태 확인)
+router.get('/debug/server-status', async (req, res) => {
+    try {
+        const mongoose = await import('mongoose');
+        const { User } = await import('../models/UserProfile.js');
+        
+        const serverStatus = {
+            mongodb: {
+                connected: mongoose.default.connection.readyState === 1,
+                state: mongoose.default.connection.readyState,
+                host: mongoose.default.connection.host,
+                name: mongoose.default.connection.name
+            },
+            environment: {
+                ENABLE_KMS: process.env.ENABLE_KMS,
+                NODE_ENV: process.env.NODE_ENV,
+                hasAWSKeys: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
+            },
+            userModel: {
+                available: !!User,
+                modelName: User?.modelName
+            },
+            timestamp: new Date().toISOString()
+        };
+        
+        console.log('📋 서버 상태 디버깅 요청:', serverStatus);
+        
+        res.json({
+            success: true,
+            status: serverStatus
+        });
+    } catch (error) {
+        console.error('❌ 서버 상태 확인 실패:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 //유저 수 가져오기
 router.get("/user-count", getUserCountController);
 
