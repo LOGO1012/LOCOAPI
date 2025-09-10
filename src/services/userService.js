@@ -822,6 +822,7 @@ export const getUsersByAgeGroup = async (ageGroup) => {
 // 관리자용 복호화된 사용자 정보
 // 관리자/고객지원 전용, 모든 개인정보 복호화, 실시간 나이 정보 포함
 // src/services/userService.js - getDecryptedUserForAdmin 최종 수정본
+// src/services/userService.js - getDecryptedUserForAdmin 최종 완성본
 export const getDecryptedUserForAdmin = async (userId) => {
     try {
         console.log(`🔐 관리자용 복호화 시작: ${userId}`);
@@ -843,13 +844,14 @@ export const getDecryptedUserForAdmin = async (userId) => {
         console.log(`📋 원본 데이터 조회 완료: ${userId}`);
         decryptedUser = { ...user }; // 복사본 생성
 
-        // 3️⃣ 복호화가 필요한 필드 목록 정의
+        // 3️⃣ 복호화가 필요한 모든 필드 목록 정의 (소셜 정보 포함)
         const fieldsToDecrypt = [
             { source: 'name', target: 'decrypted_name' },
             { source: 'phone', target: 'decrypted_phone' },
             { source: 'birthdate', target: 'decrypted_birthdate' },
         ];
 
+        // ✅ 카카오 정보가 있으면 복호화 목록에 추가
         if (user.social?.kakao) {
             fieldsToDecrypt.push(
                 { source: ['social', 'kakao', 'name'], target: ['social', 'kakao', 'decrypted_name'] },
@@ -858,14 +860,22 @@ export const getDecryptedUserForAdmin = async (userId) => {
                 { source: ['social', 'kakao', 'birthyear'], target: ['social', 'kakao', 'decrypted_birthyear'] }
             );
         }
-        // (필요시 네이버도 추가)
 
-        // 4️⃣ Promise.all로 모든 필드를 병렬 복호화 (매우 효율적)
+        // ✅ 네이버 정보가 있으면 복호화 목록에 추가
+        if (user.social?.naver) {
+            fieldsToDecrypt.push(
+                { source: ['social', 'naver', 'name'], target: ['social', 'naver', 'decrypted_name'] },
+                { source: ['social', 'naver', 'phoneNumber'], target: ['social', 'naver', 'decrypted_phoneNumber'] },
+                { source: ['social', 'naver', 'birthday'], target: ['social', 'naver', 'decrypted_birthday'] },
+                { source: ['social', 'naver', 'birthyear'], target: ['social', 'naver', 'decrypted_birthyear'] }
+            );
+        }
+
+        // 4️⃣ Promise.all로 모든 필드를 병렬 복호화
         await Promise.all(
             fieldsToDecrypt.map(async (field) => {
-                // 경로를 따라 원본 데이터 가져오기 (예: user.social.kakao.name)
                 const originalValue = Array.isArray(field.source)
-                    ? field.source.reduce((obj, key) => (obj && obj[key] !== 'undefined') ? obj[key] : undefined, user)
+                    ? field.source.reduce((obj, key) => (obj && obj[key] !== undefined) ? obj[key] : undefined, user)
                     : user[field.source];
 
                 let decryptedValue = null;
@@ -873,12 +883,11 @@ export const getDecryptedUserForAdmin = async (userId) => {
                     try {
                         decryptedValue = await ComprehensiveEncryption.decryptPersonalInfo(originalValue);
                     } catch (e) {
-                        console.warn(`⚠️ 필드 '${field.source.join('.')}' 복호화 중 오류 발생:`, e.message);
-                        decryptedValue = `[복호화 오류: ${e.message}]`; // 오류 발생 시 명시적 표시
+                        console.warn(`⚠️ 필드 '${field.source}' 복호화 중 오류 발생:`, e.message);
+                        decryptedValue = `[복호화 오류]`;
                     }
                 }
 
-                // 경로를 따라 대상 객체에 값 설정 (예: decryptedUser.social.kakao.decrypted_name)
                 if (Array.isArray(field.target)) {
                     let current = decryptedUser;
                     for (let i = 0; i < field.target.length - 1; i++) {
@@ -891,14 +900,14 @@ export const getDecryptedUserForAdmin = async (userId) => {
             })
         );
 
-        // 5️⃣ 나이 정보 계산 (복호화된 데이터 기반)
+        // 5️⃣ 나이 정보 계산
         if (decryptedUser.decrypted_birthdate) {
             decryptedUser.calculated_age = ComprehensiveEncryption.calculateAge(decryptedUser.decrypted_birthdate);
             decryptedUser.age_group = ComprehensiveEncryption.getAgeGroup(decryptedUser.decrypted_birthdate);
             decryptedUser.is_minor = ComprehensiveEncryption.isMinor(decryptedUser.decrypted_birthdate);
         }
 
-        console.log(`✅ 복호화 및 데이터 처리 완료: ${userId}`);
+        console.log(`✅ 소셜 정보 포함, 전체 복호화 완료: ${userId}`);
 
         // 6️⃣ 캐시에 저장
         await IntelligentCache.cacheDecryptedUser(userId, decryptedUser);
@@ -906,7 +915,7 @@ export const getDecryptedUserForAdmin = async (userId) => {
         return decryptedUser;
     } catch (error) {
         console.error(`❌ 관리자용 복호화 전체 실패: ${userId}`, error);
-        throw error; // 에러를 상위로 전파
+        throw error;
     }
 };
 // export const getDecryptedUserForAdmin = async (userId) => {
