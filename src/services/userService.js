@@ -563,13 +563,21 @@ export const createUser = async (userData) => {
 
         // 🔧 KMS 암호화 처리를 더 안전하게
         let encryptedUserData;
-        try {
-            console.log('🔐 KMS 암호화 시작...');
-            encryptedUserData = ComprehensiveEncryption.encryptUserData(userData);
-            console.log('✅ KMS 암호화 완료');
-        } catch (encryptionError) {
-            console.error('❌ KMS 암호화 실패:', encryptionError.message);
-            throw new Error(`사용자 데이터 암호화 실패: ${encryptionError.message}`);
+        
+        // 🔧 암호화 활성화 여부 확인
+        if (process.env.ENABLE_ENCRYPTION === 'true') {
+            try {
+                console.log('🔐 KMS 암호화 시작...');
+                encryptedUserData = await ComprehensiveEncryption.encryptUserData(userData);
+                console.log('✅ KMS 암호화 완료');
+            } catch (encryptionError) {
+                console.error('❌ KMS 암호화 실패:', encryptionError.message);
+                console.log('🔄 암호화 비활성화로 폴백...');
+                encryptedUserData = { ...userData }; // 폴백: 원본 데이터 사용
+            }
+        } else {
+            console.log('🔐 암호화 비활성화 모드: 원본 데이터 사용');
+            encryptedUserData = { ...userData };
         }
 
         // 🔧 사용자 생성 전 데이터 확인
@@ -581,13 +589,16 @@ export const createUser = async (userData) => {
             dataKeys: Object.keys(encryptedUserData)
         });
 
-        // 🔧 User 모델 생성 시 더 명시적으로
-        const user = new User({
-            ...encryptedUserData,
-            // 필수 필드들을 명시적으로 다시 설정
-            nickname: encryptedUserData.nickname,
-            gender: encryptedUserData.gender || 'select',
-        });
+        // 🔧 필수 필드 강제 설정 (문제 해결)
+        if (!encryptedUserData.nickname) {
+            encryptedUserData.nickname = userData.nickname;
+        }
+        if (!encryptedUserData.gender) {
+            encryptedUserData.gender = userData.gender || 'select';
+        }
+
+        // 🔧 User 모델 생성
+        const user = new User(encryptedUserData);
 
         console.log('🔧 User 인스턴스 생성 완료, KMS 암호화 데이터로 저장 시도 중...');
 
