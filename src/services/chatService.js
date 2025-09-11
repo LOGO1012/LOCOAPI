@@ -268,37 +268,65 @@ export const recordRoomEntry = async (roomId, userId, entryTime = null) => {
 /**
  * 메시지 저장
  */
-export const saveMessage = async (chatRoom, sender, text) => {
+// export const saveMessage = async (chatRoom, sender, text) => {
+//     try {
+//         // sender가 문자열(ID)일 경우, 사용자 정보 조회
+//         if (typeof sender === 'string') {
+//             const user = await User.findById(sender);
+//             if (!user) {
+//                 throw new Error('사용자를 찾을 수 없습니다.');
+//             }
+//             sender = { _id: user._id,
+//                 nickname: user.nickname,
+//                 lolNickname: user.lolNickname,
+//                 gender: user.gender,
+//                 star: user.star,
+//                 info: user.info,
+//                 photo: user.photo};
+//         }
+//
+//         // 메시지 저장 시 readBy 필드 초기화 (발신자는 자동으로 읽음 처리)
+//         const newMessage = new ChatMessage({
+//             chatRoom,
+//             sender,
+//             text,
+//             readBy: [{
+//                 user: sender._id,
+//                 readAt: new Date()
+//             }]
+//         });
+//
+//         return await newMessage.save();
+//     } catch (error) {
+//         throw new Error(error.message);
+//     }
+// };
+
+export const saveMessage = async (chatRoom, senderId, text) => {
     try {
-        // sender가 문자열(ID)일 경우, 사용자 정보 조회
-        if (typeof sender === 'string') {
-            const user = await User.findById(sender);
-            if (!user) {
-                throw new Error('사용자를 찾을 수 없습니다.');
-            }
-            sender = { _id: user._id,
-                nickname: user.nickname,
-                lolNickname: user.lolNickname,
-                gender: user.gender,
-                star: user.star,
-                info: user.info,
-                photo: user.photo};
+        // 1. senderId 유효성 검증 로직 (사용자님 제안)
+        // 함수 시작점에서 잘못된 데이터가 들어오는 것을 원천 차단합니다.
+        if (!senderId) {
+            throw new Error('senderId는 필수입니다.');
         }
 
-        // 메시지 저장 시 readBy 필드 초기화 (발신자는 자동으로 읽음 처리)
+        // 2. 스키마에 맞게 senderId를 직접 전달
+        // 불필요한 DB 조회 없이, 메시지 저장이라는 역할에만 집중합니다.
         const newMessage = new ChatMessage({
             chatRoom,
-            sender,
+            sender: senderId,
             text,
             readBy: [{
-                user: sender._id,
+                user: senderId,   // 발신자는 보낸 메시지를 바로 읽음 처리
                 readAt: new Date()
             }]
         });
 
         return await newMessage.save();
+
     } catch (error) {
-        throw new Error(error.message);
+        // 3. 에러는 그대로 전달하여 호출부(예: socketIO.js)에서 처리하도록 합니다.
+        throw error;
     }
 };
 
@@ -423,7 +451,7 @@ export const getChatRoomHistory = async (filters) => {
     const histories = await ChatRoomHistory
         .find(query)  // 🔧 동적 쿼리 사용
         .lean()
-        .populate('meta.chatUsers', 'nickname name')
+        .populate('meta.chatUsers', 'nickname gender social.kakao.gender social.naver.gender')
         .sort({ timestamp: -1 })
         .skip(skip)
         .limit(size);
