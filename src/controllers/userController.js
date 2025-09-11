@@ -336,7 +336,7 @@ export const declineFriendRequestController = async (req, res) => {
 export const deleteFriendController = async (req, res) => {
     const { userId, friendId } = req.params;
     try {
-        const result = await deleteFriend(userId, friendId);
+        const result = await deleteFriend(userId, friendId, io);
         res.status(200).json({
             success: true,
             message: result.message,

@@ -1,6 +1,7 @@
 // src/services/userService.js (암호화 및 캐시 통합 버전) - 최종 완성
 import { normalizeBirthdate } from "../utils/normalizeBirthdate.js";
 import { normalizePhoneNumber } from "../utils/normalizePhoneNumber.js";
+import { ChatRoom } from '../models/chat.js';
 import { User } from '../models/UserProfile.js';
 import { FriendRequest } from "../models/FriendRequest.js";
 import { getMax, rechargeIfNeeded, REFILL_MS } from "../utils/chatQuota.js";
@@ -453,7 +454,7 @@ export const declineFriendRequestService = async (requestId) => {
 };
 
 // 친구 삭제
-export const deleteFriend = async (userId, friendId) => {
+export const deleteFriend = async (userId, friendId, io) => {
 
     //요청 사용자가 존재하는지 확인
     const user = await User.findById(userId);
@@ -469,6 +470,29 @@ export const deleteFriend = async (userId, friendId) => {
     // 사용자와 친구 양쪽에서 친구 ID 제거
     await User.findByIdAndUpdate(userId, { $pull: { friends: friendId } });
     await User.findByIdAndUpdate(friendId, { $pull: { friends: userId } });
+
+    // Find and deactivate the friend chat room
+    const chatRoom = await ChatRoom.findOne({
+        roomType: 'friend',
+        chatUsers: { $all: [userId, friendId] }
+    });
+
+    if (chatRoom) {
+        chatRoom.isActive = false;
+        await chatRoom.save();
+
+        // Emit socket events to both users with roomId
+        if (io) {
+            io.to(userId).emit('friendDeleted', { friendId: friendId, roomId: chatRoom._id.toString() });
+            io.to(friendId).emit('friendDeleted', { friendId: userId, roomId: chatRoom._id.toString() });
+        }
+    } else {
+        // If there's no chat room, just emit the event without roomId
+        if (io) {
+            io.to(userId).emit('friendDeleted', { friendId: friendId, roomId: null });
+            io.to(friendId).emit('friendDeleted', { friendId: userId, roomId: null });
+        }
+    }
 
     // 캐싱
     await IntelligentCache.invalidateUserCache(userId);
