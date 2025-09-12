@@ -505,28 +505,47 @@ export const deleteFriend = async (userId, friendId, io) => {
 // 친구 목록 페이지별 조회
 // 온라인 상태 정보 포함
 // 성능 최적화 (필요한 만큼만 로딩)
-export const getPaginatedFriends = async (userId, offset = 0, limit = 20) => {
-
-    // friends 배열을 DB 쪽에서 잘라서 가져옴
-    const user = await User.findById(userId)
-        .slice('friends', [offset, limit])
-        .populate('friends', 'nickname profilePhoto');
-
+export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online) => {
+    const user = await User.findById(userId).select('friends').lean();
     if (!user) throw new Error('User not found');
 
-    // 전체 친구 수도 내려주고 싶다면 한 번 더 가볍게 조회
-    const totalCnt = (await User.findById(userId).select('friends').lean())?.friends.length || 0;
+    const allFriendIds = user.friends.map(id => id.toString());
 
-    // 온라인 상태 정보 추가(배치로 효율적 처리)
-    const friendIds = user.friends.map(friend => friend._id.toString());
-    const onlineStatusMap = onlineStatusService.getMultipleUserStatus(friendIds);
+    let filteredFriendIds = allFriendIds;
 
-    const friendsWithStatus = user.friends.map(friend => ({
-        ...friend.toObject(),
-        isOnline: onlineStatusMap[friend._id.toString()] || false
-    }));
+    // If 'online' filter is provided, filter the friend IDs
+    if (online !== undefined && online !== null) {
+        const onlineStatusMap = onlineStatusService.getMultipleUserStatus(allFriendIds);
+        const isOnlineRequested = online === 'true' || online === true;
+        filteredFriendIds = allFriendIds.filter(id => (onlineStatusMap[id] || false) === isOnlineRequested);
+    }
 
-    return { total: totalCnt, friends: friendsWithStatus };
+    const total = filteredFriendIds.length;
+    const paginatedIds = filteredFriendIds.slice(offset, offset + limit);
+
+    if (paginatedIds.length === 0) {
+        return { total, friends: [] };
+    }
+
+    const friends = await User.find({
+        '_id': { $in: paginatedIds }
+    }).select('nickname profilePhoto').lean();
+
+    const friendsById = new Map(friends.map(f => [f._id.toString(), f]));
+
+    // Add online status to the paginated friends
+    const onlineStatusMapForPage = onlineStatusService.getMultipleUserStatus(paginatedIds);
+    
+    const orderedFriends = paginatedIds.map(id => {
+        const friend = friendsById.get(id);
+        if (!friend) return null;
+        return {
+            ...friend,
+            isOnline: onlineStatusMapForPage[id] || false
+        };
+    }).filter(Boolean);
+
+    return { total, friends: orderedFriends };
 };
 
 // ============================================================================
