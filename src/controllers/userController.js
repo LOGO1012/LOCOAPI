@@ -408,9 +408,10 @@ export const getPaginatedFriendsController = async (req, res) => {
     const { userId } = req.params;
     const offset = Number(req.query.offset ?? 0);
     const limit  = Number(req.query.limit  ?? 20);
+    const online = req.query.online; // Add this line
 
     try {
-        const data = await getPaginatedFriends(userId, offset, limit);
+        const data = await getPaginatedFriends(userId, offset, limit, online); // Pass it to the service
         res.status(200).json({ success: true, ...data });
     } catch (e) {
         res.status(400).json({ success: false, message: e.message });
