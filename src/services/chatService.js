@@ -334,15 +334,58 @@ export const saveMessage = async (chatRoom, senderId, text) => {
  * 특정 채팅방의 메시지 가져오기
  * @param {boolean} includeDeleted - true면 isDeleted 플래그에 관계없이 모두 조회
  */
-export const getMessagesByRoom = async (roomId, includeDeleted = false) => {
+export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1, limit = 20) => {
     const filter = includeDeleted
-        ? { chatRoom: roomId }                    // 삭제 여부 무시
-        : { chatRoom: roomId, isDeleted: false }; // 기본: 삭제되지 않은 메시지만
-    return await ChatMessage.find(filter)
-        .populate('sender')       // 닉네임·이름 모두 필요하면 name도 추가
+        ? { chatRoom: roomId }
+        : { chatRoom: roomId, isDeleted: false };
+
+    const room = await ChatRoom.findById(roomId).select('roomType').lean();
+
+    // 친구 채팅에만 시간 제한 및 페이지네이션 적용
+    if (room && room.roomType === 'friend') {
+        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        filter.createdAt = { $gte: twoDaysAgo };
+
+        const totalMessages = await ChatMessage.countDocuments(filter);
+        const totalPages = Math.ceil(totalMessages / limit);
+        const skip = (page - 1) * limit;
+
+        const messages = await ChatMessage.find(filter)
+            .populate('sender')
+            .populate('readBy.user', 'nickname')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .exec();
+
+        return {
+            messages: messages.reverse(),
+            pagination: {
+                currentPage: page,
+                totalPages,
+                totalMessages,
+                hasNextPage: page < totalPages
+            }
+        };
+    }
+
+    // 그 외 채팅방(랜덤 채팅 등)은 모든 메시지를 한 번에 반환 (기존 방식)
+    const messages = await ChatMessage.find(filter)
+        .populate('sender')
         .populate('readBy.user', 'nickname')
         .sort({ createdAt: 1 })
         .exec();
+    
+    // API 응답 형식을 통일하기 위해 pagination 정보와 함께 반환
+    return {
+        messages: messages,
+        pagination: {
+            currentPage: 1,
+            totalPages: 1,
+            totalMessages: messages.length,
+            hasNextPage: false
+        }
+    };
 };
 
 /**
