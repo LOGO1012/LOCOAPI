@@ -89,7 +89,8 @@ const chatMessageSchema = new Schema({
     },
     text: {
         type: String,                 // 메시지 내용
-        required: true
+        required: true,
+        maxlength: 100
     },
     textTime: {
         type: Date,
