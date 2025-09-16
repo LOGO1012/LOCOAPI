@@ -14,9 +14,11 @@ const getQnaListPage = async (req, res) => {
         const qnaStatus = req.query.qnaStatus;
         const keyword = req.query.keyword;
         const searchType = req.query.searchType;
+        const userId = req.query.userId; // ◀◀◀ userId 파라미터 추가
+
         // PageRequestDTO에 qnaStatus와 keyword 필드를 함께 전달합니다.
         const pageRequestDTO = new PageRequestDTO(
-            page, size, qnaStatus, keyword, searchType);
+            page, size, qnaStatus, keyword, searchType, userId);
         const pageResponseDTO = await QnaService.getQnaListPage(pageRequestDTO);
         return res.status(200).json(pageResponseDTO);
     } catch (error) {
