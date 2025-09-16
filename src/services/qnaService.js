@@ -6,7 +6,7 @@ import {User} from "../models/UserProfile.js";
 
 const getQnaListPage = async (pageRequestDTO) => {
     try {
-        const { page, size, qnaStatus, keyword, searchType } = pageRequestDTO;
+        const { page, size, qnaStatus, keyword, searchType, userId } = pageRequestDTO; // ◀◀◀ userId 추출
         const skip = (page - 1) * size;
 
         // 기본 필터: 상태
@@ -15,8 +15,13 @@ const getQnaListPage = async (pageRequestDTO) => {
             filter.qnaStatus = qnaStatus;
         }
 
+        // ◀◀◀ userId가 있으면 필터에 추가
+        if (userId) {
+            filter.userId = userId;
+        }
+
         // 검색어가 있으면 옵션에 따라 분기
-        if (keyword) {
+        if (keyword && !userId) { // ◀◀◀ userId 필터링 시에는 키워드 검색 비활성화 (또는 필요에 따라 로직 수정)
             const regex = new RegExp(keyword, 'i');
             switch (searchType) {
                 case 'title':
