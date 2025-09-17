@@ -818,12 +818,8 @@ class OptimalKMSEncryption {
     getAgeGroup(birthdate) {
         const age = this.calculateAge(birthdate);
         if (age === null) return null;
-        
-        if (age < 20) return '10대';
-        if (age < 30) return '20대';
-        if (age < 40) return '30대';
-        if (age < 50) return '40대';
-        return '50대+';
+
+        return age < 19 ? 'minor' : 'adult';
     }
 
     /**
