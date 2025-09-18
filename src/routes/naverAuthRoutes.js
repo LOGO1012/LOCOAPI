@@ -11,7 +11,10 @@ router.get('/naver/callback', (req, res, next) => {
 });
 
 router.get('/naver-data', (req, res) => {
-    res.json(req.session.naverUserData || {});
+    res.json({
+        socialData: req.session.naverUserData || {},
+        deactivationCount: req.session.deactivationCount || 0
+    });
 });
 
 router.post('/naver/refresh', naverRefreshToken);

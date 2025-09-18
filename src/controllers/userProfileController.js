@@ -34,7 +34,8 @@ export const registerUserProfile = async (req, res, next) => {
             kakaoGender, 
             naverGender,
             formGender, 
-            info 
+            info,
+            deactivationCount
         } = req.body;
             
         // 🔧 닉네임 필수 검증 강화
@@ -92,6 +93,7 @@ export const registerUserProfile = async (req, res, next) => {
             birthdate: birthdate || '',
             info: info?.trim() || '',
             numOfChat: 30, // 회원가입 시 기본 채팅 횟수 30회 제공
+            deactivationCount: deactivationCount || 0,
             social: {
                 // 카카오 소셜 로그인 정보 (kakaoId가 있을 때만 추가)
                 ...(kakaoId && {

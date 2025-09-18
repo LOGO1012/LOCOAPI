@@ -1,7 +1,7 @@
 // src/routes/authRoutes.js
 import express from 'express'; // Express 모듈 불러오기
 import jwt from 'jsonwebtoken';
-import { kakaoCallback, logoutRedirect, getCurrentUser, logout, refreshToken } from '../controllers/authController.js'; // 카카오 콜백 컨트롤러 함수 불러오기
+import { kakaoCallback, logoutRedirect, getCurrentUser, logout, refreshToken, setSocialSession } from '../controllers/authController.js'; // 카카오 콜백 컨트롤러 함수 불러오기
 import naverAuthRoutes from "./naverAuthRoutes.js";
 import { User } from '../models/UserProfile.js';
 
@@ -22,9 +22,11 @@ router.use(naverAuthRoutes);
 router.post('/refresh', refreshToken);
 
 
-router.get('/kakao-data', (req, res) => {                     // (추가)
-    // (추가) 세션에 저장된 kakaoUserData를 JSON으로 반환 (없으면 빈 객체)
-    res.json(req.session.kakaoUserData || {});                // (추가)
+router.get('/kakao-data', (req, res) => {
+    res.json({
+        socialData: req.session.kakaoUserData || {},
+        deactivationCount: req.session.deactivationCount || 0
+    });
 });
 
 
@@ -54,6 +56,7 @@ router.get('/me', getCurrentUser);
 // 전용 JSON 로그아웃
 router.post('/logout', logout);
 router.get("/logout-redirect", logoutRedirect);
+router.post("/set-social-session", setSocialSession);
 
 // 디버깅용: 현재 쿠키 상태 확인
 router.get('/check-cookies', (req, res) => {
