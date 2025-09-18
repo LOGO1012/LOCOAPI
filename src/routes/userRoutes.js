@@ -20,8 +20,12 @@ import {
     getSocialGenderCountController, updateUserPrefsController,
     checkNicknameController,
     getNicknameHistoryController, getGenderHistoryController,
-    checkChangeAvailabilityController
+    checkChangeAvailabilityController,
+    deactivateUser,
+    reactivateUser,
+    archiveAndPrepareNewController
 } from "../controllers/userController.js";
+import { authenticate } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -128,5 +132,14 @@ router.get("/:userId/gender-history", getGenderHistoryController);
 
 // 변경 가능 여부 확인
 router.get("/:userId/change-availability", checkChangeAvailabilityController);
+
+// 회원 탈퇴
+router.post("/deactivate", authenticate, deactivateUser);
+
+// 회원 재활성화
+router.post("/reactivate", reactivateUser);
+
+// 신규 가입을 위한 기존 계정 아카이브
+router.post("/archive-and-prepare-new", archiveAndPrepareNewController);
 
 export default router;

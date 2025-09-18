@@ -5,6 +5,7 @@ import { ChatRoom } from '../models/chat.js';
 import { User } from '../models/UserProfile.js';
 import { FriendRequest } from "../models/FriendRequest.js";
 import { getMax, rechargeIfNeeded, REFILL_MS } from "../utils/chatQuota.js";
+import { UserHistory } from '../models/UserHistory.js';
 import * as onlineStatusService from "./onlineStatusService.js";
 import ComprehensiveEncryption from "../utils/encryption/comprehensiveEncryption.js";
 import IntelligentCache from "../utils/cache/intelligentCache.js";
@@ -112,6 +113,18 @@ export const findUserOrNoUser = async (kakaoUserData) => {
             return { status: 'noUser', ...kakaoUserData };
         }
 
+        if (existingUser.status === 'deactivated') {
+            const sevenDays = 7 * 24 * 60 * 60 * 1000;
+            if (existingUser.deactivatedAt && (new Date().getTime() - existingUser.deactivatedAt.getTime()) < sevenDays) {
+                const remainingTime = existingUser.deactivatedAt.getTime() + sevenDays - new Date().getTime();
+                const remainingDays = Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
+                throw new Error(`회원 탈퇴 후 7일 동안 재가입할 수 없습니다. ${remainingDays}일 남았습니다.`);
+            } else {
+                // 7 days have passed. Return a special status to frontend.
+                return { status: 'reactivation_possible', user: { _id: existingUser._id, nickname: existingUser.nickname, email: existingUser.email } };
+            }
+        }
+
         return existingUser;
     } catch (error) {
         console.error('User service error:', error.message);
@@ -199,6 +212,18 @@ export const findUserByNaver = async (naverUserData) => {
         if (!existingUser) {
             console.log('등록된 네이버 사용자가 없습니다. 회원가입이 필요합니다.');
             return { status: 'noUser', ...naverUserData };
+        }
+
+        if (existingUser.status === 'deactivated') {
+            const sevenDays = 7 * 24 * 60 * 60 * 1000;
+            if (existingUser.deactivatedAt && (new Date().getTime() - existingUser.deactivatedAt.getTime()) < sevenDays) {
+                const remainingTime = existingUser.deactivatedAt.getTime() + sevenDays - new Date().getTime();
+                const remainingDays = Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
+                throw new Error(`회원 탈퇴 후 7일 동안 재가입할 수 없습니다. ${remainingDays}일 남았습니다.`);
+            } else {
+                // 7 days have passed. Return a special status to frontend.
+                return { status: 'reactivation_possible', user: { _id: existingUser._id, nickname: existingUser.nickname, email: existingUser.email } };
+            }
         }
 
         return existingUser;
@@ -590,17 +615,20 @@ export const getBlockedUsersService = async (userId) => {
 // 새 사용자 생성 (KMS 암호화 적용) - 수정된 버전
 export const createUser = async (userData) => {
     try {
+        const { deactivationCount = 0, ...restUserData } = userData;
+
         console.log('🔧 createUser 시작 - 입력 데이터:', {
-            hasName: !!userData.name,
-            hasNickname: !!userData.nickname,
-            nickname: userData.nickname,
-            hasPhone: !!userData.phone,
-            hasBirthdate: !!userData.birthdate,
-            gender: userData.gender
+            hasName: !!restUserData.name,
+            hasNickname: !!restUserData.nickname,
+            nickname: restUserData.nickname,
+            hasPhone: !!restUserData.phone,
+            hasBirthdate: !!restUserData.birthdate,
+            gender: restUserData.gender,
+            deactivationCount
         });
 
         // 🔧 필수 필드 검증 (서비스 레벨에서도 한 번 더)
-        if (!userData.nickname || userData.nickname.trim() === '') {
+        if (!restUserData.nickname || restUserData.nickname.trim() === '') {
             throw new Error('nickname은 필수 필드입니다.');
         }
 
@@ -611,16 +639,16 @@ export const createUser = async (userData) => {
         if (process.env.ENABLE_ENCRYPTION === 'true') {
             try {
                 console.log('🔐 KMS 암호화 시작...');
-                encryptedUserData = await ComprehensiveEncryption.encryptUserData(userData);
+                encryptedUserData = await ComprehensiveEncryption.encryptUserData(restUserData);
                 console.log('✅ KMS 암호화 완료');
             } catch (encryptionError) {
                 console.error('❌ KMS 암호화 실패:', encryptionError.message);
                 console.log('🔄 암호화 비활성화로 폴백...');
-                encryptedUserData = { ...userData }; // 폴백: 원본 데이터 사용
+                encryptedUserData = { ...restUserData }; // 폴백: 원본 데이터 사용
             }
         } else {
             console.log('🔐 암호화 비활성화 모드: 원본 데이터 사용');
-            encryptedUserData = { ...userData };
+            encryptedUserData = { ...restUserData };
         }
 
         // 🔧 사용자 생성 전 데이터 확인
@@ -634,14 +662,17 @@ export const createUser = async (userData) => {
 
         // 🔧 필수 필드 강제 설정 (문제 해결)
         if (!encryptedUserData.nickname) {
-            encryptedUserData.nickname = userData.nickname;
+            encryptedUserData.nickname = restUserData.nickname;
         }
         if (!encryptedUserData.gender) {
-            encryptedUserData.gender = userData.gender || 'select';
+            encryptedUserData.gender = restUserData.gender || 'select';
         }
 
         // 🔧 User 모델 생성
-        const user = new User(encryptedUserData);
+        const user = new User({
+            ...encryptedUserData,
+            deactivationCount // 이관받은 탈퇴 횟수 설정
+        });
 
         console.log('🔧 User 인스턴스 생성 완료, KMS 암호화 데이터로 저장 시도 중...');
 
@@ -1123,4 +1154,70 @@ export const getUserAgeInfo = async (userId) => {
     } catch (error) {
         throw error;
     }
+};
+
+export const reactivateUserService = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error("사용자를 찾을 수 없습니다.");
+    }
+    if (user.status !== 'deactivated') {
+        throw new Error("이미 활성화된 계정입니다.");
+    }
+
+    user.status = 'active';
+    user.deactivatedAt = null;
+
+    await user.save();
+    await IntelligentCache.invalidateUserCache(userId);
+
+    return user;
+};
+
+export const deactivateUserService = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error("사용자를 찾을 수 없습니다.");
+    }
+    if (user.status === 'deactivated') {
+        throw new Error("이미 탈퇴한 회원입니다.");
+    }
+
+    user.status = 'deactivated';
+    user.deactivatedAt = new Date();
+    user.deactivationCount += 1;
+
+    await user.save();
+    await IntelligentCache.invalidateUserCache(userId);
+
+    return {
+        status: user.status,
+        deactivatedAt: user.deactivatedAt,
+    };
+};
+
+export const archiveAndPrepareNew = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error("사용자를 찾을 수 없습니다.");
+    }
+
+    // 1. Archive user data
+    const userHistory = new UserHistory({
+        originalUserId: user._id,
+        archivedData: user.toObject()
+    });
+    await userHistory.save();
+
+    // 2. Delete the original user
+    await User.findByIdAndDelete(userId);
+    
+    // 3. Invalidate cache
+    await IntelligentCache.invalidateUserCache(userId);
+
+    return { 
+        success: true, 
+        message: "기존 계정 정보가 보관처리 되었습니다.",
+        deactivationCount: user.deactivationCount 
+    };
 };
