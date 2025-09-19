@@ -1,4 +1,5 @@
 // src/services/userService.js (암호화 및 캐시 통합 버전) - 최종 완성
+import mongoose from 'mongoose';
 import { normalizeBirthdate } from "../utils/normalizeBirthdate.js";
 import { normalizePhoneNumber } from "../utils/normalizePhoneNumber.js";
 import { ChatRoom } from '../models/chat.js';
@@ -9,6 +10,8 @@ import { UserHistory } from '../models/UserHistory.js';
 import * as onlineStatusService from "./onlineStatusService.js";
 import ComprehensiveEncryption from "../utils/encryption/comprehensiveEncryption.js";
 import IntelligentCache from "../utils/cache/intelligentCache.js";
+import { Community } from '../models/Community.js';
+import { Qna } from '../models/Qna.js';
 
 // ============================================================================
 //   소셜 로그인 관련 함수
@@ -1183,12 +1186,69 @@ export const deactivateUserService = async (userId) => {
         throw new Error("이미 탈퇴한 회원입니다.");
     }
 
+    const friendIds = user.friends; // 친구 목록 미리 저장
+
+    // 1. 내 친구 목록 비우기
+    user.friends = [];
+
+    // 2. 친구들의 목록에서 나를 제거
+    if (friendIds && friendIds.length > 0) {
+        await User.updateMany(
+            { _id: { $in: friendIds } },
+            { $pull: { friends: userId } }
+        );
+    }
+
+    // 3. 친구 채팅방 비활성화
+    await ChatRoom.updateMany(
+        { roomType: 'friend', chatUsers: userId },
+        { $set: { isActive: false } }
+    );
+
+    // 4. 커뮤니티 게시글 하드 딜리트
+    await Community.deleteMany({ userId: userId });
+
+    // 5. 다른 사람 글에 남긴 댓글/답글/대대댓글 소프트 딜리트
+    const now = new Date();
+    const userIdObj = new mongoose.Types.ObjectId(userId);
+
+    // 댓글 소프트 딜리트
+    await Community.updateMany(
+        { "comments.userId": userIdObj },
+        { $set: { "comments.$[elem].isDeleted": true, "comments.$[elem].deletedAt": now } },
+        { arrayFilters: [{ "elem.userId": userIdObj }] }
+    );
+
+    // 대댓글 소프트 딜리트
+    await Community.updateMany(
+        { "comments.replies.userId": userIdObj },
+        { $set: { "comments.$[].replies.$[elem].isDeleted": true, "comments.$[].replies.$[elem].deletedAt": now } },
+        { arrayFilters: [{ "elem.userId": userIdObj }] }
+    );
+
+    // 대대댓글 소프트 딜리트
+    await Community.updateMany(
+        { "comments.replies.subReplies.userId": userIdObj },
+        { $set: { "comments.$[].replies.$[].subReplies.$[elem].isDeleted": true, "comments.$[].replies.$[].subReplies.$[elem].deletedAt": now } },
+        { arrayFilters: [{ "elem.userId": userIdObj }] }
+    );
+
+    // 6. QnA 게시글 하드 딜리트
+    await Qna.deleteMany({ userId: userId });
+
     user.status = 'deactivated';
-    user.deactivatedAt = new Date();
+    user.deactivatedAt = now;
     user.deactivationCount += 1;
 
     await user.save();
     await IntelligentCache.invalidateUserCache(userId);
+
+    // 친구들의 캐시도 무효화
+    if (friendIds && friendIds.length > 0) {
+        await Promise.all(
+            friendIds.map(friendId => IntelligentCache.invalidateUserCache(friendId))
+        );
+    }
 
     return {
         status: user.status,
