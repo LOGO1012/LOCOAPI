@@ -38,7 +38,7 @@ export const getDeveloperUsers = async (req, res) => {
             console.log('📜 전체 사용자 목록 조회 (최적화)');
 
             users = await User.find({})
-                .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt")
+                .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt status deactivationCount")
                 .skip(skip)
                 .limit(limit)
                 .lean();
@@ -249,7 +249,7 @@ async function optimizedSearch(searchQuery, skip, limit) {
     };
 
     const plaintextUsers = await User.find(plaintextFilter)
-        .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt")
+        .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt status deactivationCount")
         .lean();
 
     console.log(`✅ 평문 검색 결과: ${plaintextUsers.length}명`);
@@ -264,7 +264,7 @@ async function optimizedSearch(searchQuery, skip, limit) {
             if (/^[\d\-\+\(\)\s]+$/.test(searchQuery)) {
                 const phoneHash = ComprehensiveEncryption.createPhoneHash(searchQuery);
                 const phoneHashUsers = await User.find({ phone_hash: phoneHash })
-                    .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt")
+                    .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt status deactivationCount")
                     .lean();
                 hashUsers.push(...phoneHashUsers);
                 console.log(`📱 전화번호 해시 검색 결과: ${phoneHashUsers.length}명`);
@@ -273,7 +273,7 @@ async function optimizedSearch(searchQuery, skip, limit) {
             // 이름 해시 검색
             const nameHash = ComprehensiveEncryption.createSearchHash(searchQuery);
             const nameHashUsers = await User.find({ name_hash: nameHash })
-                .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt")
+                .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt status deactivationCount")
                 .lean();
             hashUsers.push(...nameHashUsers);
             console.log(`👤 이름 해시 검색 결과: ${nameHashUsers.length}명`);
@@ -310,7 +310,7 @@ async function optimizedSearch(searchQuery, skip, limit) {
                 { birthdate: { $exists: true, $ne: "" } }
             ]
         })
-            .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt")
+            .select("photo name nickname phone birthdate gender coinLeft plan accountLink social star userLv numOfReport friends blockedUsers createdAt updatedAt status deactivationCount")
             .limit(maxAdditionalSearch)
             .lean();
 
