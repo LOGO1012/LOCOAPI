@@ -1,17 +1,26 @@
 import {ChatRoom, ChatMessage, ChatRoomExit, RoomEntry} from '../models/chat.js';
 import {User} from "../models/UserProfile.js";
 import { ChatRoomHistory } from "../models/chatRoomHistory.js";
+import ChatEncryption from '../utils/encryption/chatEncryption.js';
+import ComprehensiveEncryption from '../utils/encryption/comprehensiveEncryption.js';
+import ReportedMessageBackup from '../models/reportedMessageBackup.js';
 
 /**
  * 새로운 채팅방 생성
  */
 export const createChatRoom = async (roomType, capacity, matchedGender, ageGroup) => {
     try {
+        console.log('🏠 [createChatRoom] 요청 매개변수:');
+        console.log(`  - roomType: ${roomType}`);
+        console.log(`  - capacity: ${capacity}`);
+        console.log(`  - matchedGender: ${matchedGender}`);
+        console.log(`  - ageGroup: "${ageGroup}" (type: ${typeof ageGroup})`);
+        
         // 1) 방 생성
         const newChatRoom = new ChatRoom({ roomType, capacity, matchedGender, ageGroup });
         const saved = await newChatRoom.save();
 
-
+        console.log('✅ [createChatRoom] 방 생성 성공:', saved._id);
         return saved;
     } catch (error) {
         // 에러 스택까지 찍어서 어디서 터졌는지 확인
@@ -106,9 +115,47 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null) => {
         }
 
         // 2) 입장하려는 사용자 본인의 blockedUsers 가져오기
-        const joiner = await User.findById(userId).select('blockedUsers');
+        const joiner = await User.findById(userId).select('blockedUsers birthdate');
         if (!joiner) {
             throw new Error('사용자를 찾을 수 없습니다.');
+        }
+
+        // 🔞 나이 검증 로직 추가
+        if (room.roomType === 'random' && room.ageGroup) {
+            // User 모델의 virtual 필드를 통한 나이 계산
+            const joinerAge = joiner.calculatedAge; // virtual 필드 사용
+            const joinerIsMinor = joiner.isMinor;    // virtual 필드 사용
+            
+            // 생년월일이 없는 경우 차단
+            if (!joiner.birthdate) {
+                const err = new Error('랜덤채팅 이용을 위해서는 생년월일 정보가 필요합니다.');
+                err.status = 403;
+                err.code = 'BIRTHDATE_REQUIRED';
+                throw err;
+            }
+            
+            // 나이 계산 실패 시 차단
+            if (joinerAge === null) {
+                const err = new Error('나이 확인이 불가능하여 안전을 위해 입장을 제한합니다.');
+                err.status = 403;
+                err.code = 'AGE_VERIFICATION_FAILED';
+                throw err;
+            }
+            
+            // 채팅방 연령대와 사용자 연령대 매칭 확인
+            const joinerAgeGroup = joinerIsMinor ? 'minor' : 'adult';
+            
+            if (room.ageGroup !== joinerAgeGroup) {
+                const roomType = room.ageGroup === 'minor' ? '미성년자' : '성인';
+                const userType = joinerAgeGroup === 'minor' ? '미성년자' : '성인';
+                
+                const err = new Error(`${roomType} 전용 채팅방입니다. (현재: ${userType})`);
+                err.status = 403;
+                err.code = 'AGE_GROUP_MISMATCH';
+                throw err;
+            }
+            
+            console.log(`✅ 나이 검증 통과: ${joinerAge}세 (${joinerAgeGroup}) → ${room.ageGroup} 채팅방`);
         }
 
         // 3) 차단 관계 양방향 검사
@@ -149,6 +196,213 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null) => {
         throw error;
     }
 };
+
+// ============================================================================
+//   🔐 메시지 저장 시스템 (통합 및 최적화 완료)
+//   - 암호화/평문 자동 선택
+//   - sender 타입 오류 해결됨
+//   - 환경변수 기반 동적 전환
+// ============================================================================
+
+/**
+ * 🔄 통합 메시지 저장 함수 (암호화 설정에 따라 자동 선택)
+ * @param {string} chatRoom - 채팅방 ID
+ * @param {string} senderId - 발송자 ID  
+ * @param {string} text - 메시지 텍스트
+ * @param {Object} metadata - 메타데이터 (선택적)
+ * @returns {Object} 저장된 메시지 객체
+ */
+export const saveMessage = async (chatRoom, senderId, text, metadata = {}) => {
+    try {
+        // 1. senderId 유효성 검증
+        if (!senderId) {
+            throw new Error('senderId는 필수입니다.');
+        }
+
+        // 2. 환경변수로 암호화 여부 결정
+        const encryptionEnabled = process.env.CHAT_ENCRYPTION_ENABLED === 'true';
+        
+        const messageData = {
+            roomId: chatRoom,
+            senderId: senderId,
+            text: text,
+            metadata: metadata
+        };
+        
+        if (encryptionEnabled) {
+            console.log('🔐 [메시지저장] 암호화 모드로 저장');
+            return await saveEncryptedMessage(messageData);
+        } else {
+            console.log('📝 [메시지저장] 평문 모드로 저장');
+            // 기존 방식 유지 (하위 호환성)
+            const newMessage = new ChatMessage({
+                chatRoom,
+                sender: senderId,
+                text,
+                isEncrypted: false, // 명시적으로 평문임을 표시
+                readBy: [{
+                    user: senderId,
+                    readAt: new Date()
+                }]
+            });
+            return await newMessage.save();
+        }
+        
+    } catch (error) {
+        console.error('❌ [메시지저장] 통합 저장 실패:', error);
+        throw error;
+    }
+};
+
+/**
+ * 🔐 암호화된 메시지 저장
+ * @param {Object} messageData - 메시지 데이터
+ * @param {string} messageData.roomId - 채팅방 ID
+ * @param {string} messageData.senderId - 발송자 ID  
+ * @param {string} messageData.text - 메시지 텍스트
+ * @param {Object} messageData.metadata - 메타데이터 (선택적)
+ * @returns {Object} 저장된 메시지 객체
+ */
+export const saveEncryptedMessage = async (messageData) => {
+    try {
+        const { roomId, senderId, text, metadata = {} } = messageData;
+        
+        console.log(`🔐 [메시지저장] 암호화 저장 시작: "${text.substring(0, 20)}..."`); 
+        
+        // 1. 키워드 추출 (암호화 전)
+        const keywords = ChatEncryption.extractKeywords(text);
+        const hashedKeywords = keywords.map(k => ChatEncryption.hashKeyword(k));
+        
+        // 2. 메시지 전체 해시 (중복 검출용)
+        const messageHash = ChatEncryption.hashMessage(text);
+        
+        // 3. 메시지 암호화
+        const encryptedData = ChatEncryption.encryptMessage(text);
+        
+        // 4. 메시지 저장
+        const message = new ChatMessage({
+            chatRoom: roomId,
+            sender: senderId, // ObjectId만 저장 (버그 수정됨)
+            
+            // text 필드는 생략 (isEncrypted: true이므로 required: false)
+            
+            // 암호화 필드들
+            isEncrypted: true,
+            encryptedText: encryptedData.encryptedText,
+            iv: encryptedData.iv,
+            tag: encryptedData.tag,
+            
+            // 검색용 필드들
+            keywords: hashedKeywords,
+            messageHash: messageHash,
+            
+            // 읽음 처리 (발송자는 자동으로 읽음)
+            readBy: [{
+                user: senderId,
+                readAt: new Date()
+            }],
+            
+            // 메타데이터
+            metadata: {
+                platform: metadata.platform || 'web',
+                userAgent: metadata.userAgent || 'unknown',
+                ipHash: metadata.ipHash || null
+            }
+        });
+        
+        const savedMessage = await message.save();
+        
+        console.log(`✅ [메시지저장] 암호화 저장 완료: ${savedMessage._id}`);
+        console.log(`  📊 키워드: ${keywords.length}개, 해시: ${hashedKeywords.length}개`);
+        
+        return savedMessage;
+        
+    } catch (error) {
+        console.error('❌ [메시지저장] 암호화 저장 실패:', error);
+        throw new Error('암호화된 메시지 저장에 실패했습니다: ' + error.message);
+    }
+};
+
+/**
+ * 🚨 신고된 메시지 백업 생성 (법적 대응용)
+ * @param {string} messageId - 메시지 ID
+ * @param {Object} reportData - 신고 데이터
+ * @returns {Object} 백업 생성 결과
+ */
+export const createReportedMessageBackup = async (messageId, reportData) => {
+    try {
+        const message = await ChatMessage.findById(messageId);
+        if (!message) {
+            throw new Error('신고할 메시지를 찾을 수 없습니다');
+        }
+
+        let plaintextContent;
+
+        // 암호화된 메시지인 경우 복호화
+        if (message.isEncrypted && message.encryptedText) {
+            const encryptedData = {
+                encryptedText: message.encryptedText,
+                iv: message.iv,
+                tag: message.tag
+            };
+            plaintextContent = ChatEncryption.decryptMessage(encryptedData);
+        } else {
+            plaintextContent = message.text || '[내용 없음]';
+        }
+
+        // 기존 백업이 있는지 확인
+        const existingBackup = await ReportedMessageBackup.findOne({
+            originalMessageId: messageId
+        });
+
+        let backup;
+        if (existingBackup) {
+            // 이미 백업이 있으면 신고자만 추가
+            if (!existingBackup.reportedBy.includes(reportData.reportedBy)) {
+                existingBackup.reportedBy.push(reportData.reportedBy);
+            }
+            existingBackup.reportReason = reportData.reason || 'other';
+            backup = await existingBackup.save();
+        } else {
+            // 새 백업 생성
+            backup = new ReportedMessageBackup({
+                originalMessageId: messageId,
+                plaintextContent: plaintextContent,
+                reportedBy: reportData.reportedBy,
+                reportReason: reportData.reason || 'other',
+                backupReason: 'legal_compliance',
+                retentionUntil: new Date(Date.now() + (3 * 365 * 24 * 60 * 60 * 1000)) // 3년 보관
+            });
+            backup = await backup.save();
+        }
+
+        // 원본 메시지에 신고 표시
+        message.isReported = true;
+        message.reportedAt = new Date();
+        if (!message.reportedBy) message.reportedBy = [];
+        if (!message.reportedBy.includes(reportData.reportedBy)) {
+            message.reportedBy.push(reportData.reportedBy);
+        }
+        await message.save();
+
+        return {
+            success: true,
+            messageId: messageId,
+            contentLength: plaintextContent.length,
+            reportedBy: reportData.reportedBy,
+            backupCreated: true,
+            backupId: backup._id,
+            backupCreatedAt: new Date(),
+            retentionUntil: backup.retentionUntil
+        };
+
+    } catch (error) {
+        console.error('신고 메시지 백업 생성 실패:', error);
+        throw new Error('신고 메시지 백업 생성 실패: ' + error.message);
+    }
+};
+
+
 
 /**
  * 메시지를 읽음으로 표시
@@ -266,17 +520,23 @@ export const recordRoomEntry = async (roomId, userId, entryTime = null) => {
 };
 
 /**
- * 메시지 저장
+ * ⚠️ 기존 메시지 저장 함수 (deprecated - sender 타입 오류)
+ * 이 주석된 코드는 "sender에 객체 전체를 할당하는 치명적 버그"를 보여줍니다.
+ * 스키마에서 sender 필드는 ObjectId 타입인데, 여기서는 전체 사용자 객체를 할당하려 했습니다.
+ * 이로 인해 "CastError: Cast to ObjectId failed for value '[object Object]'" 에러가 발생했습니다.
+ * 
+ * ✅ 해결책: sender 필드에는 ObjectId(senderId)만 저장하고,
+ * 프로필 정보가 필요하면 populate()를 사용하거나 별도 필드에 저장해야 합니다.
  */
 // export const saveMessage = async (chatRoom, sender, text) => {
 //     try {
-//         // sender가 문자열(ID)일 경우, 사용자 정보 조회
+//         // ❌ 이 부분이 문제였음 - 객체를 ObjectId 필드에 할당
 //         if (typeof sender === 'string') {
 //             const user = await User.findById(sender);
 //             if (!user) {
 //                 throw new Error('사용자를 찾을 수 없습니다.');
 //             }
-//             sender = { _id: user._id,
+//             sender = { _id: user._id,  // ❌ 이것이 스키마 타입 불일치 원인
 //                 nickname: user.nickname,
 //                 lolNickname: user.lolNickname,
 //                 gender: user.gender,
@@ -285,10 +545,9 @@ export const recordRoomEntry = async (roomId, userId, entryTime = null) => {
 //                 photo: user.photo};
 //         }
 //
-//         // 메시지 저장 시 readBy 필드 초기화 (발신자는 자동으로 읽음 처리)
 //         const newMessage = new ChatMessage({
 //             chatRoom,
-//             sender,
+//             sender, // ❌ 여기서 객체가 ObjectId 필드에 들어감
 //             text,
 //             readBy: [{
 //                 user: sender._id,
@@ -302,44 +561,50 @@ export const recordRoomEntry = async (roomId, userId, entryTime = null) => {
 //     }
 // };
 
-export const saveMessage = async (chatRoom, senderId, text) => {
-    try {
-        // 1. senderId 유효성 검증 로직 (사용자님 제안)
-        // 함수 시작점에서 잘못된 데이터가 들어오는 것을 원천 차단합니다.
-        if (!senderId) {
-            throw new Error('senderId는 필수입니다.');
-        }
+/**
+ * 🔄 통합 메시지 저장 함수 (암호화 설정에 따라 자동 선택)
+ * @param {string} chatRoom - 채팅방 ID
+ * @param {string} senderId - 발송자 ID  
+ * @param {string} text - 메시지 텍스트
+ * @param {Object} metadata - 메타데이터 (선택적)
+ * @returns {Object} 저장된 메시지 객체
+ */
 
-        // 2. 스키마에 맞게 senderId를 직접 전달
-        // 불필요한 DB 조회 없이, 메시지 저장이라는 역할에만 집중합니다.
-        const newMessage = new ChatMessage({
-            chatRoom,
-            sender: senderId,
-            text,
-            readBy: [{
-                user: senderId,   // 발신자는 보낸 메시지를 바로 읽음 처리
-                readAt: new Date()
-            }]
-        });
-
-        return await newMessage.save();
-
-    } catch (error) {
-        // 3. 에러는 그대로 전달하여 호출부(예: socketIO.js)에서 처리하도록 합니다.
-        throw error;
-    }
-};
 
 /**
- * 특정 채팅방의 메시지 가져오기
- * @param {boolean} includeDeleted - true면 isDeleted 플래그에 관계없이 모두 조회
+ * 🔐 암호화된 메시지 저장
+ * @param {Object} messageData - 메시지 데이터
+ * @param {string} messageData.roomId - 채팅방 ID
+ * @param {string} messageData.senderId - 발송자 ID  
+ * @param {string} messageData.text - 메시지 텍스트
+ * @param {Object} messageData.metadata - 메타데이터 (선택적)
+ * @returns {Object} 저장된 메시지 객체
  */
-export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1, limit = 20) => {
+
+
+/**
+ * 특정 채팅방의 메시지 가져오기 (사용자용 - 자동 복호화)
+ * @param {string} roomId - 채팅방 ID
+ * @param {boolean} includeDeleted - true면 isDeleted 플래그에 관계없이 모두 조회
+ * @param {number} page - 페이지 번호
+ * @param {number} limit - 페이지당 메시지 수
+ * @param {string} requestUserId - 요청한 사용자 ID (권한 확인용)
+ * @returns {Object} 복호화된 메시지 목록
+ */
+export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1, limit = 20, requestUserId = null) => {
     const filter = includeDeleted
         ? { chatRoom: roomId }
         : { chatRoom: roomId, isDeleted: false };
 
-    const room = await ChatRoom.findById(roomId).select('roomType').lean();
+    const room = await ChatRoom.findById(roomId).select('roomType chatUsers').lean();
+    
+    // 권한 확인: 요청한 사용자가 해당 채팅방에 속해있는지 확인
+    if (requestUserId && room && !room.chatUsers.some(userId => userId.toString() === requestUserId.toString())) {
+        throw new Error('해당 채팅방에 접근할 권한이 없습니다.');
+    }
+
+    let messages;
+    let pagination;
 
     // 친구 채팅에만 시간 제한 및 페이지네이션 적용
     if (room && room.roomType === 'friend') {
@@ -350,7 +615,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
         const totalPages = Math.ceil(totalMessages / limit);
         const skip = (page - 1) * limit;
 
-        const messages = await ChatMessage.find(filter)
+        messages = await ChatMessage.find(filter)
             .populate('sender')
             .populate('readBy.user', 'nickname')
             .sort({ createdAt: -1 })
@@ -358,33 +623,90 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
             .limit(limit)
             .exec();
 
-        return {
-            messages: messages.reverse(),
-            pagination: {
-                currentPage: page,
-                totalPages,
-                totalMessages,
-                hasNextPage: page < totalPages
-            }
+        pagination = {
+            currentPage: page,
+            totalPages,
+            totalMessages,
+            hasNextPage: page < totalPages
         };
-    }
-
-    // 그 외 채팅방(랜덤 채팅 등)은 모든 메시지를 한 번에 반환 (기존 방식)
-    const messages = await ChatMessage.find(filter)
-        .populate('sender')
-        .populate('readBy.user', 'nickname')
-        .sort({ createdAt: 1 })
-        .exec();
-    
-    // API 응답 형식을 통일하기 위해 pagination 정보와 함께 반환
-    return {
-        messages: messages,
-        pagination: {
+        
+        messages = messages.reverse();
+    } else {
+        // 그 외 채팅방(랜덤 채팅 등)은 모든 메시지를 한 번에 반환
+        messages = await ChatMessage.find(filter)
+            .populate('sender')
+            .populate('readBy.user', 'nickname')
+            .sort({ createdAt: 1 })
+            .exec();
+        
+        pagination = {
             currentPage: 1,
             totalPages: 1,
             totalMessages: messages.length,
             hasNextPage: false
-        }
+        };
+    }
+
+    // 🔓 메시지 복호화 처리 (사용자용)
+    const decryptedMessages = await Promise.all(
+        messages.map(async (message) => {
+            const messageObj = message.toObject();
+            
+            try {
+                // 암호화된 메시지인 경우 복호화
+                if (messageObj.isEncrypted && messageObj.encryptedText) {
+                    const encryptedData = {
+                        encryptedText: messageObj.encryptedText,
+                        iv: messageObj.iv,
+                        tag: messageObj.tag
+                    };
+                    
+                    // ChatEncryption을 사용해 복호화
+                    const decryptedText = ChatEncryption.decryptMessage(encryptedData);
+                    
+                    // 암호화 관련 필드는 클라이언트에 노출하지 않음
+                    delete messageObj.encryptedText;
+                    delete messageObj.iv;
+                    delete messageObj.tag;
+                    delete messageObj.keywords;
+                    delete messageObj.messageHash;
+                    
+                    // 복호화된 텍스트를 text 필드에 설정
+                    messageObj.text = decryptedText;
+                    messageObj.isEncrypted = false; // 클라이언트에는 복호화된 상태로 전달
+                    
+                    console.log(`🔓 [메시지조회] 복호화 완료: ${messageObj._id} -> "${decryptedText.substring(0, 20)}..."`);
+                } else {
+                    // 평문 메시지는 그대로 유지
+                    console.log(`📝 [메시지조회] 평문 메시지: ${messageObj._id} -> "${(messageObj.text || '').substring(0, 20)}..."`);
+                }
+                
+                return messageObj;
+                
+            } catch (decryptError) {
+                console.error(`❌ [메시지조회] 복호화 실패: ${messageObj._id}`, decryptError);
+                
+                // 복호화 실패 시 오류 메시지로 대체
+                messageObj.text = '[메시지를 불러올 수 없습니다]';
+                messageObj.isEncrypted = false;
+                messageObj.isError = true;
+                
+                // 암호화 관련 필드 제거
+                delete messageObj.encryptedText;
+                delete messageObj.iv;
+                delete messageObj.tag;
+                delete messageObj.keywords;
+                delete messageObj.messageHash;
+                
+                return messageObj;
+            }
+        })
+    );
+
+    // API 응답 형식을 통일하여 반환
+    return {
+        messages: decryptedMessages,
+        pagination: pagination
     };
 };
 
@@ -551,10 +873,122 @@ export const saveSystemMessage = async (roomId, text) => {
     return await msg.save();
 };
 
+// ============================================================================
+//   🧪 채팅 암호화 관련 유틸리티 함수들 (완성됨)
+// ============================================================================
 
+/**
+ * 🧪 채팅 암호화 시스템 테스트 (개발자용)
+ */
+export const testChatEncryption = async () => {
+    try {
+        console.log('🧪 [시스템테스트] 채팅 암호화 통합 테스트 시작...');
+        
+        // 1. ChatEncryption 성능 테스트
+        const encryptionTest = ChatEncryption.performanceTest();
+        
+        if (!encryptionTest.success) {
+            throw new Error('암호화 기본 테스트 실패');
+        }
+        
+        // 2. 메시지 저장 테스트 (실제 DB 저장하지 않음)
+        const testMessageData = {
+            roomId: '507f1f77bcf86cd799439011', // 더미 ObjectId
+            senderId: '507f1f77bcf86cd799439012', // 더미 ObjectId  
+            text: '테스트 메시지입니다! Hello 123 암호화 테스트'
+        };
+        
+        console.log('💾 [시스템테스트] 메시지 저장 로직 테스트...');
+        
+        // 암호화 필드 생성 테스트 (실제 저장하지 않음)
+        const keywords = ChatEncryption.extractKeywords(testMessageData.text);
+        const hashedKeywords = keywords.map(k => ChatEncryption.hashKeyword(k));
+        const messageHash = ChatEncryption.hashMessage(testMessageData.text);
+        const encryptedData = ChatEncryption.encryptMessage(testMessageData.text);
+        
+        console.log('✅ [시스템테스트] 결과:');
+        console.log(`  🔐 암호화: ${encryptionTest.encryptTime}ms`);
+        console.log(`  🔓 복호화: ${encryptionTest.decryptTime}ms`);
+        console.log(`  📝 키워드 추출: ${keywords.length}개 (${keywords.join(', ')})`);
+        console.log(`  🔗 해시 키워드: ${hashedKeywords.length}개`);
+        console.log(`  🔒 메시지 해시: ${messageHash.substring(0, 16)}...`);
+        console.log(`  📦 암호화 데이터 크기: ${encryptedData.encryptedText.length} chars`);
+        
+        return {
+            success: true,
+            encryptionTest,
+            keywordCount: keywords.length,
+            hashCount: hashedKeywords.length,
+            encryptedSize: encryptedData.encryptedText.length
+        };
+        
+    } catch (error) {
+        console.error('❌ [시스템테스트] 실패:', error);
+        return { success: false, error: error.message };
+    }
+};
 
+/**
+ * 관리자용 메시지 조회 (암호화 상태 그대로)
+ * @param {string} roomId - 채팅방 ID
+ * @param {boolean} includeDeleted - 삭제된 메시지 포함 여부
+ * @param {number} page - 페이지 번호
+ * @param {number} limit - 페이지당 메시지 수
+ * @returns {Object} 암호화 상태 그대로의 메시지 목록 (관리자용)
+ */
+export const getMessagesByRoomForAdmin = async (roomId, includeDeleted = false, page = 1, limit = 20) => {
+    const filter = includeDeleted
+        ? { chatRoom: roomId }
+        : { chatRoom: roomId, isDeleted: false };
 
+    const room = await ChatRoom.findById(roomId).select('roomType').lean();
 
+    // 친구 채팅에만 시간 제한 및 페이지네이션 적용
+    if (room && room.roomType === 'friend') {
+        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        filter.createdAt = { $gte: twoDaysAgo };
 
+        const totalMessages = await ChatMessage.countDocuments(filter);
+        const totalPages = Math.ceil(totalMessages / limit);
+        const skip = (page - 1) * limit;
 
+        const messages = await ChatMessage.find(filter)
+            .populate('sender')
+            .populate('readBy.user', 'nickname')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .exec();
+
+        return {
+            messages: messages.reverse(),
+            pagination: {
+                currentPage: page,
+                totalPages,
+                totalMessages,
+                hasNextPage: page < totalPages
+            }
+        };
+    }
+
+    // 그 외 채팅방(랜덤 채팅 등)은 모든 메시지를 한 번에 반환 (기존 방식)
+    const messages = await ChatMessage.find(filter)
+        .populate('sender')
+        .populate('readBy.user', 'nickname')
+        .sort({ createdAt: 1 })
+        .exec();
+    
+    // 관리자용: 암호화 상태 그대로 반환 (복호화하지 않음)
+    console.log(`🔧 [관리자조회] 암호화 상태로 ${messages.length}개 메시지 반환`);
+    
+    return {
+        messages: messages,
+        pagination: {
+            currentPage: 1,
+            totalPages: 1,
+            totalMessages: messages.length,
+            hasNextPage: false
+        }
+    };
+};
 
