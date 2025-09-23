@@ -119,18 +119,18 @@ export const initializeSocket = (server) => {
                 // 3. DB 저장은 비동기로 암호화 처리
                 setImmediate(async () => {
                     try {
-                        console.log(`🔐 [실시간채팅] 메시지 비동기 저장 시작: "${text.substring(0, 20)}..."`); 
-                        
+                        console.log(`🔐 [실시간채팅] 메시지 비동기 저장 시작: "${text.substring(0, 20)}..."`);
+
                         // 환경변수에 따라 암호화/평문 저장
                         const savedMessage = await chatService.saveMessage(chatRoom, senderId, text, {
                             platform: 'socket',
                             userAgent: 'realtime-chat',
-                            ipHash: socket.handshake.address ? 
+                            ipHash: socket.handshake.address ?
                                 crypto.createHash('sha256').update(socket.handshake.address).digest('hex').substring(0, 16) : null
                         });
-                        
+
                         console.log(`✅ [실시간채팅] DB 저장 완료: ${savedMessage._id} (${savedMessage.isEncrypted ? '암호화' : '평문'})`);
-                        
+
                         // 저장 완료 후 ID 업데이트 알림 (선택적)
                         io.to(chatRoom).emit("messageStored", {
                             tempId: realtimeMessage._id,
@@ -138,10 +138,10 @@ export const initializeSocket = (server) => {
                             isEncrypted: savedMessage.isEncrypted,
                             storedAt: new Date()
                         });
-                        
+
                     } catch (saveError) {
                         console.error('❌ [실시간채팅] DB 저장 실패:', saveError);
-                        
+
                         // 저장 실패 알림
                         io.to(chatRoom).emit("messageStoreFailed", {
                             tempId: realtimeMessage._id,
@@ -160,21 +160,22 @@ export const initializeSocket = (server) => {
                 );
 
                 targets.forEach(uid => {
+                    const notificationText = text.length > 10 ? `${text.substring(0, 10)}...` : text;
                     io.to(uid.toString()).emit("chatNotification", {
                         chatRoom,
                         roomType: roomType,
                         message: realtimeMessage,
-                        notification: `${senderNick}: ${text}`,
+                        notification: `${senderNick}: ${notificationText}`,
                         timestamp: new Date()
                     });
                 });
 
-                callback({ 
-                    success: true, 
+                callback({
+                    success: true,
                     message: realtimeMessage,
                     encryptionEnabled: process.env.CHAT_ENCRYPTION_ENABLED === 'true'
                 });
-                
+
             } catch (err) {
                 console.error("❌ 메시지 처리 오류:", err);
                 callback({ success: false, error: err.message });
