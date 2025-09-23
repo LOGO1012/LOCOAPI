@@ -2,6 +2,7 @@
 import { Report } from '../models/report.js';
 import { User } from '../models/UserProfile.js';
 import {ReportNotification} from "../models/ReportNotification.js";
+import { createReportedMessageBackup } from './chatService.js'; // 추가
 
 /**
  * 신고 생성 함수
@@ -19,6 +20,29 @@ export const createReport = async (data) => {
             offenderNickname : offender?.nickname  || '',
             reportErNickname : reporter?.nickname || ''
         }).save();
+        
+        // 채팅 메시지 신고인 경우 백업 생성
+        if (data.targetType === 'message' && data.targetId) {
+            try {
+                console.log(`[신고처리] 메시지 백업 생성 시도: ${data.targetId}`);
+                
+                const backupResult = await createReportedMessageBackup(data.targetId, {
+                    reportedBy: data.reportErId,
+                    reason: data.reportCategory || 'other',
+                    reportId: report._id
+                });
+                
+                console.log(`[신고처리] 백업 결과:`, {
+                    success: backupResult.success,
+                    backupCreated: backupResult.backupCreated,
+                    contentLength: backupResult.contentLength
+                });
+                
+            } catch (backupError) {
+                console.error(`[신고처리] 메시지 백업 실패:`, backupError);
+                // 백업 실패해도 신고는 계속 진행
+            }
+        }
 
         /* ──────────────  추가: 가해자 numOfReport 증가 ────────────── */
         await User.findByIdAndUpdate(
