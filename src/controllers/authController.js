@@ -81,6 +81,14 @@ export const kakaoCallback = async (req, res, next) => {
                 status: "noUser",
                 kakaoUserData
             });
+        } else if (result.status === 'reactivation_possible') {
+            console.log('탈퇴한 사용자, 재활성화 필요');
+            return res.status(200).json({
+                message: "계정 재활성화 필요",
+                status: "reactivation_possible",
+                user: result.user,
+                socialData: kakaoUserData
+            });
         }
 
         // 이미 등록된 사용자라면, DB에서 해당 사용자 정보를 변수에 저장
@@ -109,7 +117,8 @@ export const kakaoCallback = async (req, res, next) => {
                 user,
             });
     } catch (err) {
-        next(err);
+        console.error('카카오 콜백 처리 중 오류:', err);
+        res.status(400).json({ success: false, message: err.message });
     }
 };                                                    // 원본 소셜 로그인 부분 참조 :contentReference[oaicite:0]{index=0}
 //---------------------카카오 콜백
@@ -272,4 +281,17 @@ export const logoutRedirect = (req, res) => {
     
     console.log('쿠키 삭제 후 프론트로 리다이렉트');
     return res.redirect(BASE_URL_FRONT);
+};
+
+export const setSocialSession = (req, res) => {
+    const { socialData, provider, deactivationCount } = req.body;
+    if (provider === 'kakao') {
+        req.session.kakaoUserData = socialData;
+    } else if (provider === 'naver') {
+        req.session.naverUserData = socialData;
+    }
+    if (deactivationCount !== undefined) {
+        req.session.deactivationCount = deactivationCount;
+    }
+    res.status(200).json({ success: true });
 };

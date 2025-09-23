@@ -57,6 +57,14 @@ export const naverCallback = async (req, res, next) => {
                 status: "noUser",
                 naverUserData
             });
+        } else if (result.status === 'reactivation_possible') {
+            console.log('탈퇴한 사용자, 재활성화 필요');
+            return res.status(200).json({
+                message: "계정 재활성화 필요",
+                status: "reactivation_possible",
+                user: result.user,
+                socialData: naverUserData
+            });
         }
         const user = result;
         console.log('DB에서 네이버 사용자 처리 결과:', user);
@@ -97,7 +105,8 @@ export const naverCallback = async (req, res, next) => {
                 user,
             });
     } catch (err) {
-        next(err);
+        console.error('네이버 콜백 처리 중 오류:', err);
+        res.status(400).json({ success: false, message: err.message });
     }
 };
 

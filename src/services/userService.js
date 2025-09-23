@@ -1,13 +1,17 @@
 // src/services/userService.js (암호화 및 캐시 통합 버전) - 최종 완성
+import mongoose from 'mongoose';
 import { normalizeBirthdate } from "../utils/normalizeBirthdate.js";
 import { normalizePhoneNumber } from "../utils/normalizePhoneNumber.js";
 import { ChatRoom } from '../models/chat.js';
 import { User } from '../models/UserProfile.js';
 import { FriendRequest } from "../models/FriendRequest.js";
 import { getMax, rechargeIfNeeded, REFILL_MS } from "../utils/chatQuota.js";
+import { UserHistory } from '../models/UserHistory.js';
 import * as onlineStatusService from "./onlineStatusService.js";
 import ComprehensiveEncryption from "../utils/encryption/comprehensiveEncryption.js";
 import IntelligentCache from "../utils/cache/intelligentCache.js";
+import { Community } from '../models/Community.js';
+import { Qna } from '../models/Qna.js';
 
 // ============================================================================
 //   소셜 로그인 관련 함수
@@ -112,6 +116,18 @@ export const findUserOrNoUser = async (kakaoUserData) => {
             return { status: 'noUser', ...kakaoUserData };
         }
 
+        if (existingUser.status === 'deactivated') {
+            const sevenDays = 7 * 24 * 60 * 60 * 1000;
+            if (existingUser.deactivatedAt && (new Date().getTime() - existingUser.deactivatedAt.getTime()) < sevenDays) {
+                const remainingTime = existingUser.deactivatedAt.getTime() + sevenDays - new Date().getTime();
+                const remainingDays = Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
+                throw new Error(`회원 탈퇴 후 7일 동안 재가입할 수 없습니다. ${remainingDays}일 남았습니다.`);
+            } else {
+                // 7 days have passed. Return a special status to frontend.
+                return { status: 'reactivation_possible', user: { _id: existingUser._id, nickname: existingUser.nickname, email: existingUser.email } };
+            }
+        }
+
         return existingUser;
     } catch (error) {
         console.error('User service error:', error.message);
@@ -199,6 +215,18 @@ export const findUserByNaver = async (naverUserData) => {
         if (!existingUser) {
             console.log('등록된 네이버 사용자가 없습니다. 회원가입이 필요합니다.');
             return { status: 'noUser', ...naverUserData };
+        }
+
+        if (existingUser.status === 'deactivated') {
+            const sevenDays = 7 * 24 * 60 * 60 * 1000;
+            if (existingUser.deactivatedAt && (new Date().getTime() - existingUser.deactivatedAt.getTime()) < sevenDays) {
+                const remainingTime = existingUser.deactivatedAt.getTime() + sevenDays - new Date().getTime();
+                const remainingDays = Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
+                throw new Error(`회원 탈퇴 후 7일 동안 재가입할 수 없습니다. ${remainingDays}일 남았습니다.`);
+            } else {
+                // 7 days have passed. Return a special status to frontend.
+                return { status: 'reactivation_possible', user: { _id: existingUser._id, nickname: existingUser.nickname, email: existingUser.email } };
+            }
         }
 
         return existingUser;
@@ -590,17 +618,20 @@ export const getBlockedUsersService = async (userId) => {
 // 새 사용자 생성 (KMS 암호화 적용) - 수정된 버전
 export const createUser = async (userData) => {
     try {
+        const { deactivationCount = 0, ...restUserData } = userData;
+
         console.log('🔧 createUser 시작 - 입력 데이터:', {
-            hasName: !!userData.name,
-            hasNickname: !!userData.nickname,
-            nickname: userData.nickname,
-            hasPhone: !!userData.phone,
-            hasBirthdate: !!userData.birthdate,
-            gender: userData.gender
+            hasName: !!restUserData.name,
+            hasNickname: !!restUserData.nickname,
+            nickname: restUserData.nickname,
+            hasPhone: !!restUserData.phone,
+            hasBirthdate: !!restUserData.birthdate,
+            gender: restUserData.gender,
+            deactivationCount
         });
 
         // 🔧 필수 필드 검증 (서비스 레벨에서도 한 번 더)
-        if (!userData.nickname || userData.nickname.trim() === '') {
+        if (!restUserData.nickname || restUserData.nickname.trim() === '') {
             throw new Error('nickname은 필수 필드입니다.');
         }
 
@@ -611,16 +642,16 @@ export const createUser = async (userData) => {
         if (process.env.ENABLE_ENCRYPTION === 'true') {
             try {
                 console.log('🔐 KMS 암호화 시작...');
-                encryptedUserData = await ComprehensiveEncryption.encryptUserData(userData);
+                encryptedUserData = await ComprehensiveEncryption.encryptUserData(restUserData);
                 console.log('✅ KMS 암호화 완료');
             } catch (encryptionError) {
                 console.error('❌ KMS 암호화 실패:', encryptionError.message);
                 console.log('🔄 암호화 비활성화로 폴백...');
-                encryptedUserData = { ...userData }; // 폴백: 원본 데이터 사용
+                encryptedUserData = { ...restUserData }; // 폴백: 원본 데이터 사용
             }
         } else {
             console.log('🔐 암호화 비활성화 모드: 원본 데이터 사용');
-            encryptedUserData = { ...userData };
+            encryptedUserData = { ...restUserData };
         }
 
         // 🔧 사용자 생성 전 데이터 확인
@@ -634,14 +665,17 @@ export const createUser = async (userData) => {
 
         // 🔧 필수 필드 강제 설정 (문제 해결)
         if (!encryptedUserData.nickname) {
-            encryptedUserData.nickname = userData.nickname;
+            encryptedUserData.nickname = restUserData.nickname;
         }
         if (!encryptedUserData.gender) {
-            encryptedUserData.gender = userData.gender || 'select';
+            encryptedUserData.gender = restUserData.gender || 'select';
         }
 
         // 🔧 User 모델 생성
-        const user = new User(encryptedUserData);
+        const user = new User({
+            ...encryptedUserData,
+            deactivationCount // 이관받은 탈퇴 횟수 설정
+        });
 
         console.log('🔧 User 인스턴스 생성 완료, KMS 암호화 데이터로 저장 시도 중...');
 
@@ -1123,4 +1157,127 @@ export const getUserAgeInfo = async (userId) => {
     } catch (error) {
         throw error;
     }
+};
+
+export const reactivateUserService = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error("사용자를 찾을 수 없습니다.");
+    }
+    if (user.status !== 'deactivated') {
+        throw new Error("이미 활성화된 계정입니다.");
+    }
+
+    user.status = 'active';
+    user.deactivatedAt = null;
+
+    await user.save();
+    await IntelligentCache.invalidateUserCache(userId);
+
+    return user;
+};
+
+export const deactivateUserService = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error("사용자를 찾을 수 없습니다.");
+    }
+    if (user.status === 'deactivated') {
+        throw new Error("이미 탈퇴한 회원입니다.");
+    }
+
+    const friendIds = user.friends; // 친구 목록 미리 저장
+
+    // 1. 내 친구 목록 비우기
+    user.friends = [];
+
+    // 2. 친구들의 목록에서 나를 제거
+    if (friendIds && friendIds.length > 0) {
+        await User.updateMany(
+            { _id: { $in: friendIds } },
+            { $pull: { friends: userId } }
+        );
+    }
+
+    // 3. 친구 채팅방 비활성화
+    await ChatRoom.updateMany(
+        { roomType: 'friend', chatUsers: userId },
+        { $set: { isActive: false } }
+    );
+
+    // 4. 커뮤니티 게시글 하드 딜리트
+    await Community.deleteMany({ userId: userId });
+
+    // 5. 다른 사람 글에 남긴 댓글/답글/대대댓글 소프트 딜리트
+    const now = new Date();
+    const userIdObj = new mongoose.Types.ObjectId(userId);
+
+    // 댓글 소프트 딜리트
+    await Community.updateMany(
+        { "comments.userId": userIdObj },
+        { $set: { "comments.$[elem].isDeleted": true, "comments.$[elem].deletedAt": now } },
+        { arrayFilters: [{ "elem.userId": userIdObj }] }
+    );
+
+    // 대댓글 소프트 딜리트
+    await Community.updateMany(
+        { "comments.replies.userId": userIdObj },
+        { $set: { "comments.$[].replies.$[elem].isDeleted": true, "comments.$[].replies.$[elem].deletedAt": now } },
+        { arrayFilters: [{ "elem.userId": userIdObj }] }
+    );
+
+    // 대대댓글 소프트 딜리트
+    await Community.updateMany(
+        { "comments.replies.subReplies.userId": userIdObj },
+        { $set: { "comments.$[].replies.$[].subReplies.$[elem].isDeleted": true, "comments.$[].replies.$[].subReplies.$[elem].deletedAt": now } },
+        { arrayFilters: [{ "elem.userId": userIdObj }] }
+    );
+
+    // 6. QnA 게시글 하드 딜리트
+    await Qna.deleteMany({ userId: userId });
+
+    user.status = 'deactivated';
+    user.deactivatedAt = now;
+    user.deactivationCount += 1;
+
+    await user.save();
+    await IntelligentCache.invalidateUserCache(userId);
+
+    // 친구들의 캐시도 무효화
+    if (friendIds && friendIds.length > 0) {
+        await Promise.all(
+            friendIds.map(friendId => IntelligentCache.invalidateUserCache(friendId))
+        );
+    }
+
+    return {
+        status: user.status,
+        deactivatedAt: user.deactivatedAt,
+    };
+};
+
+export const archiveAndPrepareNew = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new Error("사용자를 찾을 수 없습니다.");
+    }
+
+    // 1. Archive user data
+    const userHistory = new UserHistory({
+        originalUserId: user._id,
+        archivedData: user.toObject()
+    });
+    await userHistory.save();
+
+    // 2. Delete the original user
+    await User.findByIdAndDelete(userId);
+    
+    // 3. Invalidate cache
+    await IntelligentCache.invalidateUserCache(userId);
+
+    return { 
+        success: true, 
+        message: "기존 계정 정보가 보관처리 되었습니다.",
+        deactivationCount: user.deactivationCount 
+    };
 };

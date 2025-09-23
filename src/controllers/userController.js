@@ -3,8 +3,12 @@ import {
     acceptFriendRequestService, blockUserService, declineFriendRequestService,
     decrementChatCount, deleteFriend, getBlockedUsersService, getFriendRequests, getPaginatedFriends,
     getUserById,
-    getUserByNickname, sendFriendRequest, unblockUserService
+    getUserByNickname, sendFriendRequest, unblockUserService,
+    deactivateUserService,
+    reactivateUserService,
+    archiveAndPrepareNew
 } from "../services/userService.js";
+import jwt from 'jsonwebtoken';
 import { rateUser } from "../services/userService.js";
 import { User } from "../models/UserProfile.js";
 import {io} from "../socket/socketIO.js";
@@ -613,5 +617,64 @@ export const checkChangeAvailabilityController = async (req, res) => {
     } catch (error) {
         console.error('변경 가능 여부 확인 실패:', error);
         res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+    }
+};
+
+export const deactivateUser = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const result = await deactivateUserService(userId);
+        // Clear cookies on the client side upon successful deactivation
+        res.clearCookie('accessToken');
+        res.clearCookie('refreshToken');
+        res.status(200).json({ success: true, message: "회원 탈퇴가 완료되었습니다.", data: result });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+export const reactivateUser = async (req, res) => {
+    try {
+        const { userId } = req.body; // The user ID to reactivate
+        const user = await reactivateUserService(userId);
+        
+        // After reactivation, log the user in by issuing tokens
+        const payload = {
+            userId:  user._id,
+            // You might need to get kakaoId or naverId if they exist
+            name:    user.name,
+        };
+
+        const accessToken  = jwt.sign(payload, process.env.JWT_SECRET,     { expiresIn: "2h" });
+        const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: "7d" });
+
+        const cookieOptions = {
+            httpOnly: true,
+            secure:   process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path:     "/",
+        };
+
+        res
+            .cookie('accessToken',  accessToken,  { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000}) // 2 hours
+            .cookie('refreshToken', refreshToken, { ...cookieOptions , maxAge: 7*24*60*60*1000 })
+            .json({
+                message:     "계정이 성공적으로 재활성화되었습니다.",
+                status:      "success",
+                user,
+            });
+
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+export const archiveAndPrepareNewController = async (req, res) => {
+    try {
+        const { userId } = req.body;
+        const result = await archiveAndPrepareNew(userId);
+        res.status(200).json(result);
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
     }
 };
