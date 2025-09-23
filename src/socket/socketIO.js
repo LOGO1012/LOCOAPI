@@ -119,11 +119,12 @@ export const initializeSocket = (server) => {
                 );
 
                 targets.forEach(uid => {
+                    const notificationText = text.length > 10 ? `${text.substring(0, 10)}...` : text;
                     io.to(uid.toString()).emit("chatNotification", {
                         chatRoom,
                         roomType: roomType, // ✅ 실제 roomType 사용
                         message: messageWithNickname,
-                        notification: `${senderNick}: ${text}`,
+                        notification: `${senderNick}: ${notificationText}`,
                         timestamp: new Date()
                     });
                 });
