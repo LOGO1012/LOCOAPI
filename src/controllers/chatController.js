@@ -8,9 +8,26 @@ import {ChatRoomExit} from "../models/chat.js";
 export const createRoom = async (req, res) => {
     try {
         const { roomType, capacity, matchedGender, ageGroup } = req.body;
-        const room = await chatService.createChatRoom(roomType, capacity, matchedGender, ageGroup);
+        
+        // 🔄 ageGroup 값 변환 (다양한 형태 지원)
+        let normalizedAgeGroup = ageGroup;
+        if (ageGroup) {
+            // 연령대 문자열을 adult/minor로 변환
+            if (ageGroup.includes('성인') || ageGroup.includes('20') || ageGroup.includes('30') || ageGroup.includes('40') || ageGroup.includes('50') || ageGroup === 'adult') {
+                normalizedAgeGroup = 'adult';
+            } else if (ageGroup.includes('미성년') || ageGroup.includes('10') || ageGroup.includes('청소년') || ageGroup === 'minor') {
+                normalizedAgeGroup = 'minor';
+            } else {
+                // 기본값: 성인으로 처리
+                normalizedAgeGroup = 'adult';
+            }
+            console.log(`🔄 [ageGroup 변환] "${ageGroup}" → "${normalizedAgeGroup}"`);
+        }
+        
+        const room = await chatService.createChatRoom(roomType, capacity, matchedGender, normalizedAgeGroup);
         res.status(201).json(room);
     } catch (error) {
+        console.error('[chatController.createRoom] error:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -118,7 +135,7 @@ export const sendMessage = async (req, res) => {
 };
 
 /**
- * 특정 채팅방의 메시지 가져오기
+ * 특정 채팅방의 메시지 가져오기 (사용자용 - 자동 복호화)
  */
 export const getMessages = async (req, res) => {
     try {
@@ -126,15 +143,21 @@ export const getMessages = async (req, res) => {
         const includeDeleted = req.query.includeDeleted === 'true';
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
+        
+        // 요청한 사용자 ID (인증 미들웨어에서 설정되거나 쿼리에서 전달)
+        const requestUserId = req.user?.id || req.query.userId;
 
         const result = await chatService.getMessagesByRoom(
             req.params.roomId,
             includeDeleted,
             page,
-            limit
+            limit,
+            requestUserId  // 사용자 ID 전달
         );
+        
         res.status(200).json(result);
     } catch (error) {
+        console.error('메시지 조회 실패:', error);
         res.status(500).json({ error: error.message });
     }
 };
