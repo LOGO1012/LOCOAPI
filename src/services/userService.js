@@ -12,6 +12,7 @@ import ComprehensiveEncryption from "../utils/encryption/comprehensiveEncryption
 import IntelligentCache from "../utils/cache/intelligentCache.js";
 import { Community } from '../models/Community.js';
 import { Qna } from '../models/Qna.js';
+import {containsProfanity} from "../utils/profanityFilter.js";
 
 // ============================================================================
 //   소셜 로그인 관련 함수
@@ -618,6 +619,10 @@ export const getBlockedUsersService = async (userId) => {
 // 새 사용자 생성 (KMS 암호화 적용) - 수정된 버전
 export const createUser = async (userData) => {
     try {
+        if (userData.info && containsProfanity(userData.info)) {
+            throw new Error('자기소개에 비속어를 사용할 수 없습니다.');
+        }
+
         const { deactivationCount = 0, ...restUserData } = userData;
 
         console.log('🔧 createUser 시작 - 입력 데이터:', {

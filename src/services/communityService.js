@@ -2,6 +2,7 @@ import { Community } from '../models/Community.js';
 import PageResponseDTO from '../../src/dto/common/PageResponseDTO.js';
 import cron from "node-cron";
 import {User} from "../models/UserProfile.js"; // 파일 경로를 실제 경로에 맞게 수정하세요.
+import { containsProfanity, filterProfanity } from '../utils/profanityFilter.js';
 
 export const getCommunitiesPage = async (
     pageRequestDTO,
@@ -113,6 +114,11 @@ const generateAnonymousNickname = () => {
 
 // 커뮤니티 생성
 export const createCommunity = async (data) => {
+    // 욕설 포함 여부 확인
+    if (containsProfanity(data.communityTitle) || containsProfanity(data.communityContents)) {
+        throw new Error('제목이나 내용에 비속어가 포함되어 있어 게시글을 생성할 수 없습니다.');
+    }
+
     // ✅ 익명 처리 로직 추가
     if (data.isAnonymous) {
         data.userNickname = '익명';
@@ -130,6 +136,11 @@ export const createCommunity = async (data) => {
 
 // 커뮤니티 업데이트
 export const updateCommunity = async (id, data) => {
+    // 욕설 포함 여부 확인
+    if (containsProfanity(data.communityTitle) || containsProfanity(data.communityContents)) {
+        throw new Error('제목이나 내용에 비속어가 포함되어 있어 게시글을 수정할 수 없습니다.');
+    }
+
     // ✅ 익명 처리 로직 추가
     if (data.isAnonymous) {
         data.userNickname = '익명';
@@ -200,6 +211,9 @@ export const cancelRecommendCommunity = async (id, userId) => {
 
 // 댓글 추가: 댓글 데이터를 community.comments 배열에 추가하고, commentCount 1 증가
 export const addComment = async (communityId, commentData) => {
+    // 욕설 필터링
+    commentData.commentContents = filterProfanity(commentData.commentContents);
+
     // ✅ 익명 댓글 처리
     if (commentData.isAnonymous) {
         // commentData.anonymousNickname = generateAnonymousNickname();
@@ -218,6 +232,9 @@ export const addComment = async (communityId, commentData) => {
 
 // 대댓글 추가: 특정 댓글의 replies 배열에 새 대댓글을 추가하고, commentCount는 그대로 유지
 export const addReply = async (communityId, commentId, replyData) => {
+    // 욕설 필터링
+    replyData.commentContents = filterProfanity(replyData.commentContents);
+
     // ✅ 익명 대댓글 처리
     if (replyData.isAnonymous) {
         // replyData.anonymousNickname = generateAnonymousNickname();
@@ -235,6 +252,9 @@ export const addReply = async (communityId, commentId, replyData) => {
 
 // 대대댓글 추가: community.comments 배열 내에서 특정 comment와 그 reply를 찾아 subReplies에 추가
 export const addSubReply = async (communityId, commentId, replyId, subReplyData) => {
+    // 욕설 필터링
+    subReplyData.commentContents = filterProfanity(subReplyData.commentContents);
+
     // ✅ 익명 대대댓글 처리
     if (subReplyData.isAnonymous) {
         // subReplyData.anonymousNickname = generateAnonymousNickname();
@@ -386,8 +406,7 @@ export const deleteReply = async (communityId, commentId, replyId) => {
                 },
                 $inc: { commentCount: -1 }
             },
-            {
-                new: true,
+            { new: true,
                 arrayFilters: [
                     { "c._id": commentId },
                     { "r._id": replyId }

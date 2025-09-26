@@ -5,6 +5,7 @@ import * as userService from "../services/userService.js";
 import * as onlineStatusService from '../services/onlineStatusService.js';
 import mongoose from "mongoose";
 import crypto from 'crypto';
+import { filterProfanity } from '../utils/profanityFilter.js';
 
 export let io;
 
@@ -92,13 +93,16 @@ export const initializeSocket = (server) => {
             }
         });
 
-        // 💬 메시지 전송 이벤트 - 암호화 통합 버전
+        // 💬 메시지 전송 이벤트 - 암호화 및 욕설 필터링 통합 버전
         socket.on("sendMessage", async ({ chatRoom, sender, text, roomType = 'random' }, callback) => {
             try {
                 const senderId = typeof sender === "object" ? sender._id : sender;
                 const senderObjId = new mongoose.Types.ObjectId(senderId);
 
-                // 1. 실시간 전송용 데이터 (평문)
+                // 욕설 필터링 적용
+                const filteredText = filterProfanity(text);
+
+                // 1. 실시간 전송용 데이터 (필터링된 텍스트 사용)
                 const senderUser = await userService.getUserById(senderId);
                 const senderNick = senderUser ? senderUser.nickname : "알 수 없음";
 
@@ -106,7 +110,7 @@ export const initializeSocket = (server) => {
                     _id: new mongoose.Types.ObjectId(), // 임시 ID
                     chatRoom,
                     sender: { id: senderId, nickname: senderNick },
-                    text: text, // 실시간은 평문 전송
+                    text: filteredText, // 필터링된 텍스트를 클라이언트에 전송
                     textTime: new Date(),
                     isEncrypted: false,
                     roomType: roomType,
@@ -116,7 +120,7 @@ export const initializeSocket = (server) => {
                 // 2. 실시간 전송 (빠른 응답)
                 io.to(chatRoom).emit("receiveMessage", realtimeMessage);
 
-                // 3. DB 저장은 비동기로 암호화 처리
+                // 3. DB 저장은 비동기로 처리 (원본 text를 전달하면 saveMessage 내부에서 필터링 및 암호화)
                 setImmediate(async () => {
                     try {
                         console.log(`🔐 [실시간채팅] 메시지 비동기 저장 시작: "${text.substring(0, 20)}..."`);
@@ -151,7 +155,7 @@ export const initializeSocket = (server) => {
                     }
                 });
 
-                // 4. 개인 알림 전송 (기존 로직 유지)
+                // 4. 개인 알림 전송 (필터링된 텍스트 사용)
                 const roomDoc = await ChatRoom.findById(chatRoom);
                 const exitedUsers = await ChatRoomExit.distinct("user", { chatRoom });
                 const targets = roomDoc.chatUsers.filter(uid =>
@@ -160,7 +164,7 @@ export const initializeSocket = (server) => {
                 );
 
                 targets.forEach(uid => {
-                    const notificationText = text.length > 10 ? `${text.substring(0, 10)}...` : text;
+                    const notificationText = filteredText.length > 10 ? `${filteredText.substring(0, 10)}...` : filteredText;
                     io.to(uid.toString()).emit("chatNotification", {
                         chatRoom,
                         roomType: roomType,
