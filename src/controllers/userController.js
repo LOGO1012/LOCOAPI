@@ -14,8 +14,16 @@ import { User } from "../models/UserProfile.js";
 import {io} from "../socket/socketIO.js";
 import {getLoLRecordByRiotId} from "../middlewares/getLoLRecordBySummonerName.js";
 import {FriendRequest} from "../models/FriendRequest.js";
-import { saveNicknameHistory, saveGenderHistory, getTodayNicknameChangeCount, getTodayGenderChangeCount, getLastNicknameChangeTime, getLastGenderChangeTime } from '../services/historyService.js';
-import { getNicknameHistory, getGenderHistory } from '../services/historyService.js';
+import {
+    saveNicknameHistory,
+    saveGenderHistory,
+    getTodayNicknameChangeCount,
+    getTodayGenderChangeCount,
+    getLastNicknameChangeTime,
+    getLastGenderChangeTime,
+    getGenderHistory, getNicknameHistory
+} from '../services/historyService.js';
+import { containsProfanity } from '../utils/profanityFilter.js';
 
 // 총 유저 수 함수
 export const getUserCountController = async (req, res) => {
@@ -108,6 +116,10 @@ export const updateUserProfile = async (req, res) => {
         const { userId } = req.params;
         const updateData = req.body;
 
+        if (updateData.info && containsProfanity(updateData.info)) {
+            return res.status(400).json({ message: '자기소개에 비속어를 사용할 수 없습니다.' });
+            }
+
         // 현재 사용자 정보 조회
         const currentUser = await User.findById(userId);
         if (!currentUser) {
@@ -182,7 +194,7 @@ export const updateUserProfile = async (req, res) => {
 
     } catch (error) {
         console.error('프로필 업데이트 실패:', error);
-        res.status(500).json({ message: '서버 오류가 발생했습니다.' });
+        res.status(400).json({ message: error.message || '프로필 업데이트 중 오류가 발생했습니다.' });
     }
 };
 
@@ -466,6 +478,14 @@ export const checkNicknameController = async (req, res) => {
     try {
         const { nickname } = req.params;
         const { userId } = req.query; // 수정 시 자신의 ID는 제외하기 위함
+
+        // 욕설 필터링 추가
+        if (containsProfanity(nickname)) {
+            return res.status(400).json({
+                available: false,
+                message: '비속어는 닉네임으로 사용할 수 없습니다.'
+            });
+        }
 
         console.log('닉네임 중복 체크:', nickname, 'userId:', userId);
 
