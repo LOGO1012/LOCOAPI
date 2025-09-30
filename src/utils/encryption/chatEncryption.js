@@ -44,7 +44,7 @@ class ChatEncryption {
                 tag: tag.toString('base64')
             };
             
-            console.log(`채팅암호화 성공: ${text.length}자 → ${result.encryptedText.length}자`);
+            // console.log(`채팅암호화 성공: ${text.length}자 → ${result.encryptedText.length}자`); // 성능 최적화: 주석처리
             return result;
             
         } catch (error) {
@@ -81,7 +81,7 @@ class ChatEncryption {
             let decrypted = decipher.update(encryptedBuffer, null, 'utf8');
             decrypted += decipher.final('utf8');
             
-            console.log(`채팅복호화 성공: ${encryptedText.length}자 → ${decrypted.length}자`);
+            // console.log(`채팅복호화 성공: ${encryptedText.length}자 → ${decrypted.length}자`); // 성능 최적화: 주석처리
             return decrypted;
             
         } catch (error) {

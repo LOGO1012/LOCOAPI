@@ -78,8 +78,9 @@ export const getAllChatRooms = async (filters) => {
     const limit = parseInt(filters.limit) || 10;
     const skip  = (page - 1) * limit;
 
+    // 🔧 blockedUsers 필드도 함께 populate (차단 관계 확인용)
     const rooms = await ChatRoom.find(query)
-        .populate('chatUsers')
+        .populate('chatUsers', 'nickname gender blockedUsers profilePhoto lolNickname star info photo')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit);
@@ -323,84 +324,84 @@ export const saveEncryptedMessage = async (messageData) => {
     }
 };
 
-/**
- * 🚨 신고된 메시지 백업 생성 (법적 대응용)
- * @param {string} messageId - 메시지 ID
- * @param {Object} reportData - 신고 데이터
- * @returns {Object} 백업 생성 결과
- */
-export const createReportedMessageBackup = async (messageId, reportData) => {
-    try {
-        const message = await ChatMessage.findById(messageId);
-        if (!message) {
-            throw new Error('신고할 메시지를 찾을 수 없습니다');
-        }
-
-        let plaintextContent;
-
-        // 암호화된 메시지인 경우 복호화
-        if (message.isEncrypted && message.encryptedText) {
-            const encryptedData = {
-                encryptedText: message.encryptedText,
-                iv: message.iv,
-                tag: message.tag
-            };
-            plaintextContent = ChatEncryption.decryptMessage(encryptedData);
-        } else {
-            plaintextContent = message.text || '[내용 없음]';
-        }
-
-        // 기존 백업이 있는지 확인
-        const existingBackup = await ReportedMessageBackup.findOne({
-            originalMessageId: messageId
-        });
-
-        let backup;
-        if (existingBackup) {
-            // 이미 백업이 있으면 신고자만 추가
-            if (!existingBackup.reportedBy.includes(reportData.reportedBy)) {
-                existingBackup.reportedBy.push(reportData.reportedBy);
-            }
-            existingBackup.reportReason = reportData.reason || 'other';
-            backup = await existingBackup.save();
-        } else {
-            // 새 백업 생성
-            backup = new ReportedMessageBackup({
-                originalMessageId: messageId,
-                plaintextContent: plaintextContent,
-                reportedBy: reportData.reportedBy,
-                reportReason: reportData.reason || 'other',
-                backupReason: 'legal_compliance',
-                retentionUntil: new Date(Date.now() + (3 * 365 * 24 * 60 * 60 * 1000)) // 3년 보관
-            });
-            backup = await backup.save();
-        }
-
-        // 원본 메시지에 신고 표시
-        message.isReported = true;
-        message.reportedAt = new Date();
-        if (!message.reportedBy) message.reportedBy = [];
-        if (!message.reportedBy.includes(reportData.reportedBy)) {
-            message.reportedBy.push(reportData.reportedBy);
-        }
-        await message.save();
-
-        return {
-            success: true,
-            messageId: messageId,
-            contentLength: plaintextContent.length,
-            reportedBy: reportData.reportedBy,
-            backupCreated: true,
-            backupId: backup._id,
-            backupCreatedAt: new Date(),
-            retentionUntil: backup.retentionUntil
-        };
-
-    } catch (error) {
-        console.error('신고 메시지 백업 생성 실패:', error);
-        throw new Error('신고 메시지 백업 생성 실패: ' + error.message);
-    }
-};
+// /**
+//  * 🚨 신고된 메시지 백업 생성 (법적 대응용)
+//  * @param {string} messageId - 메시지 ID
+//  * @param {Object} reportData - 신고 데이터
+//  * @returns {Object} 백업 생성 결과
+//  */
+// export const createReportedMessageBackup = async (messageId, reportData) => {
+//     try {
+//         const message = await ChatMessage.findById(messageId);
+//         if (!message) {
+//             throw new Error('신고할 메시지를 찾을 수 없습니다');
+//         }
+//
+//         let plaintextContent;
+//
+//         // 암호화된 메시지인 경우 복호화
+//         if (message.isEncrypted && message.encryptedText) {
+//             const encryptedData = {
+//                 encryptedText: message.encryptedText,
+//                 iv: message.iv,
+//                 tag: message.tag
+//             };
+//             plaintextContent = ChatEncryption.decryptMessage(encryptedData);
+//         } else {
+//             plaintextContent = message.text || '[내용 없음]';
+//         }
+//
+//         // 기존 백업이 있는지 확인
+//         const existingBackup = await ReportedMessageBackup.findOne({
+//             originalMessageId: messageId
+//         });
+//
+//         let backup;
+//         if (existingBackup) {
+//             // 이미 백업이 있으면 신고자만 추가
+//             if (!existingBackup.reportedBy.includes(reportData.reportedBy)) {
+//                 existingBackup.reportedBy.push(reportData.reportedBy);
+//             }
+//             existingBackup.reportReason = reportData.reason || 'other';
+//             backup = await existingBackup.save();
+//         } else {
+//             // 새 백업 생성
+//             backup = new ReportedMessageBackup({
+//                 originalMessageId: messageId,
+//                 plaintextContent: plaintextContent,
+//                 reportedBy: reportData.reportedBy,
+//                 reportReason: reportData.reason || 'other',
+//                 backupReason: 'legal_compliance',
+//                 retentionUntil: new Date(Date.now() + (3 * 365 * 24 * 60 * 60 * 1000)) // 3년 보관
+//             });
+//             backup = await backup.save();
+//         }
+//
+//         // 원본 메시지에 신고 표시
+//         message.isReported = true;
+//         message.reportedAt = new Date();
+//         if (!message.reportedBy) message.reportedBy = [];
+//         if (!message.reportedBy.includes(reportData.reportedBy)) {
+//             message.reportedBy.push(reportData.reportedBy);
+//         }
+//         await message.save();
+//
+//         return {
+//             success: true,
+//             messageId: messageId,
+//             contentLength: plaintextContent.length,
+//             reportedBy: reportData.reportedBy,
+//             backupCreated: true,
+//             backupId: backup._id,
+//             backupCreatedAt: new Date(),
+//             retentionUntil: backup.retentionUntil
+//         };
+//
+//     } catch (error) {
+//         console.error('신고 메시지 백업 생성 실패:', error);
+//         throw new Error('신고 메시지 백업 생성 실패: ' + error.message);
+//     }
+// };
 
 
 
@@ -675,10 +676,15 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
                     messageObj.text = decryptedText;
                     messageObj.isEncrypted = false; // 클라이언트에는 복호화된 상태로 전달
                     
-                    console.log(`🔓 [메시지조회] 복호화 완료: ${messageObj._id} -> "${decryptedText.substring(0, 20)}..."`);
+                    // 성능 최적화: 메시지 복호화 로그는 디버그 모드에서만 출력
+                    if (process.env.NODE_ENV === 'development' && process.env.LOG_LEVEL === 'debug') {
+                        console.log(`🔓 [메시지조회] 복호화 완료: ${messageObj._id} -> "${decryptedText.substring(0, 20)}..."`);  
+                    }
                 } else {
                     // 평문 메시지는 그대로 유지
-                    console.log(`📝 [메시지조회] 평문 메시지: ${messageObj._id} -> "${(messageObj.text || '').substring(0, 20)}..."`);
+                    if (process.env.NODE_ENV === 'development' && process.env.LOG_LEVEL === 'debug') {
+                        console.log(`📝 [메시지조회] 평문 메시지: ${messageObj._id} -> "${(messageObj.text || '').substring(0, 20)}..."`);  
+                    }
                 }
                 
                 return messageObj;
@@ -990,5 +996,204 @@ export const getMessagesByRoomForAdmin = async (roomId, includeDeleted = false, 
             hasNextPage: false
         }
     };
+};
+
+// ============================================================================
+//   🚨 신고된 메시지 백업 시스템 (법적 대응용)
+// ============================================================================
+
+/**
+ * 신고된 메시지 백업 생성 (법적 대응용)
+ * @param {string} messageId - 신고된 메시지 ID
+ * @param {object} reportData - 신고 정보 { reportedBy, reason, reportId }
+ * @returns {object} 백업 생성 결과
+ */
+export const createReportedMessageBackup = async (messageId, reportData) => {
+    try {
+        console.log(`🔒 [백업생성] 시작: ${messageId}`);
+        console.log(`🔒 [백업생성] reportData:`, reportData);
+        
+        // 1. 원본 메시지 조회
+        const originalMessage = await ChatMessage.findById(messageId)
+            .populate('sender', 'nickname')
+            .lean();
+            
+        if (!originalMessage) {
+            console.error(`❌ [백업생성] 메시지 없음: ${messageId}`);
+            throw new Error('원본 메시지를 찾을 수 없습니다');
+        }
+        
+        console.log(`📄 [백업생성] 메시지 정보:`, {
+            _id: originalMessage._id,
+            isEncrypted: originalMessage.isEncrypted,
+            hasText: !!originalMessage.text,
+            hasEncryptedText: !!originalMessage.encryptedText
+        });
+        
+        // 2. 이미 백업이 존재하는지 확인
+        let backup = await ReportedMessageBackup.findOne({ 
+            originalMessageId: messageId 
+        });
+        
+        console.log(`🔍 [백업생성] 기존 백업 존재:`, !!backup);
+        
+        let plaintextContent = '';
+        
+        // 3. 메시지 복호화 (암호화된 경우)
+        if (originalMessage.isEncrypted && originalMessage.encryptedText) {
+            try {
+                console.log('🔐 [백업생성] 암호화된 메시지 복호화 시도...');
+                
+                // ✅ ChatEncryption 사용 (채팅 전용)
+                const encryptedData = {
+                    encryptedText: originalMessage.encryptedText,
+                    iv: originalMessage.iv,
+                    tag: originalMessage.tag
+                };
+                
+                plaintextContent = ChatEncryption.decryptMessage(encryptedData);
+                
+                console.log(`✅ [백업생성] 복호화 성공, 길이: ${plaintextContent.length}`);
+            } catch (decryptError) {
+                console.error('❌ [백업생성] 복호화 실패:', decryptError.message);
+                console.error('❌ [백업생성] 복호화 스택:', decryptError.stack);
+                plaintextContent = `[복호화 실패] Error: ${decryptError.message} | 암호화 데이터 길이: ${originalMessage.encryptedText?.length || 0}`;
+            }
+        } else {
+            // 평문 메시지인 경우
+            plaintextContent = originalMessage.text || '[메시지 내용 없음]';
+            console.log(`📝 [백업생성] 평문 메시지, 길이: ${plaintextContent.length}`);
+        }
+        
+        if (backup) {
+            // 4. 기존 백업이 있으면 신고자만 추가
+            console.log(`♻️ [백업생성] 기존 백업 업데이트`);
+            
+            if (!backup.reportedBy.includes(reportData.reportedBy)) {
+                backup.reportedBy.push(reportData.reportedBy);
+                await backup.save();
+                console.log('✅ [백업생성] 신고자 추가 완료');
+            } else {
+                console.log('ℹ️ [백업생성] 이미 신고한 사용자');
+            }
+        } else {
+            // 5. 새 백업 생성
+            console.log(`🆕 [백업생성] 새 백업 생성`);
+            
+            const retentionDate = new Date();
+            retentionDate.setFullYear(retentionDate.getFullYear() + 3); // 3년 후
+            
+            backup = new ReportedMessageBackup({
+                originalMessageId: messageId,
+                plaintextContent: plaintextContent,
+                reportedBy: [reportData.reportedBy],
+                reportReason: reportData.reason || 'other',  // ✅ enum 값
+                backupReason: 'legal_compliance',
+                retentionUntil: retentionDate
+            });
+            
+            const saved = await backup.save();
+            console.log('✅ [백업생성] 저장 완료, _id:', saved._id);
+        }
+        
+        // ✅ 저장 확인
+        const verifyBackup = await ReportedMessageBackup.findOne({ 
+            originalMessageId: messageId 
+        });
+        
+        console.log(`🔍 [백업생성] 저장 검증:`, {
+            exists: !!verifyBackup,
+            backupId: verifyBackup?._id,
+            contentLength: verifyBackup?.plaintextContent?.length,
+            reportReason: verifyBackup?.reportReason
+        });
+        
+        return {
+            success: true,
+            backupCreated: true,
+            messageId: messageId,
+            backupId: backup._id,
+            contentLength: plaintextContent.length,
+            reportersCount: backup.reportedBy.length,
+            reportReason: backup.reportReason,
+            verified: !!verifyBackup
+        };
+        
+    } catch (error) {
+        console.error('❌ [백업생성] 예외:', error);
+        console.error('❌ [백업생성] 스택:', error.stack);
+        
+        return {
+            success: false,
+            error: error.message,
+            messageId: messageId,
+            stack: error.stack
+        };
+    }
+};
+
+/**
+ * 관리자용 메시지 복호화 및 접근 로그 기록
+ * @param {string} messageId - 메시지 ID 
+ * @param {string} adminId - 관리자 ID
+ * @param {string} purpose - 접근 목적
+ * @param {string} ipAddress - IP 주소
+ * @param {string} userAgent - User Agent
+ * @returns {string} 복호화된 메시지 내용
+ */
+export const decryptMessageForAdmin = async (messageId, adminId, purpose, ipAddress, userAgent) => {
+    try {
+        console.log(`🔍 [관리자접근] 메시지 복호화 요청: ${messageId}`);
+        
+        // 1. 백업된 메시지 조회
+        const backup = await ReportedMessageBackup.findOne({ 
+            originalMessageId: messageId 
+        });
+        
+        if (backup) {
+            // 2. 접근 로그 기록
+            backup.accessLog.push({
+                accessedBy: adminId,
+                purpose: purpose || 'admin_review',
+                ipAddress: ipAddress,
+                userAgent: userAgent
+            });
+            await backup.save();
+            
+            console.log('✅ [관리자접근] 백업에서 복호화된 내용 반환');
+            return backup.plaintextContent;
+        }
+        
+        // 3. 백업이 없으면 실시간 복호화
+        const originalMessage = await ChatMessage.findById(messageId).lean();
+        if (!originalMessage) {
+            throw new Error('메시지를 찾을 수 없습니다');
+        }
+        
+        if (originalMessage.isEncrypted && originalMessage.encryptedText) {
+            const encryptedData = {
+                method: 'KMS',
+                version: '2.0',
+                data: {
+                    iv: originalMessage.iv,
+                    data: originalMessage.encryptedText,
+                    authTag: originalMessage.tag
+                }
+            };
+            
+            const decrypted = await ComprehensiveEncryption.decryptPersonalInfo(
+                JSON.stringify(encryptedData)
+            );
+            
+            console.log('✅ [관리자접근] 실시간 복호화 완료');
+            return decrypted;
+        }
+        
+        return originalMessage.text || '[메시지 내용 없음]';
+        
+    } catch (error) {
+        console.error('❌ [관리자접근] 복호화 실패:', error.message);
+        throw error;
+    }
 };
 

@@ -240,7 +240,10 @@ class OptimalKMSEncryption {
             const decrypted = this.performAESDecryption(encryptedObj.data, plaintextKey);
             
             this.stats.kmsOperations++;
-            console.log('✅ KMS 복호화 완료');
+            // 성능 최적화: KMS 복호화 로그는 디버그 모드에서만 출력
+            if (process.env.NODE_ENV === 'development' && process.env.LOG_LEVEL === 'debug') {
+                console.log('✅ KMS 복호화 완료');
+            }
             return decrypted;
         } catch (error) {
             console.error('❌ KMS 복호화 실패:', error.message);

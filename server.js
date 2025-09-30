@@ -14,6 +14,7 @@ import cookieParser from "cookie-parser";
 
 // 환경변수 로드 후 모듈 import
 import developerRoutes from './src/routes/developerRoutes.js';
+import adminRoutes from './src/routes/adminRoutes.js';
 import authRoutes from './src/routes/authRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
 import productRoutes from './src/routes/productRoutes.js';
@@ -179,6 +180,7 @@ app.get('/api/debug/editor-uploads', (req, res) => {
 
 // 라우터 등록
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/product', productRoutes);
 app.use('/api/kakao-pay', kakaoPayRoutes);
