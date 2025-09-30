@@ -313,12 +313,11 @@ export const registerUserProfile = async (req, res, next) => {
             requestData: req.body
         });
         
-        // 에러 응답 반환
-        return res.status(500).json({
+        // 에러 응답 반환 (400 상태 코드와 구체적인 메시지 사용)
+        return res.status(400).json({
             success: false,
-            message: '회원가입 처리 중 서버 오류가 발생했습니다.',
-            error: 'INTERNAL_SERVER_ERROR',
-            debug: process.env.NODE_ENV === 'development' ? error.message : undefined
+            message: error.message || '회원가입 처리 중 오류가 발생했습니다.',
+            error: error.name || 'SIGNUP_FAILED'
         });
     }
 };

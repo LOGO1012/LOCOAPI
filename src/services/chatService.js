@@ -4,6 +4,7 @@ import { ChatRoomHistory } from "../models/chatRoomHistory.js";
 import ChatEncryption from '../utils/encryption/chatEncryption.js';
 import ComprehensiveEncryption from '../utils/encryption/comprehensiveEncryption.js';
 import ReportedMessageBackup from '../models/reportedMessageBackup.js';
+import { filterProfanity } from '../utils/profanityFilter.js';
 
 /**
  * 새로운 채팅방 생성
@@ -220,13 +221,16 @@ export const saveMessage = async (chatRoom, senderId, text, metadata = {}) => {
             throw new Error('senderId는 필수입니다.');
         }
 
-        // 2. 환경변수로 암호화 여부 결정
+        // 2. 욕설 필터링
+        const filteredText = filterProfanity(text);
+
+        // 3. 환경변수로 암호화 여부 결정
         const encryptionEnabled = process.env.CHAT_ENCRYPTION_ENABLED === 'true';
         
         const messageData = {
             roomId: chatRoom,
             senderId: senderId,
-            text: text,
+            text: filteredText, // 필터링된 텍스트 사용
             metadata: metadata
         };
         
@@ -239,7 +243,7 @@ export const saveMessage = async (chatRoom, senderId, text, metadata = {}) => {
             const newMessage = new ChatMessage({
                 chatRoom,
                 sender: senderId,
-                text,
+                text: filteredText, // 필터링된 텍스트 사용
                 isEncrypted: false, // 명시적으로 평문임을 표시
                 readBy: [{
                     user: senderId,

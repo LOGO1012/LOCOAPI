@@ -121,7 +121,8 @@ export const createCommunity = async (req, res) => {
         const created = await communityService.createCommunity(data);
         res.status(201).json(created);
     } catch (err) {
-        res.status(500).json({ message: '글 생성 실패', err });
+        // 서비스에서 보낸 특정 에러 메시지를 사용하고, 상태 코드를 400으로 변경
+        res.status(400).json({ message: err.message });
     }
 };
 
@@ -139,7 +140,8 @@ export const updateCommunity = async (req, res) => {
         if (!updated) return res.status(404).json({ message: '존재하지 않는 글' });
         res.status(200).json(updated);
     } catch (err) {
-        res.status(500).json({ message: '글 수정 실패', err });
+        // 서비스에서 보낸 특정 에러 메시지를 사용하고, 상태 코드를 400으로 변경
+        res.status(400).json({ message: err.message });
     }
 };
 
