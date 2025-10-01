@@ -437,7 +437,7 @@ export const getPaginatedFriendsController = async (req, res) => {
 // 알림 설정 변경 (PATCH /:userId/prefs)
 export const updateUserPrefsController = async (req, res) => {
     const { userId } = req.params;
-    const { friendReqEnabled, chatPreviewEnabled  } = req.body;
+    const { friendReqEnabled, chatPreviewEnabled, wordFilterEnabled } = req.body; // ✅ wordFilterEnabled 추가
 
     try {
         // ✅ 업데이트할 데이터 객체 생성
@@ -445,15 +445,18 @@ export const updateUserPrefsController = async (req, res) => {
         if (typeof friendReqEnabled === 'boolean') {
             updateData.friendReqEnabled = friendReqEnabled;
         }
-        if (typeof chatPreviewEnabled === 'boolean') { // ✅ 추가
+        if (typeof chatPreviewEnabled === 'boolean') {
             updateData.chatPreviewEnabled = chatPreviewEnabled;
+        }
+        if (typeof wordFilterEnabled === 'boolean') { // ✅ 추가
+            updateData.wordFilterEnabled = wordFilterEnabled;
         }
 
         // ✅ 업데이트 실행
         const updated = await User.findByIdAndUpdate(
             userId,
-            updateData, // 동적으로 생성된 업데이트 객체 사용
-            { new: true, select: 'friendReqEnabled chatPreviewEnabled' } // ✅ 필드 추가
+            updateData,
+            { new: true, select: 'friendReqEnabled chatPreviewEnabled wordFilterEnabled' } // ✅ 필드 추가
         );
 
         if (!updated) {
@@ -696,5 +699,49 @@ export const archiveAndPrepareNewController = async (req, res) => {
         res.status(200).json(result);
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * 욕설 필터 설정 업데이트 (만 19세 이상만 가능)
+ * PATCH /api/users/:userId/word-filter
+ */
+export const updateWordFilter = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { wordFilterEnabled } = req.body;
+        
+        // 사용자 조회
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ 
+                success: false,
+                error: '사용자를 찾을 수 없습니다.' 
+            });
+        }
+        
+        // 나이 확인 (19세 이상만)
+        if (!user.calculatedAge || user.calculatedAge < 19) {
+            return res.status(403).json({ 
+                success: false,
+                error: '만 19세 이상만 설정할 수 있습니다.',
+                isMinor: true
+            });
+        }
+        
+        // 설정 업데이트
+        user.wordFilterEnabled = wordFilterEnabled;
+        await user.save();
+        
+        res.json({ 
+            success: true, 
+            wordFilterEnabled: user.wordFilterEnabled 
+        });
+    } catch (error) {
+        console.error('욕설 필터 설정 업데이트 실패:', error);
+        res.status(500).json({ 
+            success: false,
+            error: error.message 
+        });
     }
 };
