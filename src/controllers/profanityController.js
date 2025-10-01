@@ -82,3 +82,15 @@ export const deleteWord = (req, res) => {
         res.status(500).json({ success: false, message: '단어 삭제에 실패했습니다.', error: error.message });
     }
 };
+
+export const getAllWordsForFilter = (req, res) => {
+    try {
+        const allWords = reloadBadWords();
+        res.status(200).json({
+            success: true,
+            words: allWords,
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '목록을 불러오는 데 실패했습니다.', error: error.message });
+    }
+};
