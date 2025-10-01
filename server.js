@@ -27,7 +27,6 @@ import reportRoutes from "./src/routes/reportRoutes.js";
 import reportNotificationRoutes from "./src/routes/reportNotificationRoutes.js";
 import prRoutes from "./src/routes/prRoutes.js";
 import onlineStatusRoutes from './src/routes/onlineStatusRoutes.js';
-import searchRouter from './src/routes/searchRouter.js';
 import newsRoutes from './src/routes/newsRoutes.js';
 import editorRoutes from './src/routes/editorRoutes.js';
 import bannerRoutes from './src/routes/bannerRoutes.js';
@@ -190,7 +189,7 @@ app.use('/api/developer', developerRoutes);
 app.use('/api/profanity', profanityRoutes); // 비속어 관리 라우트 추가
 app.use('/api/online-status', onlineStatusRoutes);
 
-app.use('/api/search', searchRouter);
+
 app.use('/api/news', newsRoutes);
 app.use('/api/editor', editorRoutes);
 app.use('/api/banners', bannerRoutes);
