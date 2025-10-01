@@ -40,7 +40,7 @@ const reportSchema = new Schema({
     // 신고 구역 (예: 채팅, 커뮤니티 등)
     reportArea: {
         type: String,
-        enum: ['프로필', '커뮤니티'], // 신고 구역: 어느 영역에서 발생한 신고인지
+        enum: ['프로필','친구채팅', '랜덤채팅', '커뮤니티'], // 신고 구역: 어느 영역에서 발생한 신고인지
         required: true
     },
     // 신고 카테고리 (예: 욕설, 정치 등)
