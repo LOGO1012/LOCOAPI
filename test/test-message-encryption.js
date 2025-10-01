@@ -13,7 +13,7 @@ await mongoose.connect(MONGO_URI);
 console.log('✅ MongoDB 연결 성공');
 
 // 채팅 서비스 import
-import * as chatService from './src/services/chatService.js';
+import * as chatService from '../src/services/chatService.js';
 
 console.log('\n🧪 채팅 암호화 시스템 테스트 시작...');
 

@@ -1,7 +1,7 @@
 // utils/chatQuota.js
-const BASE = 30;                                    // 기본 허용
+const BASE = 50;                                    // 기본 허용
 const BONUS = { basic: 10, standard: 20, premium: 30 };
-export const REFILL_MS = 1 * 60 * 1000;        // 2 h → 7 200 000 ms
+export const REFILL_MS = 1 * 60 * 1000 * 20;        // 2 h → 7 200 000 ms
 
 export const getMax = (planType = 'basic') =>
     BASE + (BONUS[planType] || 0);

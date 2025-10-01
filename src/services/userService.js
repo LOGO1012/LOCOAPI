@@ -40,10 +40,10 @@ export const findUserOrNoUser = async (kakaoUserData) => {
                 User, 'kakao', kakaoUserData.kakaoId
             );
             if (existingUser) {
-                console.log("✅ 카카오 해시 기반 로그인 성공");
-                return existingUser;
+                console.log("✅ 카카오 해시 기반 사용자 발견");
+            } else {
+                console.log("🔍 카카오 해시 검색 결과: 없음");
             }
-            console.log("🔍 카카오 해시 검색 결과: 없음");
         } catch (error) {
             console.warn("⚠️ 카카오 해시 검색 실패:", error.message);
         }
@@ -52,8 +52,7 @@ export const findUserOrNoUser = async (kakaoUserData) => {
         if (!existingUser) {
             existingUser = await User.findOne({ 'social.kakao.providerId': kakaoUserData.kakaoId });
             if (existingUser) {
-                console.log("✅ 구 방식 카카오 로그인 성공");
-                return existingUser;
+                console.log("✅ 구 방식 카카오 사용자 발견");
             }
         }
 
@@ -131,10 +130,10 @@ export const findUserByNaver = async (naverUserData) => {
                 User, 'naver', naverUserData.naverId
             );
             if (existingUser) {
-                console.log("✅ 네이버 해시 기반 로그인 성공");
-                return existingUser;
+                console.log("✅ 네이버 해시 기반 사용자 발견");
+            } else {
+                console.log("🔍 네이버 해시 검색 결과: 없음");
             }
-            console.log("🔍 네이버 해시 검색 결과: 없음");
         } catch (error) {
             console.warn("⚠️ 네이버 해시 검색 실패:", error.message);
         }
@@ -143,8 +142,7 @@ export const findUserByNaver = async (naverUserData) => {
         if (!existingUser) {
             existingUser = await User.findOne({ 'social.naver.providerId': naverUserData.naverId });
             if (existingUser) {
-                console.log("✅ 구 방식 네이버 로그인 성공");
-                return existingUser;
+                console.log("✅ 구 방식 네이버 사용자 발견");
             }
         }
 

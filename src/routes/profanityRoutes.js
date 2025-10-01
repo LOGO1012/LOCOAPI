@@ -1,10 +1,13 @@
 // LOCOAPI/src/routes/profanityRoutes.js
 import express from 'express';
-import { getWords, addWord, deleteWord } from '../controllers/profanityController.js';
+import { getWords, addWord, deleteWord, getAllWordsForFilter } from '../controllers/profanityController.js';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
 
 const router = express.Router();
+
+// 클라이언트 필터링을 위한 공개 엔드포인트
+router.get('/list', getAllWordsForFilter);
 
 // 이 라우터의 모든 경로는 인증 및 userLv 3 이상 필요
 router.use(authenticate, requireLevel(3));
