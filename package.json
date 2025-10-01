@@ -11,7 +11,7 @@
     "test:redis": "node scripts/testRedisConnection.js",
     "setup:kms": "node scripts/setupKMS.js",
     "setup:kms:create-key": "node scripts/setupKMS.js --create-key",
-    "test:kms": "node aws-kms-test-fixed.js",
+    "test:kms": "node test/aws-kms-test-fixed.js",
     "test:encryption": "node scripts/setupKMS.js --test-only",
     "quick:kms-test": "node quick-kms-test.js",
     "create:kms-key": "node create-loco-kms-key.js"
