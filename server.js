@@ -17,21 +17,16 @@ import developerRoutes from './src/routes/developerRoutes.js';
 import adminRoutes from './src/routes/adminRoutes.js';
 import authRoutes from './src/routes/authRoutes.js';
 import userRoutes from './src/routes/userRoutes.js';
-import productRoutes from './src/routes/productRoutes.js';
-import kakaoPayRoutes from './src/routes/kakaoPayRoutes.js';
-import naverPayRoutes from './src/routes/naverPayRoutes.js';
 import chatRoutes from './src/routes/chatRoutes.js';
 import communityRoutes from './src/routes/communityRoutes.js';
 import { initializeSocket } from './src/socket/socketIO.js';
 import connectMongoDB from './src/config/mongoDB.js';
-import './src/scheduler/recurringSubscriptions.js';
 import qnaRoutes from "./src/routes/qnaRoutes.js";
 import uploadRoutes from './src/routes/uploadRoutes.js';
 import reportRoutes from "./src/routes/reportRoutes.js";
 import reportNotificationRoutes from "./src/routes/reportNotificationRoutes.js";
 import prRoutes from "./src/routes/prRoutes.js";
 import onlineStatusRoutes from './src/routes/onlineStatusRoutes.js';
-import searchRouter from './src/routes/searchRouter.js';
 import newsRoutes from './src/routes/newsRoutes.js';
 import editorRoutes from './src/routes/editorRoutes.js';
 import bannerRoutes from './src/routes/bannerRoutes.js';
@@ -183,9 +178,6 @@ app.get('/api/debug/editor-uploads', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
-app.use('/api/product', productRoutes);
-app.use('/api/kakao-pay', kakaoPayRoutes);
-app.use('/api/naver-pay', naverPayRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/communities', communityRoutes);
 app.use('/api/qna', qnaRoutes);
@@ -197,7 +189,7 @@ app.use('/api/developer', developerRoutes);
 app.use('/api/profanity', profanityRoutes); // 비속어 관리 라우트 추가
 app.use('/api/online-status', onlineStatusRoutes);
 
-app.use('/api/search', searchRouter);
+
 app.use('/api/news', newsRoutes);
 app.use('/api/editor', editorRoutes);
 app.use('/api/banners', bannerRoutes);

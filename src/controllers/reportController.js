@@ -177,7 +177,7 @@ export const replyToReport = async (req, res) => {
 
 /**
  * 🔒 신고된 메시지 평문 내용 조회 (관리자용)
- * 
+ *
  * ReportedMessageBackup에서 평문으로 저장된 내용을 가져옵니다.
  * - 암호화 복호화 불필요 (이미 평문으로 저장됨)
  * - 접근 로그 기록
@@ -187,76 +187,76 @@ export const replyToReport = async (req, res) => {
 export const getReportedMessagePlaintext = async (req, res) => {
     try {
         const { id: reportId } = req.params;
-        
+
         console.log(`🔍 [평문조회] 신고 ID: ${reportId}`);
-        
+
         // 1. 신고 조회
         const report = await Report.findById(reportId).lean();
         if (!report) {
-            return res.status(404).json({ 
+            return res.status(404).json({
                 success: false,
-                message: 'Report not found' 
+                message: 'Report not found'
             });
         }
-        
+
         // 2. 채팅 신고가 아니면 오류
         if (report.anchor?.type !== 'chat' || !report.anchor?.targetId) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                message: 'This report is not a message report' 
+                message: 'This report is not a message report'
             });
         }
-        
+
         const messageId = report.anchor.targetId;
         const roomId = report.anchor.roomId;
         console.log(`📝 [평문조회] 메시지 ID: ${messageId}, 방 ID: ${roomId}`);
-        
+
         // 3. ReportedMessageBackup에서 평문 조회
         const { default: ReportedMessageBackup } = await import('../models/reportedMessageBackup.js');
-        
-        const backup = await ReportedMessageBackup.findOne({ 
-            originalMessageId: messageId 
+
+        const backup = await ReportedMessageBackup.findOne({
+            originalMessageId: messageId
         })
-        .populate('reportedBy', 'nickname')
-        .lean();
-        
+            .populate('reportedBy', 'nickname')
+            .lean();
+
         if (!backup) {
             console.log(`⚠️ [평문조회] 백업을 찾을 수 없음`);
-            return res.status(404).json({ 
+            return res.status(404).json({
                 success: false,
-                message: 'Backup not found for this message' 
+                message: 'Backup not found for this message'
             });
         }
-        
+
         console.log(`✅ [평문조회] 백업 발견: ${backup._id}`);
-        
+
         // ✅ 4. 동일 채팅방의 모든 신고된 메시지 조회
         const allReportsInRoom = await Report.find({
             'anchor.type': 'chat',
             'anchor.roomId': roomId
         }).lean();
-        
+
         console.log(`📊 [평문조회] 동일 방 신고 건수: ${allReportsInRoom.length}건`);
-        
+
         // 모든 신고된 메시지 ID 모으기
         const reportedMessageIds = allReportsInRoom.map(r => r.anchor.targetId);
-        
+
         // 모든 백업 메시지 조회
         const allBackups = await ReportedMessageBackup.find({
             originalMessageId: { $in: reportedMessageIds }
         })
-        .populate('reportedBy', 'nickname')
-        .lean();
-        
+            .populate('reportedBy', 'nickname')
+            .lean();
+
         // ChatMessage에서 시간 정보 가져오기
         const messages = await ChatMessage.find({
             _id: { $in: reportedMessageIds }
         })
-        .select('_id createdAt sender')
-        .populate('sender', 'nickname')
-        .sort({ createdAt: 1 })
-        .lean();
-        
+            .select('_id createdAt sender')
+            .populate('sender', 'nickname')
+            .sort({ createdAt: 1 })
+            .lean();
+
         // 메시지 매핑 (시간순)
         const messagesWithBackup = messages.map(msg => {
             const backupData = allBackups.find(b => b.originalMessageId.toString() === msg._id.toString());
@@ -269,9 +269,9 @@ export const getReportedMessagePlaintext = async (req, res) => {
                 isCurrentReport: msg._id.toString() === messageId.toString()
             };
         });
-        
+
         console.log(`✅ [평문조회] 총 ${messagesWithBackup.length}개 메시지 조회 완료`);
-        
+
         // 5. 접근 로그 기록
         const adminId = req.user?._id || req.body?.adminId;
         if (adminId) {
@@ -287,7 +287,7 @@ export const getReportedMessagePlaintext = async (req, res) => {
             });
             console.log(`📝 [평문조회] 접근 로그 기록: ${adminId}`);
         }
-        
+
         // 6. 응답 데이터 구성
         const response = {
             success: true,
@@ -316,29 +316,29 @@ export const getReportedMessagePlaintext = async (req, res) => {
                 roomType: report.reportArea // '친구채팅' 또는 '랜덤채팅'
             }
         };
-        
+
         console.log(`✅ [평문조회] 조회 성공`);
         res.status(200).json(response);
-        
+
     } catch (error) {
         console.error('❌ [평문조회] 실패:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
             message: 'Failed to fetch plaintext message',
-            error: error.message 
+            error: error.message
         });
     }
 };
 
 /**
  * 🚀 최적화된 신고 채팅 로그 조회 함수
- * 
+ *
  * 최적화 전략:
  * 1. 선별적 데이터 조회 (컨텍스트만 상세 정보)
  * 2. 최소 필드 select
  * 3. 조건부 populate
  * 4. Map을 사용한 빠른 검색
- * 
+ *
  * 성능: 1000개 메시지 기준 0.3초 (기존 3초 대비 10배 향상)
  */
 export const getReportChatLog = async (req, res) => {
@@ -362,7 +362,7 @@ export const getReportChatLog = async (req, res) => {
             const chatRoomHistory = await ChatRoomHistory.findOne({ chatRoomId: roomId })
                 .select('meta.roomType')
                 .lean();
-            
+
             if (!chatRoomHistory) {
                 return res.status(404).json({ message: 'ChatRoom not found' });
             }
@@ -371,7 +371,7 @@ export const getReportChatLog = async (req, res) => {
 
         // ===== 2단계: 신고된 메시지 조회 (시간 정보만) =====
         console.log(`🔍 [최적화] 신고 메시지 ID: ${reportedMessageId}`);
-        
+
         const reportedMessage = await ChatMessage.findById(reportedMessageId)
             .select('_id createdAt')
             .lean();
@@ -396,7 +396,7 @@ export const getReportChatLog = async (req, res) => {
                 .limit(30)
                 .select('_id')
                 .lean(),
-            
+
             // 이후 30개
             ChatMessage
                 .find({
