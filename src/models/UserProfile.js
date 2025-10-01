@@ -267,6 +267,11 @@ const userSchema = new Schema({
         type: Boolean,
         default: true // 기본값은 활성화
     },
+    // 욕설 필터 설정 (만 19세 이상만 설정 가능)
+    wordFilterEnabled: {
+        type: Boolean,
+        default: true // ✅ 기본값: ON (필터링 함)
+    },
     status: {
         type: String,
         enum: ['active', 'deactivated'],

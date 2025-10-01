@@ -604,6 +604,15 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
     if (requestUserId && room && !room.chatUsers.some(userId => userId.toString() === requestUserId.toString())) {
         throw new Error('해당 채팅방에 접근할 권한이 없습니다.');
     }
+    
+    // ✅ 요청자의 욕설 필터 설정 확인
+    let shouldFilter = false; // 기본값: 필터링 안함
+    if (requestUserId) {
+        const requestUser = await User.findById(requestUserId)
+            .select('wordFilterEnabled');
+        shouldFilter = requestUser?.wordFilterEnabled === true;
+        console.log(`🔍 [메시지조회] 사용자: ${requestUserId}, 필터링: ${shouldFilter ? 'ON' : 'OFF'}`);
+    }
 
     let messages;
     let pagination;
@@ -673,8 +682,8 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
                     delete messageObj.keywords;
                     delete messageObj.messageHash;
                     
-                    // 복호화된 텍스트를 text 필드에 설정
-                    messageObj.text = filterProfanity(decryptedText); // ✅ 필터링 추가
+                    // ✅ 복호화된 텍스트를 text 필드에 설정 (사용자 설정에 따라 필터링)
+                    messageObj.text = shouldFilter ? filterProfanity(decryptedText) : decryptedText;
                     messageObj.isEncrypted = false; // 클라이언트에는 복호화된 상태로 전달
                     
                     // 성능 최적화: 메시지 복호화 로그는 디버그 모드에서만 출력
@@ -682,8 +691,9 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
                         console.log(`🔓 [메시지조회] 복호화 완료: ${messageObj._id} -> "${decryptedText.substring(0, 20)}..."`);  
                     }
                 } else {
-                    // 평문 메시지는 필터링 추가
-                    messageObj.text = filterProfanity(messageObj.text || ''); // ✅ 필터링 추가
+                    // ✅ 평문 메시지 (사용자 설정에 따라 필터링)
+                    const originalText = messageObj.text || '';
+                    messageObj.text = shouldFilter ? filterProfanity(originalText) : originalText;
                     if (process.env.NODE_ENV === 'development' && process.env.LOG_LEVEL === 'debug') {
                         console.log(`📝 [메시지조회] 평문 메시지: ${messageObj._id} -> "${(messageObj.text || '').substring(0, 20)}..."`);  
                     }
