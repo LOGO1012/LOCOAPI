@@ -8,7 +8,6 @@ import { requireLevel } from '../middlewares/requireLevel.js';
 import { ChatMessage, ChatRoom } from '../models/chat.js';
 import { ChatRoomHistory } from '../models/chatRoomHistory.js';
 import { Community } from '../models/Community.js';
-import { PaymentHistory } from '../models/PaymentHistory.js';
 import { Qna } from '../models/Qna.js';
 import { Report } from '../models/report.js';
 import { ReportNotification } from '../models/ReportNotification.js';
@@ -35,22 +34,6 @@ router.use(
     })
 );
 
-// // ▶ 채팅방 검색 (라이브)
-// router.use(
-//     createSearchRouter({
-//         path: 'chat-rooms',
-//         Model: ChatRoom,
-//         textFields: ['meta.chatUsers.nickname', 'meta.chatUsers.name'],
-//         btreeFields: [
-//             'chatUsers',
-//             'roomType',
-//             'gameType',
-//             'matchedGender',
-//             'status',
-//             'ageGroup'
-//         ]
-//     })
-// );
 
 // ▶ 라이브 채팅방 검색 (DTO 기반 createSearchRouter)
 router.use(
@@ -92,15 +75,6 @@ router.use(
     })
 );
 
-// ▶ 결제 내역 검색
-router.use(
-    createSearchRouter({
-        path: 'payments',
-        Model: PaymentHistory,
-        textFields: ['payId', 'paymentMethod'],
-        btreeFields: ['userId', 'paymentId', 'payStatus']
-    })
-);
 
 // ▶ QnA 검색
 router.use(
