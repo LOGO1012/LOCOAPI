@@ -98,14 +98,18 @@ export const initializeSocket = (server) => {
 
                 console.log(`📤 [메시지전송] 시작: "${text.substring(0, 20)}..." (방: ${chatRoom})`);
 
-                // 1. 욕설 필터링 (실시간 표시용)
-                const filteredText = filterProfanity(text);
-
-                // 2. 발신자 정보 조회
+                // 1. 발신자 정보 조회 (wordFilterEnabled 포함)
                 const senderUser = await userService.getUserById(senderId);
                 const senderNick = senderUser ? senderUser.nickname : "알 수 없음";
+                
+                // 2. 사용자 설정에 따라 욕설 필터링 결정
+                // wordFilterEnabled가 true면 필터링, false 또는 없으면 원본
+                const shouldFilter = senderUser?.wordFilterEnabled === true;
+                const filteredText = shouldFilter ? filterProfanity(text) : text;
+                
+                console.log(`🔍 [필터링설정] 사용자: ${senderNick}, 필터링: ${shouldFilter ? 'ON' : 'OFF'}`);
 
-                // 3. DB 저장 (원본 text 전달, saveMessage 내부에서 다시 필터링)
+                // 3. DB 저장 (원본 text 전달)
                 const savedMessage = await chatService.saveMessage(chatRoom, senderId, text, {
                     platform: 'socket',
                     userAgent: 'realtime-chat',

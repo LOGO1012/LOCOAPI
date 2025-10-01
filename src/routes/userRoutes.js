@@ -23,7 +23,8 @@ import {
     checkChangeAvailabilityController,
     deactivateUser,
     reactivateUser,
-    archiveAndPrepareNewController
+    archiveAndPrepareNewController,
+    updateWordFilter
 } from "../controllers/userController.js";
 import { authenticate } from '../middlewares/authMiddleware.js';
 
@@ -141,5 +142,8 @@ router.post("/reactivate", reactivateUser);
 
 // 신규 가입을 위한 기존 계정 아카이브
 router.post("/archive-and-prepare-new", archiveAndPrepareNewController);
+
+// 욕설 필터 설정 (만 19세 이상만)
+router.patch('/:userId/word-filter', authenticate, updateWordFilter);
 
 export default router;
