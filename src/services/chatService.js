@@ -221,29 +221,26 @@ export const saveMessage = async (chatRoom, senderId, text, metadata = {}) => {
             throw new Error('senderId는 필수입니다.');
         }
 
-        // 2. 욕설 필터링
-        const filteredText = filterProfanity(text);
-
-        // 3. 환경변수로 암호화 여부 결정
+        // 2. 환경변수로 암호화 여부 결정
         const encryptionEnabled = process.env.CHAT_ENCRYPTION_ENABLED === 'true';
         
         const messageData = {
             roomId: chatRoom,
             senderId: senderId,
-            text: filteredText, // 필터링된 텍스트 사용
+            text: text, // 원본 텍스트 사용 (필터링 제거)
             metadata: metadata
         };
         
         if (encryptionEnabled) {
-            console.log('🔐 [메시지저장] 암호화 모드로 저장');
+            console.log('🔐 [메시지저장] 암호화 모드로 저장 (원본)');
             return await saveEncryptedMessage(messageData);
         } else {
-            console.log('📝 [메시지저장] 평문 모드로 저장');
+            console.log('📝 [메시지저장] 평문 모드로 저장 (원본)');
             // 기존 방식 유지 (하위 호환성)
             const newMessage = new ChatMessage({
                 chatRoom,
                 sender: senderId,
-                text: filteredText, // 필터링된 텍스트 사용
+                text: text, // 원본 텍스트 사용 (필터링 제거)
                 isEncrypted: false, // 명시적으로 평문임을 표시
                 readBy: [{
                     user: senderId,
@@ -677,7 +674,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
                     delete messageObj.messageHash;
                     
                     // 복호화된 텍스트를 text 필드에 설정
-                    messageObj.text = decryptedText;
+                    messageObj.text = filterProfanity(decryptedText); // ✅ 필터링 추가
                     messageObj.isEncrypted = false; // 클라이언트에는 복호화된 상태로 전달
                     
                     // 성능 최적화: 메시지 복호화 로그는 디버그 모드에서만 출력
@@ -685,7 +682,8 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
                         console.log(`🔓 [메시지조회] 복호화 완료: ${messageObj._id} -> "${decryptedText.substring(0, 20)}..."`);  
                     }
                 } else {
-                    // 평문 메시지는 그대로 유지
+                    // 평문 메시지는 필터링 추가
+                    messageObj.text = filterProfanity(messageObj.text || ''); // ✅ 필터링 추가
                     if (process.env.NODE_ENV === 'development' && process.env.LOG_LEVEL === 'debug') {
                         console.log(`📝 [메시지조회] 평문 메시지: ${messageObj._id} -> "${(messageObj.text || '').substring(0, 20)}..."`);  
                     }
