@@ -19,96 +19,71 @@ import {containsProfanity} from "../utils/profanityFilter.js";
 // ============================================================================
 
 
-// 카카오 로그인 시 사용자 찾기 또는 회원가입 필요 판단
-//역할:
-// 카카오 ID로 기존 사용자 검색
-// 없으면 이름+전화번호+생년월일로 기존 계정 찾기
-// 기존 계정에 카카오 정보 병합
-// 완전 신규면 회원가입 필요 알림
+// ✅ 개선된 카카오 로그인 - 복호화 없이 해시 기반으로만 처리
+// 역할:
+// 1. 카카오 ID 해시로 직접 검색 (복호화 없음)
+// 2. 전화번호 해시로 기존 계정 찾기 (복호화 없음)
+// 3. 기존 계정에 카카오 정보 연결
+// 4. 완전 신규면 회원가입 필요 알림
 export const findUserOrNoUser = async (kakaoUserData) => {
     try {
-        const normalizedBirthdate = normalizeBirthdate(kakaoUserData.birthyear, kakaoUserData.birthday);
         const normalizedPhone = normalizePhoneNumber(kakaoUserData.phoneNumber);
-
-        console.log("DEBUG: 카카오 데이터 - 이름:", kakaoUserData.name,
-            "전화번호:", normalizedPhone,
-            "원본 birthday:", kakaoUserData.birthday,
-            "Normalized Birthdate:", normalizedBirthdate);
+        
+        console.log("✅ [개선된 카카오 로그인] 해시 기반 검색 시작");
+        console.log(`카카오 ID: ${kakaoUserData.kakaoId}, 전화번호: ${normalizedPhone}`);
 
         let existingUser = null;
 
-        if (process.env.ENABLE_ENCRYPTION === 'true') {
-            try {
-                existingUser = await ComprehensiveEncryption.findUserBySocialId(
-                    User, 'kakao', kakaoUserData.kakaoId
-                );
-                console.log("DEBUG: 해시 기반 카카오 검색 결과:", !!existingUser);
-            } catch (error) {
-                console.warn("해시 기반 검색 실패, 기존 방식 사용:", error);
+        // 1단계: 카카오 ID 해시로 직접 검색 (가장 효율적)
+        try {
+            existingUser = await ComprehensiveEncryption.findUserBySocialId(
+                User, 'kakao', kakaoUserData.kakaoId
+            );
+            if (existingUser) {
+                console.log("✅ 카카오 해시 기반 로그인 성공");
+                return existingUser;
             }
+            console.log("🔍 카카오 해시 검색 결과: 없음");
+        } catch (error) {
+            console.warn("⚠️ 카카오 해시 검색 실패:", error.message);
         }
 
+        // 2단계: 구 방식 카카오 ID로 검색 (하위 호환성)
         if (!existingUser) {
             existingUser = await User.findOne({ 'social.kakao.providerId': kakaoUserData.kakaoId });
-            console.log("DEBUG: 기존 방식 카카오 검색 결과:", !!existingUser);
+            if (existingUser) {
+                console.log("✅ 구 방식 카카오 로그인 성공");
+                return existingUser;
+            }
         }
 
-        if (!existingUser && kakaoUserData.name && normalizedPhone && normalizedBirthdate) {
-            console.log("DEBUG: 공통 식별자로 조회 시작");
-
-            if (process.env.ENABLE_ENCRYPTION === 'true') {
-                const nameHash = ComprehensiveEncryption.createSearchHash(kakaoUserData.name);
-                const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
-                const birthdateHash = ComprehensiveEncryption.createSearchHash(normalizedBirthdate);
-
-                existingUser = await User.findOne({
-                    name_hash: nameHash,
-                    phone_hash: phoneHash,
-                    birthdate_hash: birthdateHash,
-                });
-                console.log("DEBUG: 해시 기반 공통 식별자 검색 결과:", !!existingUser);
-            }
-
-            if (!existingUser) {
-                existingUser = await User.findOne({
-                    name: kakaoUserData.name,
-                    phone: normalizedPhone,
-                    birthdate: normalizedBirthdate,
-                });
-                console.log("DEBUG: 평문 기반 공통 식별자 검색 결과:", !!existingUser);
-            }
-
+        // 3단계: 전화번호 해시로 기존 계정 찾기 (복호화 없음)
+        if (!existingUser && normalizedPhone) {
+            console.log("🔍 전화번호 해시로 기존 계정 검색 중...");
+            
+            const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
+            existingUser = await User.findOne({ phone_hash: phoneHash });
+            
             if (existingUser && (!existingUser.social.kakao || !existingUser.social.kakao.providerId)) {
-                console.log("DEBUG: 카카오 정보 병합 시작");
-
+                console.log("✅ 전화번호 매칭으로 기존 계정 발견, 카카오 정보 연결 중...");
+                
+                // 기존 계정에 카카오 정보 추가 (암호화)
                 const kakaoData = {
                     providerId: kakaoUserData.kakaoId,
-                    name: kakaoUserData.name,
-                    phoneNumber: kakaoUserData.phoneNumber,
-                    birthday: kakaoUserData.birthday,
-                    birthyear: kakaoUserData.birthyear,
+                    providerId_hash: ComprehensiveEncryption.hashProviderId(kakaoUserData.kakaoId),
+                    name: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.name),
+                    phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.phoneNumber),
+                    birthday: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.birthday.toString()),
+                    birthyear: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.birthyear.toString()),
                     gender: kakaoUserData.gender,
                 };
-
-                if (process.env.ENABLE_ENCRYPTION === 'true') {
-                    const encryptedKakaoData = {
-                        providerId: kakaoUserData.kakaoId,
-                        providerId_hash: ComprehensiveEncryption.hashProviderId(kakaoUserData.kakaoId),
-                        name: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.name),
-                        phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.phoneNumber),
-                        birthday: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.birthday.toString()),
-                        birthyear: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.birthyear.toString()),
-                        gender: kakaoUserData.gender,
-                    };
-                    existingUser.social.kakao = encryptedKakaoData;
-                } else {
-                    existingUser.social.kakao = kakaoData;
-                }
-
+                
+                existingUser.social.kakao = kakaoData;
                 existingUser.markModified('social');
                 await existingUser.save();
                 await IntelligentCache.invalidateUserCache(existingUser._id);
-                console.log("기존 계정에 카카오 정보 병합 완료");
+                console.log("✅ 기존 계정에 카카오 정보 연결 완료");
+                return existingUser;
             }
         }
 
@@ -135,89 +110,82 @@ export const findUserOrNoUser = async (kakaoUserData) => {
         throw error;
     }
 };
-// 네이버 로그인 시 사용자 찾기
-// findUserOrNoUser와 동일하지만 네이버 로그인용
+// ✅ 개선된 네이버 로그인 - 복호화 없이 해시 기반으로만 처리
+// 역할:
+// 1. 네이버 ID 해시로 직접 검색 (복호화 없음)
+// 2. 전화번호 해시로 기존 계정 찾기 (복호화 없음)
+// 3. 기존 계정에 네이버 정보 연결
+// 4. 완전 신규면 회원가입 필요 알림
 export const findUserByNaver = async (naverUserData) => {
     try {
-        const normalizedBirthdate = normalizeBirthdate(naverUserData.birthyear, naverUserData.birthday);
         const normalizedPhone = normalizePhoneNumber(naverUserData.phoneNumber);
+        
+        console.log("✅ [개선된 네이버 로그인] 해시 기반 검색 시작");
+        console.log(`네이버 ID: ${naverUserData.naverId}, 전화번호: ${normalizedPhone}`);
 
         let existingUser = null;
 
-        if (process.env.ENABLE_ENCRYPTION === 'true') {
-            try {
-                existingUser = await ComprehensiveEncryption.findUserBySocialId(
-                    User, 'naver', naverUserData.naverId
-                );
-            } catch (error) {
-                console.warn("해시 기반 검색 실패, 기존 방식 사용:", error);
+        // 1단계: 네이버 ID 해시로 직접 검색 (가장 효율적)
+        try {
+            existingUser = await ComprehensiveEncryption.findUserBySocialId(
+                User, 'naver', naverUserData.naverId
+            );
+            if (existingUser) {
+                console.log("✅ 네이버 해시 기반 로그인 성공");
+                return existingUser;
             }
+            console.log("🔍 네이버 해시 검색 결과: 없음");
+        } catch (error) {
+            console.warn("⚠️ 네이버 해시 검색 실패:", error.message);
         }
 
+        // 2단계: 구 방식 네이버 ID로 검색 (하위 호환성)
         if (!existingUser) {
             existingUser = await User.findOne({ 'social.naver.providerId': naverUserData.naverId });
+            if (existingUser) {
+                console.log("✅ 구 방식 네이버 로그인 성공");
+                return existingUser;
+            }
         }
 
-        if (!existingUser && naverUserData.name && normalizedPhone && normalizedBirthdate) {
-            if (process.env.ENABLE_ENCRYPTION === 'true') {
-                const nameHash = ComprehensiveEncryption.createSearchHash(naverUserData.name);
-                const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
-                const birthdateHash = ComprehensiveEncryption.createSearchHash(normalizedBirthdate);
-
-                existingUser = await User.findOne({
-                    name_hash: nameHash,
-                    phone_hash: phoneHash,
-                    birthdate_hash: birthdateHash,
-                });
-            }
-
-            if (!existingUser) {
-                existingUser = await User.findOne({
-                    name: naverUserData.name,
-                    phone: normalizedPhone,
-                    birthdate: normalizedBirthdate,
-                });
-            }
-
+        // 3단계: 전화번호 해시로 기존 계정 찾기 (복호화 없음)
+        if (!existingUser && normalizedPhone) {
+            console.log("🔍 전화번호 해시로 기존 계정 검색 중...");
+            
+            const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
+            existingUser = await User.findOne({ phone_hash: phoneHash });
+            
             if (existingUser && (!existingUser.social.naver || !existingUser.social.naver.providerId)) {
+                console.log("✅ 전화번호 매칭으로 기존 계정 발견, 네이버 정보 연결 중...");
+                
+                // 기존 계정에 네이버 정보 추가 (암호화)
                 const naverData = {
                     providerId: naverUserData.naverId,
-                    name: naverUserData.name,
-                    phoneNumber: naverUserData.phoneNumber,
-                    birthday: naverUserData.birthday,
-                    birthyear: naverUserData.birthyear,
+                    providerId_hash: ComprehensiveEncryption.hashProviderId(naverUserData.naverId),
+                    name: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.name),
+                    phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.phoneNumber),
+                    birthday: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.birthday),
+                    birthyear: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.birthyear.toString()),
                     gender: naverUserData.gender,
                     accessToken: naverUserData.accessToken || '',
                 };
-
-                if (process.env.ENABLE_ENCRYPTION === 'true') {
-                    const encryptedNaverData = {
-                        providerId: naverUserData.naverId,
-                        providerId_hash: ComprehensiveEncryption.hashProviderId(naverUserData.naverId),
-                        name: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.name),
-                        phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.phoneNumber),
-                        birthday: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.birthday),
-                        birthyear: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.birthyear.toString()),
-                        gender: naverUserData.gender,
-                        accessToken: naverUserData.accessToken || '',
-                    };
-                    existingUser.social.naver = encryptedNaverData;
-                } else {
-                    existingUser.social.naver = naverData;
-                }
-
+                
+                existingUser.social.naver = naverData;
                 existingUser.markModified('social');
                 await existingUser.save();
                 await IntelligentCache.invalidateUserCache(existingUser._id);
-                console.log("기존 계정에 네이버 정보 병합 완료");
+                console.log("✅ 기존 계정에 네이버 정보 연결 완료");
+                return existingUser;
             }
         }
 
+        // 4단계: 신규 사용자 처리
         if (!existingUser) {
-            console.log('등록된 네이버 사용자가 없습니다. 회원가입이 필요합니다.');
+            console.log('✅ 등록된 네이버 사용자가 없습니다. 회원가입이 필요합니다.');
             return { status: 'noUser', ...naverUserData };
         }
 
+        // 5단계: 비활성화 계정 처리
         if (existingUser.status === 'deactivated') {
             const sevenDays = 7 * 24 * 60 * 60 * 1000;
             if (existingUser.deactivatedAt && (new Date().getTime() - existingUser.deactivatedAt.getTime()) < sevenDays) {
@@ -225,14 +193,14 @@ export const findUserByNaver = async (naverUserData) => {
                 const remainingDays = Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
                 throw new Error(`회원 탈퇴 후 7일 동안 재가입할 수 없습니다. ${remainingDays}일 남았습니다.`);
             } else {
-                // 7 days have passed. Return a special status to frontend.
                 return { status: 'reactivation_possible', user: { _id: existingUser._id, nickname: existingUser.nickname, email: existingUser.email } };
             }
         }
 
+        console.log("✅ 네이버 로그인 처리 완료");
         return existingUser;
     } catch (error) {
-        console.error('User service error:', error.message);
+        console.error('네이버 로그인 처리 실패:', error.message);
         throw error;
     }
 };
@@ -274,16 +242,19 @@ export const getUserById = async (userId) => {
         data.maxChatCount = maxChatCount;
         data.nextRefillAt = nextRefillAt;
 
-        // 🔧 birthdate 기반 만나이 계산
+        // 🔧 birthdate 기반 만나이 계산 (최적화: 캐시 우선, 필요시에만 복호화)
         if (user.birthdate) {
             try {
                 const ageInfo = await IntelligentCache.getCachedUserAge(userId);
                 if (ageInfo) {
+                    // 캐시에서 가져오기 (복호화 없음)
                     data.calculatedAge = ageInfo.age;
                     data.ageGroup = ageInfo.ageGroup;
                     data.isMinor = ageInfo.isMinor;
+                    console.log(`💾 [최적화] 캐시에서 나이 정보 로드: ${userId}`);
                 } else {
-                    // 캐시가 없으면 실시간 계산
+                    // 캐시가 없을 때만 복호화 수행
+                    console.log(`🔓 [최적화] birthdate 복호화 필요: ${userId}`);
                     const decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
                     if (decryptedBirthdate) {
                         const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
@@ -296,12 +267,17 @@ export const getUserById = async (userId) => {
 
                         // 캐시 저장
                         await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
+                        console.log(`✅ [최적화] 나이 정보 캐싱 완료: ${userId} -> ${age}세`);
                     }
                 }
             } catch (error) {
                 console.error('만나이 정보 조회 실패:', error);
             }
         }
+
+        // 🚫 [최적화] 불필요한 개인정보 복호화 제거
+        // - name, phone 복호화 제거 (프론트엔드에서 사용하지 않음)
+        // - 소셜 로그인 정보 복호화 제거 (일반 로그인시 불필요)
 
         return data;
     } catch (err) {
@@ -375,14 +351,29 @@ export const getChatUserInfo = async (userId) => {
                 star: user.star,
             };
 
-            // 🔧 birthdate가 있을 때만 만나이 계산
+            // 🔧 [최적화] birthdate가 있을 때만 만나이 계산 (캐시 우선)
             if (user.birthdate) {
                 try {
-                    const decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
-                    if (decryptedBirthdate) {
-                        userInfo.age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
-                        userInfo.ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
-                        userInfo.isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+                    // 캐시에서 나이 정보 확인
+                    const cachedAge = await IntelligentCache.getCachedUserAge(user._id);
+                    if (cachedAge) {
+                        userInfo.age = cachedAge.age;
+                        userInfo.ageGroup = cachedAge.ageGroup;
+                        userInfo.isMinor = cachedAge.isMinor;
+                        console.log(`💾 [최적화] 캐시에서 나이 로드: ${user._id}`);
+                    } else {
+                        // 캐시가 없을 때만 복호화
+                        console.log(`🔓 [최적화] birthdate 복호화 필요: ${user._id}`);
+                        const decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+                        if (decryptedBirthdate) {
+                            userInfo.age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+                            userInfo.ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+                            userInfo.isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+                            
+                            // 캐시 저장
+                            await IntelligentCache.cacheUserAge(user._id, userInfo.age, userInfo.ageGroup, userInfo.isMinor);
+                            console.log(`✅ [최적화] 나이 정보 캐싱: ${user._id} -> ${userInfo.age}세`);
+                        }
                     }
                 } catch (error) {
                     console.error('만나이 계산 실패:', error);

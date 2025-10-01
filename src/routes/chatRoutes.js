@@ -46,4 +46,14 @@ router.get('/rooms/:roomId/unread', chatController.getUnreadCount);
 
 router.post('/rooms/:roomId/entry', chatController.recordRoomEntry);
 
+// ============================================================================
+//   🚨 메시지 신고 API
+// ============================================================================
+
+// 개별 메시지 신고
+router.post('/messages/:messageId/report', chatController.reportMessage);
+
+// 🆕 채팅방의 신고된 메시지 목록 조회 (개발자 페이지용)
+router.get('/rooms/:roomId/reported-messages', chatController.getReportedMessages);
+
 export default router;

@@ -56,19 +56,16 @@ export const initializeSocket = (server) => {
                 );
 
                 const eventData = {
-                    roomId: roomId, // ✅ roomId 포함
-                    roomType: roomType, // ✅ roomType 포함
+                    roomId: roomId,
+                    roomType: roomType,
                     chatUsers: chatRoom.chatUsers,
                     activeUsers,
                     capacity: chatRoom.capacity,
                 };
 
-                // ✅ roomType에 따라 다른 이벤트 발송
                 if (roomType === 'friend') {
-                    // ChatOverlay (친구 채팅)용 - 개별 소켓에만 전송
                     socket.emit('friendRoomJoined', eventData);
                 } else if (roomType === 'random') {
-                    // ChatRoom (랜덤 채팅)용 - 방 전체에 전송
                     io.to(roomId).emit('roomJoined', eventData);
                 }
 
@@ -93,69 +90,50 @@ export const initializeSocket = (server) => {
             }
         });
 
-        // 💬 메시지 전송 이벤트 - 암호화 및 욕설 필터링 통합 버전
+        // 💬 메시지 전송 이벤트 - 동기 저장 방식 (안정적)
         socket.on("sendMessage", async ({ chatRoom, sender, text, roomType = 'random' }, callback) => {
             try {
                 const senderId = typeof sender === "object" ? sender._id : sender;
                 const senderObjId = new mongoose.Types.ObjectId(senderId);
 
-                // 욕설 필터링 적용
+                console.log(`📤 [메시지전송] 시작: "${text.substring(0, 20)}..." (방: ${chatRoom})`);
+
+                // 1. 욕설 필터링 (실시간 표시용)
                 const filteredText = filterProfanity(text);
 
-                // 1. 실시간 전송용 데이터 (필터링된 텍스트 사용)
+                // 2. 발신자 정보 조회
                 const senderUser = await userService.getUserById(senderId);
                 const senderNick = senderUser ? senderUser.nickname : "알 수 없음";
 
-                const realtimeMessage = {
-                    _id: new mongoose.Types.ObjectId(), // 임시 ID
-                    chatRoom,
-                    sender: { id: senderId, nickname: senderNick },
-                    text: filteredText, // 필터링된 텍스트를 클라이언트에 전송
-                    textTime: new Date(),
-                    isEncrypted: false,
-                    roomType: roomType,
-                    readBy: [{ user: senderId, readAt: new Date() }]
-                };
-
-                // 2. 실시간 전송 (빠른 응답)
-                io.to(chatRoom).emit("receiveMessage", realtimeMessage);
-
-                // 3. DB 저장은 비동기로 처리 (원본 text를 전달하면 saveMessage 내부에서 필터링 및 암호화)
-                setImmediate(async () => {
-                    try {
-                        console.log(`🔐 [실시간채팅] 메시지 비동기 저장 시작: "${text.substring(0, 20)}..."`);
-
-                        // 환경변수에 따라 암호화/평문 저장
-                        const savedMessage = await chatService.saveMessage(chatRoom, senderId, text, {
-                            platform: 'socket',
-                            userAgent: 'realtime-chat',
-                            ipHash: socket.handshake.address ?
-                                crypto.createHash('sha256').update(socket.handshake.address).digest('hex').substring(0, 16) : null
-                        });
-
-                        console.log(`✅ [실시간채팅] DB 저장 완료: ${savedMessage._id} (${savedMessage.isEncrypted ? '암호화' : '평문'})`);
-
-                        // 저장 완료 후 ID 업데이트 알림 (선택적)
-                        io.to(chatRoom).emit("messageStored", {
-                            tempId: realtimeMessage._id,
-                            realId: savedMessage._id,
-                            isEncrypted: savedMessage.isEncrypted,
-                            storedAt: new Date()
-                        });
-
-                    } catch (saveError) {
-                        console.error('❌ [실시간채팅] DB 저장 실패:', saveError);
-
-                        // 저장 실패 알림
-                        io.to(chatRoom).emit("messageStoreFailed", {
-                            tempId: realtimeMessage._id,
-                            error: saveError.message,
-                            timestamp: new Date()
-                        });
-                    }
+                // 3. DB 저장 (원본 text 전달, saveMessage 내부에서 다시 필터링)
+                const savedMessage = await chatService.saveMessage(chatRoom, senderId, text, {
+                    platform: 'socket',
+                    userAgent: 'realtime-chat',
+                    ipHash: socket.handshake.address ?
+                        crypto.createHash('sha256').update(socket.handshake.address).digest('hex').substring(0, 16) : null
                 });
 
-                // 4. 개인 알림 전송 (필터링된 텍스트 사용)
+                console.log(`✅ [메시지저장] 완료: ${savedMessage._id} (${savedMessage.isEncrypted ? '암호화' : '평문'})`);
+
+                // 4. 실제 저장된 메시지로 전송 데이터 구성
+                const messageToSend = {
+                    _id: savedMessage._id, // ✅ 실제 DB ID 사용
+                    chatRoom,
+                    sender: { _id: senderId, id: senderId, nickname: senderNick },
+                    text: filteredText, // ✅ 필터링된 텍스트로 전송
+                    textTime: savedMessage.textTime || new Date(),
+                    isEncrypted: savedMessage.isEncrypted,
+                    roomType: roomType,
+                    readBy: savedMessage.readBy || [{ user: senderId, readAt: new Date() }],
+                    isDeleted: false,
+                    createdAt: savedMessage.createdAt
+                };
+
+                // 4. 모든 사용자에게 메시지 전송
+                io.to(chatRoom).emit("receiveMessage", messageToSend);
+                console.log(`📨 [메시지전송] 완료: ${savedMessage._id} → 방 ${chatRoom}`);
+
+                // 5. 개인 알림 전송
                 const roomDoc = await ChatRoom.findById(chatRoom);
                 const exitedUsers = await ChatRoomExit.distinct("user", { chatRoom });
                 const targets = roomDoc.chatUsers.filter(uid =>
@@ -168,20 +146,21 @@ export const initializeSocket = (server) => {
                     io.to(uid.toString()).emit("chatNotification", {
                         chatRoom,
                         roomType: roomType,
-                        message: realtimeMessage,
+                        message: messageToSend,
                         notification: `${senderNick}: ${notificationText}`,
                         timestamp: new Date()
                     });
                 });
 
+                // 6. 클라이언트에게 성공 응답
                 callback({
                     success: true,
-                    message: realtimeMessage,
+                    message: messageToSend,
                     encryptionEnabled: process.env.CHAT_ENCRYPTION_ENABLED === 'true'
                 });
 
             } catch (err) {
-                console.error("❌ 메시지 처리 오류:", err);
+                console.error("❌ [메시지전송] 오류:", err);
                 callback({ success: false, error: err.message });
             }
         });
@@ -199,7 +178,6 @@ export const initializeSocket = (server) => {
                 const isWaiting = room?.status === 'waiting';
 
                 if (isWaiting) {
-                    // ✅ roomType에 따라 다른 이벤트 발송
                     if (roomType === 'friend') {
                         io.to(roomId).emit('friendWaitingLeft', { userId, roomId });
                     } else {
@@ -208,12 +186,9 @@ export const initializeSocket = (server) => {
                     return;
                 }
 
-                // active 방일 때 처리
                 if (roomType === 'friend') {
-                    // 친구 채팅방 나가기 (시스템 메시지 없음)
                     io.to(roomId).emit('friendUserLeft', { userId, roomId });
                 } else {
-                    // 랜덤 채팅방 나가기 (시스템 메시지 포함)
                     io.to(roomId).emit('userLeft', { userId, roomId });
 
                     const user = await userService.getUserById(userId);
@@ -231,7 +206,6 @@ export const initializeSocket = (server) => {
             }
         });
 
-        // 클라이언트 연결 해제
         socket.on('disconnect', () => {
             console.log('❌ 클라이언트 연결 해제:', socket.id);
 

@@ -1,6 +1,7 @@
 import * as chatService from '../services/chatService.js';
 import {leaveChatRoomService} from "../services/chatService.js";
-import {ChatRoomExit} from "../models/chat.js";
+import {ChatRoomExit, ChatMessage} from "../models/chat.js";
+import { createReport } from '../services/reportService.js';
 
 /**
  * 채팅방 생성 컨트롤러
@@ -8,7 +9,7 @@ import {ChatRoomExit} from "../models/chat.js";
 export const createRoom = async (req, res) => {
     try {
         const { roomType, capacity, matchedGender, ageGroup } = req.body;
-        
+
         // 🔄 ageGroup 값 변환 (다양한 형태 지원)
         let normalizedAgeGroup = ageGroup;
         if (ageGroup) {
@@ -23,7 +24,7 @@ export const createRoom = async (req, res) => {
             }
             console.log(`🔄 [ageGroup 변환] "${ageGroup}" → "${normalizedAgeGroup}"`);
         }
-        
+
         const room = await chatService.createChatRoom(roomType, capacity, matchedGender, normalizedAgeGroup);
         res.status(201).json(room);
     } catch (error) {
@@ -80,23 +81,23 @@ export const getAllRooms = async (req, res) => {
     try {
         // req.query를 그대로 전달하여 서버측 필터링 및 페이징을 적용
         const rooms = await chatService.getAllChatRooms(req.query);
-        
+
         // 🔧 성별 선택 정보가 포함된 참가자 데이터 추가
         const roomsWithGenderInfo = rooms.map(room => {
             const roomObj = room.toObject();
-            
+
             // 참가자에 성별 선택 정보 추가
             const chatUsersWithGender = roomObj.chatUsers.map(user => ({
                 ...user,
                 selectedGender: roomObj.genderSelections?.get(user._id.toString()) || null
             }));
-            
+
             return {
                 ...roomObj,
                 chatUsersWithGender
             };
         });
-        
+
         res.status(200).json(roomsWithGenderInfo);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -143,7 +144,7 @@ export const getMessages = async (req, res) => {
         const includeDeleted = req.query.includeDeleted === 'true';
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
-        
+
         // 요청한 사용자 ID (인증 미들웨어에서 설정되거나 쿼리에서 전달)
         const requestUserId = req.user?.id || req.query.userId;
 
@@ -154,7 +155,7 @@ export const getMessages = async (req, res) => {
             limit,
             requestUserId  // 사용자 ID 전달
         );
-        
+
         res.status(200).json(result);
     } catch (error) {
         console.error('메시지 조회 실패:', error);
@@ -293,6 +294,269 @@ export const recordRoomEntry = async (req, res) => {
         console.error('채팅방 입장 시간 기록 실패:', error);
         res.status(500).json({
             success: false,
+            error: error.message
+        });
+    }
+};
+
+// ============================================================================
+//   🚨 메시지 신고 시스템
+// ============================================================================
+
+/**
+ * 개별 메시지 신고 컨트롤러
+ * POST /api/chat/messages/:messageId/report
+ */
+export const reportMessage = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const {
+            reportErId,           // 신고자 ID
+            reportTitle,          // 신고 제목
+            reportCategory,       // 신고 사유
+            reportContants,       // 신고 상세 내용
+            roomType = 'random'   // 채팅방 타입 (기본값: random)
+        } = req.body;
+
+        console.log(`🚨 [메시지신고] 신고 접수:`, {
+            messageId,
+            reportErId,
+            reportCategory,
+            roomType,
+            bodyKeys: Object.keys(req.body)
+        });
+
+        // ⭐ 카테고리 매핑: 프론트엔드 값 → 백엔드 enum 값
+        const categoryMapping = {
+            // 기존 프론트엔드 값들
+            '욕설, 모욕, 명예훼손': '욕설, 모욕, 혐오발언',
+            '성적인 발언': '부적절한 메세지(성인/도박/마약 등)',
+            '마약관련': '부적절한 메세지(성인/도박/마약 등)',
+            '스팸': '스팸, 도배, 거짓정보',
+
+            // 정확한 백엔드 enum 값들 (그대로 통과)
+            '욕설, 모욕, 혐오발언': '욕설, 모욕, 혐오발언',
+            '스팸, 도배, 거짓정보': '스팸, 도배, 거짓정보',
+            '부적절한 메세지(성인/도박/마약 등)': '부적절한 메세지(성인/도박/마약 등)',
+            '규칙에 위반되는 프로필/모욕성 닉네임': '규칙에 위반되는 프로필/모욕성 닉네임',
+            '음란물 배포(이미지)': '음란물 배포(이미지)'
+        };
+
+        // 매핑된 카테고리 사용
+        const mappedCategory = categoryMapping[reportCategory] || reportCategory;
+
+        console.log(`🔄 [카테고리 매핑] "${reportCategory}" → "${mappedCategory}"`);
+
+        // 1. 신고할 메시지 존재 확인
+        const message = await ChatMessage.findById(messageId)
+            .populate('sender', 'nickname _id')
+            .populate('chatRoom', '_id roomType');
+
+        if (!message) {
+            console.log(`❌ [메시지신고] 메시지 없음: ${messageId}`);
+            return res.status(404).json({
+                success: false,
+                message: '신고할 메시지를 찾을 수 없습니다.'
+            });
+        }
+
+        // 2. 자기 자신의 메시지는 신고 불가
+        if (message.sender._id.toString() === reportErId) {
+            return res.status(400).json({
+                success: false,
+                message: '자신의 메시지는 신고할 수 없습니다.'
+            });
+        }
+
+        // 3. 이미 신고한 메시지인지 확인
+        if (message.reportedBy && message.reportedBy.includes(reportErId)) {
+            return res.status(400).json({
+                success: false,
+                message: '이미 신고한 메시지입니다.'
+            });
+        }
+
+        // 4. ChatMessage 신고 상태 업데이트
+        await ChatMessage.findByIdAndUpdate(messageId, {
+            $set: {
+                isReported: true,
+                reportedAt: new Date()
+            },
+            $addToSet: {
+                reportedBy: reportErId
+            }
+        });
+
+        // 5. Report 컬렉션에 신고 데이터 생성
+        const reportArea = message.chatRoom.roomType === 'friend' ? '친구채팅' : '랜덤채팅';
+
+        const reportData = {
+            reportTitle: reportTitle || `메시지 신고: ${mappedCategory}`,
+            reportArea: reportArea,
+            reportCategory: mappedCategory,  // ⭐ 매핑된 카테고리 사용
+            reportContants: reportContants,
+            reportErId: reportErId,
+            offenderId: message.sender._id,
+            targetType: 'message',                    // 신고 타겟 타입
+            targetId: messageId,                      // 신고된 메시지 ID
+            anchor: {
+                type: 'chat',
+                roomId: message.chatRoom._id,
+                parentId: message.chatRoom._id,
+                targetId: messageId
+            }
+        };
+
+        const createdReport = await createReport(reportData);
+
+        // 6. 신고된 메시지 백업 생성 (법적 대응용)
+        try {
+            console.log(`📋 [백업] 시작 - messageId: ${messageId}`);
+            
+            // ✅ reason enum 값으로 매핑
+            const reasonMapping = {
+                '욕설, 모욕, 혐오발언': 'harassment',
+                '스팸, 도배, 거짓정보': 'spam',
+                '부적절한 메세지(성인/도박/마약 등)': 'inappropriate',
+                '규칙에 위반되는 프로필/모욕성 닉네임': 'inappropriate',
+                '음란물 배포(이미지)': 'inappropriate'
+            };
+            
+            const mappedReason = reasonMapping[mappedCategory] || 'other';
+            console.log(`📋 [백업] 카테고리 매핑: "${mappedCategory}" → "${mappedReason}"`);
+            
+            const backupResult = await chatService.createReportedMessageBackup(messageId, {
+                reportedBy: reportErId,
+                reason: mappedReason,  // ✅ enum 값으로 전달
+                reportId: createdReport._id
+            });
+
+            console.log(`📋 [백업] 결과:`, backupResult);
+            
+            if (!backupResult.success) {
+                console.error(`❌ [백업] 실패:`, backupResult.error);
+            }
+        } catch (backupError) {
+            console.error(`⚠️ [백업] 예외 발생:`, backupError);
+            console.error(`⚠️ [백업] 스택:`, backupError.stack);
+        }
+
+        console.log(`✅ [메시지신고] 신고 완료: ${messageId}`);
+
+        res.status(201).json({
+            success: true,
+            message: '메시지 신고가 접수되었습니다.',
+            reportId: createdReport._id,
+            messageId: messageId
+        });
+
+    } catch (error) {
+        console.error('❌ [메시지신고] 처리 실패:', error);
+        res.status(500).json({
+            success: false,
+            message: '신고 처리 중 오류가 발생했습니다.',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * 채팅방의 신고된 메시지 목록 조회 (개발자 페이지용)
+ * GET /api/chat/rooms/:roomId/reported-messages
+ * 
+ * 🎯 기능:
+ * - 채팅방의 모든 isReported=true 메시지 조회
+ * - 각 신고 메시지 기준 전후 30개씩 포함 (총 61개씩)
+ */
+export const getReportedMessages = async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        
+        console.log(`🔍 [신고메시지조회] 채팅방 ${roomId}의 신고된 메시지 조회 시작`);
+        
+        // 1. 채팅방의 모든 신고된 메시지 조회
+        const reportedMessages = await ChatMessage.find({
+            chatRoom: roomId,
+            isReported: true
+        })
+        .sort({ createdAt: 1 })
+        .populate('sender', 'nickname profileImg')
+        .populate('reportedBy', 'nickname');
+        
+        if (!reportedMessages || reportedMessages.length === 0) {
+            console.log(`ℹ️ [신고메시지조회] 신고된 메시지 없음`);
+            return res.status(200).json({
+                success: true,
+                reportedMessages: [],
+                contextMessageIds: [],
+                totalReported: 0,
+                message: '신고된 메시지가 없습니다.'
+            });
+        }
+        
+        console.log(`📊 [신고메시지조회] 신고된 메시지 ${reportedMessages.length}개 발견`);
+        
+        // 2. 각 신고 메시지의 전후 30개씩 조회
+        const contextMessagesSet = new Set(); // 중복 제거용
+        
+        for (const reportedMsg of reportedMessages) {
+            // 신고된 메시지 자체 포함
+            contextMessagesSet.add(reportedMsg._id.toString());
+            
+            // 이전 30개 메시지
+            const beforeMessages = await ChatMessage.find({
+                chatRoom: roomId,
+                createdAt: { $lt: reportedMsg.createdAt }
+            })
+            .sort({ createdAt: -1 })
+            .limit(30)
+            .populate('sender', 'nickname profileImg');
+            
+            beforeMessages.forEach(msg => {
+                contextMessagesSet.add(msg._id.toString());
+            });
+            
+            // 이후 30개 메시지
+            const afterMessages = await ChatMessage.find({
+                chatRoom: roomId,
+                createdAt: { $gt: reportedMsg.createdAt }
+            })
+            .sort({ createdAt: 1 })
+            .limit(30)
+            .populate('sender', 'nickname profileImg');
+            
+            afterMessages.forEach(msg => {
+                contextMessagesSet.add(msg._id.toString());
+            });
+        }
+        
+        console.log(`📋 [신고메시지조회] 컨텍스트 메시지 ${contextMessagesSet.size}개 수집`);
+        
+        // 3. 응답 데이터 구성
+        res.status(200).json({
+            success: true,
+            reportedMessages: reportedMessages.map(msg => ({
+                _id: msg._id,
+                text: msg.text,
+                sender: msg.sender,
+                createdAt: msg.createdAt,
+                reportedAt: msg.reportedAt,
+                reportedBy: msg.reportedBy,
+                isReported: true
+            })),
+            contextMessageIds: Array.from(contextMessagesSet),
+            totalReported: reportedMessages.length,
+            totalContext: contextMessagesSet.size,
+            message: `신고된 메시지 ${reportedMessages.length}개 및 컨텍스트 ${contextMessagesSet.size}개 조회 완료`
+        });
+        
+        console.log(`✅ [신고메시지조회] 조회 완료`);
+        
+    } catch (error) {
+        console.error('❌ [신고메시지조회] 실패:', error);
+        res.status(500).json({
+            success: false,
+            message: '신고된 메시지 조회 중 오류가 발생했습니다.',
             error: error.message
         });
     }

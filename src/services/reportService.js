@@ -21,14 +21,39 @@ export const createReport = async (data) => {
             reportErNickname : reporter?.nickname || ''
         }).save();
         
-        // 채팅 메시지 신고인 경우 백업 생성
+        // ✅ 채팅 메시지 신고인 경우 isReported 필드 업데이트
         if (data.targetType === 'message' && data.targetId) {
             try {
-                console.log(`[신고처리] 메시지 백업 생성 시도: ${data.targetId}`);
+                console.log(`[신고처리] 메시지 isReported 업데이트: ${data.targetId}`);
+                
+                // ChatMessage에서 isReported = true로 업데이트
+                const { ChatMessage } = await import('../models/chat.js');
+                await ChatMessage.findByIdAndUpdate(
+                    data.targetId,
+                    { 
+                        isReported: true,
+                        reportedAt: new Date(),
+                        $addToSet: { reportedBy: data.reportErId } // 중복 방지하여 신고자 추가
+                    }
+                );
+                
+                console.log(`✅ [신고처리] 메시지 isReported 업데이트 완료`);
+                
+                // 메시지 백업 생성
+                // ✅ reason enum 값으로 매핑
+                const reasonMapping = {
+                    '욕설, 모욕, 혐오발언': 'harassment',
+                    '스팸, 도배, 거짓정보': 'spam',
+                    '부적절한 메세지(성인/도박/마약 등)': 'inappropriate',
+                    '규칙에 위반되는 프로필/모욕성 닉네임': 'inappropriate',
+                    '음란물 배포(이미지)': 'inappropriate'
+                };
+                
+                const mappedReason = reasonMapping[data.reportCategory] || 'other';
                 
                 const backupResult = await createReportedMessageBackup(data.targetId, {
                     reportedBy: data.reportErId,
-                    reason: data.reportCategory || 'other',
+                    reason: mappedReason,  // ✅ enum 값으로 전달
                     reportId: report._id
                 });
                 
@@ -39,8 +64,8 @@ export const createReport = async (data) => {
                 });
                 
             } catch (backupError) {
-                console.error(`[신고처리] 메시지 백업 실패:`, backupError);
-                // 백업 실패해도 신고는 계속 진행
+                console.error(`[신고처리] 메시지 처리 실패:`, backupError);
+                // 메시지 업데이트나 백업 실패해도 신고는 계속 진행
             }
         }
 
