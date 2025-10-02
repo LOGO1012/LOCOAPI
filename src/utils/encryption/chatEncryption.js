@@ -116,82 +116,6 @@ class ChatEncryption {
         }
     }
 
-    /**
-     * 검색용 키워드 해시 생성
-     * @param {string} keyword - 해시할 키워드
-     * @returns {string} SHA-256 해시
-     */
-    static hashKeyword(keyword) {
-        try {
-            if (!keyword || typeof keyword !== 'string') {
-                return '';
-            }
-
-            const searchSalt = process.env.SEARCH_SALT || 'loco_search_salt_2024_secure_key_v2';
-            return crypto.createHash('sha256')
-                .update(keyword.toLowerCase().trim() + searchSalt)
-                .digest('hex');
-                
-        } catch (error) {
-            console.error('키워드해시 실패:', error);
-            return '';
-        }
-    }
-
-    /**
-     * 메시지에서 키워드 추출
-     * @param {string} text - 메시지 텍스트
-     * @returns {Array<string>} 추출된 키워드 배열
-     */
-    static extractKeywords(text) {
-        try {
-            if (!text || typeof text !== 'string') {
-                return [];
-            }
-
-            const keywords = [];
-            
-            // 1. 한국어 단어 추출 (2글자 이상)
-            const koreanWords = text.match(/[가-힣]{2,}/g) || [];
-            keywords.push(...koreanWords);
-            
-            // 2. 영어 단어 추출 (2글자 이상)  
-            const englishWords = text.match(/[a-zA-Z]{2,}/g) || [];
-            keywords.push(...englishWords);
-            
-            // 3. 숫자 추출 (2자리 이상)
-            const numbers = text.match(/\d{2,}/g) || [];
-            keywords.push(...numbers);
-            
-            // 4. 중복 제거 및 길이 제한
-            const uniqueKeywords = [...new Set(keywords)]
-                .filter(word => word.length >= 2 && word.length <= 20)
-                .slice(0, 10); // 최대 10개 키워드
-                
-            console.log(`키워드추출: "${text.substring(0, 20)}..." → ${uniqueKeywords.length}개`);
-            return uniqueKeywords;
-            
-        } catch (error) {
-            console.error('키워드추출 실패:', error);
-            return [];
-        }
-    }
-
-    /**
-     * 메시지 전체 해시 생성 (중복 검출용)
-     * @param {string} text - 메시지 텍스트
-     * @returns {string} SHA-256 해시
-     */
-    static hashMessage(text) {
-        try {
-            return crypto.createHash('sha256')
-                .update(text.trim())
-                .digest('hex');
-        } catch (error) {
-            console.error('메시지해시 실패:', error);
-            return '';
-        }
-    }
 
     /**
      * 암호화/복호화 테스트
@@ -213,27 +137,15 @@ class ChatEncryption {
             const decrypted = this.decryptMessage(encrypted);
             const decryptTime = Date.now() - decryptStart;
             
-            // 3. 키워드 추출 테스트
-            const keywordStart = Date.now();
-            const keywords = this.extractKeywords(testMessage);
-            const hashedKeywords = keywords.map(k => this.hashKeyword(k));
-            const keywordTime = Date.now() - keywordStart;
-            
-            // 4. 메시지 해시 테스트
-            const messageHash = this.hashMessage(testMessage);
-            
             // 5. 결과 검증
             const isSuccess = decrypted === testMessage;
             
             console.log('성능테스트 결과 리포트:');
             console.log(`  암호화 시간: ${encryptTime}ms`);
-            console.log(`  복호화 시간: ${decryptTime}ms`);  
-            console.log(`  키워드 추출: ${keywordTime}ms`);
+            console.log(`  복호화 시간: ${decryptTime}ms`);
             console.log(`  총 소요시간: ${Date.now() - startTime}ms`);
             console.log(`  테스트 결과: ${isSuccess ? '성공' : '실패'}`);
-            console.log(`  추출 키워드: [${keywords.join(', ')}]`);
-            console.log(`  해시 키워드: [${hashedKeywords.map(h => h.substring(0, 8) + '...').join(', ')}]`);
-            console.log(`  메시지 해시: ${messageHash.substring(0, 16)}...`);
+
             
             if (!isSuccess) {
                 console.error(`원본: "${testMessage}"`);
@@ -244,11 +156,8 @@ class ChatEncryption {
                 success: isSuccess,
                 encryptTime,
                 decryptTime,
-                keywordTime,
                 totalTime: Date.now() - startTime,
-                keywords,
-                hashedKeywords,
-                messageHash
+
             };
             
         } catch (error) {

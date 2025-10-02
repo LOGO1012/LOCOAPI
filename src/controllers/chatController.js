@@ -84,22 +84,23 @@ export const getAllRooms = async (req, res) => {
 
         // 🔧 성별 선택 정보가 포함된 참가자 데이터 추가
         const roomsWithGenderInfo = rooms.map(room => {
-            const roomObj = room.toObject();
+            //const roomObj = room.toObject();
 
             // 참가자에 성별 선택 정보 추가
-            const chatUsersWithGender = roomObj.chatUsers.map(user => ({
+            const chatUsersWithGender = room.chatUsers.map(user => ({
                 ...user,
-                selectedGender: roomObj.genderSelections?.get(user._id.toString()) || null
+                selectedGender: room.genderSelections?.[user._id.toString()] || null
             }));
 
             return {
-                ...roomObj,
+                ...room,
                 chatUsersWithGender
             };
         });
 
         res.status(200).json(roomsWithGenderInfo);
     } catch (error) {
+        console.error('[getAllRooms] 에러:', error);  // ✅ 로그 추가
         res.status(500).json({ error: error.message });
     }
 };
