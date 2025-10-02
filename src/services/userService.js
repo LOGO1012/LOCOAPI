@@ -82,7 +82,7 @@ export const findUserOrNoUser = async (kakaoUserData) => {
                 await existingUser.save();
                 await IntelligentCache.invalidateUserCache(existingUser._id);
                 console.log("✅ 기존 계정에 카카오 정보 연결 완료");
-                return existingUser;
+                return await _attachCalculatedAge(existingUser);
             }
         }
 
@@ -103,7 +103,7 @@ export const findUserOrNoUser = async (kakaoUserData) => {
             }
         }
 
-        return existingUser;
+        return await _attachCalculatedAge(existingUser);
     } catch (error) {
         console.error('User service error:', error.message);
         throw error;
@@ -196,7 +196,7 @@ export const findUserByNaver = async (naverUserData) => {
         }
 
         console.log("✅ 네이버 로그인 처리 완료");
-        return existingUser;
+        return await _attachCalculatedAge(existingUser);
     } catch (error) {
         console.error('네이버 로그인 처리 실패:', error.message);
         throw error;
@@ -714,7 +714,7 @@ export const createUser = async (userData) => {
             console.warn('⚠️ 채팅 정보 캐싱 실패 (사용자 생성은 성공):', error.message);
         }
 
-        return savedUser;
+        return await _attachCalculatedAge(savedUser);
 
     } catch (error) {
         console.error('❌ createUser 실패:', {
@@ -1269,9 +1269,52 @@ export const archiveAndPrepareNew = async (userId) => {
     // 3. Invalidate cache
     await IntelligentCache.invalidateUserCache(userId);
 
-    return { 
-        success: true, 
+    return {
+        success: true,
         message: "기존 계정 정보가 보관처리 되었습니다.",
         deactivationCount: user.deactivationCount 
     };
 };
+
+/**
+ * 사용자 객체에 calculatedAge, ageGroup, isMinor를 계산하여 추가하는 헬퍼 함수
+ * @param {object} user - Mongoose 사용자 문서 또는 lean object
+ * @returns {Promise<object>} - 나이 정보가 추가된 사용자 객체
+ */
+const _attachCalculatedAge = async (user) => {
+    if (!user || !user.birthdate) {
+        return user.toObject ? user.toObject() : user;
+    }
+
+    try {
+        // toObject()를 호출하여 Mongoose 문서가 아닌 일반 객체로 만듭니다.
+        const userObject = typeof user.toObject === 'function' ? user.toObject() : { ...user };
+
+        const ageInfo = await IntelligentCache.getCachedUserAge(userObject._id);
+        if (ageInfo) {
+            userObject.calculatedAge = ageInfo.age;
+            userObject.ageGroup = ageInfo.ageGroup;
+            userObject.isMinor = ageInfo.isMinor;
+        } else {
+            const decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(userObject.birthdate);
+            if (decryptedBirthdate) {
+                const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+                const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+                const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+
+                userObject.calculatedAge = age;
+                userObject.ageGroup = ageGroup;
+                userObject.isMinor = isMinor;
+
+                // 캐시 저장
+                await IntelligentCache.cacheUserAge(userObject._id, age, ageGroup, isMinor);
+            }
+        }
+        return userObject;
+    } catch (error) {
+        console.error(`_attachCalculatedAge 에러 (${user._id}):`, error);
+        // 에러 발생 시에도 원본 사용자 객체(또는 plain object)를 반환
+        return typeof user.toObject === 'function' ? user.toObject() : { ...user };
+    }
+};
+
