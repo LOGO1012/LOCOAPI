@@ -80,12 +80,34 @@ export const getAllChatRooms = async (filters) => {
     const skip  = (page - 1) * limit;
 
     // 🔧 blockedUsers 필드도 함께 populate (차단 관계 확인용)
-    const rooms = await ChatRoom.find(query)
-        .populate('chatUsers', 'nickname gender blockedUsers profilePhoto lolNickname star info photo')
+    let rooms = await ChatRoom.find(query)
+        .populate('chatUsers', '_id nickname gender profilePhoto blockedUsers')
+        // 5개 필드 (사용하는 것만)
+        .select('_id chatUsers roomType capacity status matchedGender ageGroup genderSelections createdAt isActive')
+        .lean()
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit);
 
+    // ObjectId → String 변환
+    rooms = rooms.map(room => ({
+        ...room,
+        _id: room._id.toString(),
+        chatUsers: room.chatUsers.map(user => ({
+            ...user,
+            _id: user._id.toString(),
+            blockedUsers: (user.blockedUsers || []).map(id => id.toString())
+        })),
+        // ✅ genderSelections Map도 키를 문자열로 변환
+        genderSelections: room.genderSelections
+            ? Object.fromEntries(
+                Object.entries(room.genderSelections).map(([key, value]) => [
+                    key.toString(),
+                    value
+                ])
+            )
+            : {}
+    }));
     return rooms;
 };
 
@@ -269,14 +291,7 @@ export const saveEncryptedMessage = async (messageData) => {
     try {
         const { roomId, senderId, text, metadata = {} } = messageData;
         
-        console.log(`🔐 [메시지저장] 암호화 저장 시작: "${text.substring(0, 20)}..."`); 
-        
-        // 1. 키워드 추출 (암호화 전)
-        const keywords = ChatEncryption.extractKeywords(text);
-        const hashedKeywords = keywords.map(k => ChatEncryption.hashKeyword(k));
-        
-        // 2. 메시지 전체 해시 (중복 검출용)
-        const messageHash = ChatEncryption.hashMessage(text);
+        console.log(`🔐 [메시지저장] 암호화 저장 시작: "${text.substring(0, 20)}..."`);
         
         // 3. 메시지 암호화
         const encryptedData = ChatEncryption.encryptMessage(text);
@@ -293,10 +308,7 @@ export const saveEncryptedMessage = async (messageData) => {
             encryptedText: encryptedData.encryptedText,
             iv: encryptedData.iv,
             tag: encryptedData.tag,
-            
-            // 검색용 필드들
-            keywords: hashedKeywords,
-            messageHash: messageHash,
+
             
             // 읽음 처리 (발송자는 자동으로 읽음)
             readBy: [{
@@ -315,7 +327,6 @@ export const saveEncryptedMessage = async (messageData) => {
         const savedMessage = await message.save();
         
         console.log(`✅ [메시지저장] 암호화 저장 완료: ${savedMessage._id}`);
-        console.log(`  📊 키워드: ${keywords.length}개, 해시: ${hashedKeywords.length}개`);
         
         return savedMessage;
         
@@ -627,12 +638,13 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
         const skip = (page - 1) * limit;
 
         messages = await ChatMessage.find(filter)
-            .populate('sender')
-            .populate('readBy.user', 'nickname')
+            .populate('sender', '_id nickname profilePhoto')
+            .select('_id text sender textTime isDeleted createdAt encryptedText iv tag isEncrypted')
+            .lean()  // ✅ 추가 (성능 최적화)
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .exec();
+
 
         pagination = {
             currentPage: page,
@@ -645,10 +657,10 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
     } else {
         // 그 외 채팅방(랜덤 채팅 등)은 모든 메시지를 한 번에 반환
         messages = await ChatMessage.find(filter)
-            .populate('sender')
-            .populate('readBy.user', 'nickname')
+            .populate('sender', '_id nickname profilePhoto')
+            .select('_id text sender textTime isDeleted createdAt encryptedText iv tag isEncrypted')
+            .lean()  // ✅ 추가 (성능 최적화)
             .sort({ createdAt: 1 })
-            .exec();
         
         pagination = {
             currentPage: 1,
@@ -661,7 +673,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
     // 🔓 메시지 복호화 처리 (사용자용)
     const decryptedMessages = await Promise.all(
         messages.map(async (message) => {
-            const messageObj = message.toObject();
+            const messageObj = { ...message };  // ✅ 스프레드 연산자로 복사
             
             try {
                 // 암호화된 메시지인 경우 복호화
@@ -679,8 +691,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
                     delete messageObj.encryptedText;
                     delete messageObj.iv;
                     delete messageObj.tag;
-                    delete messageObj.keywords;
-                    delete messageObj.messageHash;
+
                     
                     // ✅ 복호화된 텍스트를 text 필드에 설정 (사용자 설정에 따라 필터링)
                     messageObj.text = shouldFilter ? filterProfanity(decryptedText) : decryptedText;
@@ -698,7 +709,11 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
                         console.log(`📝 [메시지조회] 평문 메시지: ${messageObj._id} -> "${(messageObj.text || '').substring(0, 20)}..."`);  
                     }
                 }
-                
+
+                // ✅ readBy 개수만 반환
+                messageObj.readByCount = messageObj.readBy?.length || 0;
+                delete messageObj.readBy;
+
                 return messageObj;
                 
             } catch (decryptError) {
@@ -713,8 +728,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
                 delete messageObj.encryptedText;
                 delete messageObj.iv;
                 delete messageObj.tag;
-                delete messageObj.keywords;
-                delete messageObj.messageHash;
+
                 
                 return messageObj;
             }
@@ -831,13 +845,12 @@ export const getChatRoomHistory = async (filters) => {
 
     console.log('📋 히스토리 쿼리 조건:', query);
 
+
     const histories = await ChatRoomHistory
-        .find(query)  // 🔧 동적 쿼리 사용
+        .find(query)
         .lean()
-        .populate('meta.chatUsers', 'nickname gender social.kakao.gender social.naver.gender')
+        .populate('meta.chatUsers', '_id nickname gender')
         .sort({ timestamp: -1 })
-        .skip(skip)
-        .limit(size);
 
     console.log('📦 조회된 히스토리 개수:', histories.length);
 
@@ -919,24 +932,17 @@ export const testChatEncryption = async () => {
         console.log('💾 [시스템테스트] 메시지 저장 로직 테스트...');
         
         // 암호화 필드 생성 테스트 (실제 저장하지 않음)
-        const keywords = ChatEncryption.extractKeywords(testMessageData.text);
-        const hashedKeywords = keywords.map(k => ChatEncryption.hashKeyword(k));
-        const messageHash = ChatEncryption.hashMessage(testMessageData.text);
         const encryptedData = ChatEncryption.encryptMessage(testMessageData.text);
         
         console.log('✅ [시스템테스트] 결과:');
         console.log(`  🔐 암호화: ${encryptionTest.encryptTime}ms`);
         console.log(`  🔓 복호화: ${encryptionTest.decryptTime}ms`);
-        console.log(`  📝 키워드 추출: ${keywords.length}개 (${keywords.join(', ')})`);
-        console.log(`  🔗 해시 키워드: ${hashedKeywords.length}개`);
-        console.log(`  🔒 메시지 해시: ${messageHash.substring(0, 16)}...`);
         console.log(`  📦 암호화 데이터 크기: ${encryptedData.encryptedText.length} chars`);
         
         return {
             success: true,
             encryptionTest,
-            keywordCount: keywords.length,
-            hashCount: hashedKeywords.length,
+
             encryptedSize: encryptedData.encryptedText.length
         };
         
