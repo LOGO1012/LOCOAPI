@@ -101,15 +101,7 @@ const chatMessageSchema = new Schema({
         default: false                // 암호화 여부
     },
     
-    // === 검색용 필드들 ===
-    keywords: [{
-        type: String,                 // 해시된 키워드들 (SHA-256)
-        index: true                   // 검색 성능을 위한 인덱스
-    }],
-    messageHash: {
-        type: String,                 // 메시지 전체 해시 (중복 검출용)
-        index: true
-    },
+
     
     // === 신고 관련 필드들 ===
     isReported: {
@@ -167,9 +159,7 @@ chatMessageSchema.index({ chatRoom: 1, textTime: -1 });
 chatMessageSchema.index({ 'readBy.user': 1 });
 
 // 새로운 암호화 관련 인덱스
-chatMessageSchema.index({ keywords: 1, createdAt: -1 });        // 키워드 검색용
 chatMessageSchema.index({ isReported: 1, reportedAt: -1 });     // 신고 메시지 조회용
-chatMessageSchema.index({ messageHash: 1 });                    // 중복 검출용
 chatMessageSchema.index({ isEncrypted: 1, createdAt: -1 });     // 암호화 메시지 분류용
 
 // === Virtual 필드 ===

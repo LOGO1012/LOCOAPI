@@ -28,7 +28,7 @@ import {containsProfanity} from "../utils/profanityFilter.js";
 export const findUserOrNoUser = async (kakaoUserData) => {
     try {
         const normalizedPhone = normalizePhoneNumber(kakaoUserData.phoneNumber);
-        
+
         console.log("✅ [개선된 카카오 로그인] 해시 기반 검색 시작");
         console.log(`카카오 ID: ${kakaoUserData.kakaoId}, 전화번호: ${normalizedPhone}`);
 
@@ -59,13 +59,13 @@ export const findUserOrNoUser = async (kakaoUserData) => {
         // 3단계: 전화번호 해시로 기존 계정 찾기 (복호화 없음)
         if (!existingUser && normalizedPhone) {
             console.log("🔍 전화번호 해시로 기존 계정 검색 중...");
-            
+
             const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
             existingUser = await User.findOne({ phone_hash: phoneHash });
-            
+
             if (existingUser && (!existingUser.social.kakao || !existingUser.social.kakao.providerId)) {
                 console.log("✅ 전화번호 매칭으로 기존 계정 발견, 카카오 정보 연결 중...");
-                
+
                 // 기존 계정에 카카오 정보 추가 (암호화)
                 const kakaoData = {
                     providerId: kakaoUserData.kakaoId,
@@ -76,7 +76,7 @@ export const findUserOrNoUser = async (kakaoUserData) => {
                     birthyear: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.birthyear.toString()),
                     gender: kakaoUserData.gender,
                 };
-                
+
                 existingUser.social.kakao = kakaoData;
                 existingUser.markModified('social');
                 await existingUser.save();
@@ -118,7 +118,7 @@ export const findUserOrNoUser = async (kakaoUserData) => {
 export const findUserByNaver = async (naverUserData) => {
     try {
         const normalizedPhone = normalizePhoneNumber(naverUserData.phoneNumber);
-        
+
         console.log("✅ [개선된 네이버 로그인] 해시 기반 검색 시작");
         console.log(`네이버 ID: ${naverUserData.naverId}, 전화번호: ${normalizedPhone}`);
 
@@ -149,13 +149,13 @@ export const findUserByNaver = async (naverUserData) => {
         // 3단계: 전화번호 해시로 기존 계정 찾기 (복호화 없음)
         if (!existingUser && normalizedPhone) {
             console.log("🔍 전화번호 해시로 기존 계정 검색 중...");
-            
+
             const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
             existingUser = await User.findOne({ phone_hash: phoneHash });
-            
+
             if (existingUser && (!existingUser.social.naver || !existingUser.social.naver.providerId)) {
                 console.log("✅ 전화번호 매칭으로 기존 계정 발견, 네이버 정보 연결 중...");
-                
+
                 // 기존 계정에 네이버 정보 추가 (암호화)
                 const naverData = {
                     providerId: naverUserData.naverId,
@@ -167,7 +167,7 @@ export const findUserByNaver = async (naverUserData) => {
                     gender: naverUserData.gender,
                     accessToken: naverUserData.accessToken || '',
                 };
-                
+
                 existingUser.social.naver = naverData;
                 existingUser.markModified('social');
                 await existingUser.save();
@@ -367,7 +367,7 @@ export const getChatUserInfo = async (userId) => {
                             userInfo.age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
                             userInfo.ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
                             userInfo.isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
-                            
+
                             // 캐시 저장
                             await IntelligentCache.cacheUserAge(user._id, userInfo.age, userInfo.ageGroup, userInfo.isMinor);
                             console.log(`✅ [최적화] 나이 정보 캐싱: ${user._id} -> ${userInfo.age}세`);
@@ -553,7 +553,7 @@ export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online
 
     // Add online status to the paginated friends
     const onlineStatusMapForPage = onlineStatusService.getMultipleUserStatus(paginatedIds);
-    
+
     const orderedFriends = paginatedIds.map(id => {
         const friend = friendsById.get(id);
         if (!friend) return null;
@@ -631,7 +631,7 @@ export const createUser = async (userData) => {
 
         // 🔧 KMS 암호화 처리를 더 안전하게
         let encryptedUserData;
-        
+
         // 🔧 암호화 활성화 여부 확인
         if (process.env.ENABLE_ENCRYPTION === 'true') {
             try {
@@ -1265,14 +1265,14 @@ export const archiveAndPrepareNew = async (userId) => {
 
     // 2. Delete the original user
     await User.findByIdAndDelete(userId);
-    
+
     // 3. Invalidate cache
     await IntelligentCache.invalidateUserCache(userId);
 
     return {
         success: true,
         message: "기존 계정 정보가 보관처리 되었습니다.",
-        deactivationCount: user.deactivationCount 
+        deactivationCount: user.deactivationCount
     };
 };
 
