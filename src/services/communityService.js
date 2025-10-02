@@ -119,12 +119,7 @@ export const createCommunity = async (data) => {
         throw new Error('제목이나 내용에 비속어가 포함되어 있어 게시글을 생성할 수 없습니다.');
     }
 
-    // ✅ 익명 처리 로직 추가
-    if (data.isAnonymous) {
-        data.userNickname = '익명';
-        // 또는 랜덤 익명 닉네임 사용
-        // data.anonymousNickname = generateAnonymousNickname();
-    } else if (data.userId) {
+    if (data.userId) {
         // 기존 로직: 실명일 때만 실제 닉네임 조회
         const author = await User.findById(data.userId, 'nickname');
         data.userNickname = author?.nickname || '';
@@ -141,10 +136,7 @@ export const updateCommunity = async (id, data) => {
         throw new Error('제목이나 내용에 비속어가 포함되어 있어 게시글을 수정할 수 없습니다.');
     }
 
-    // ✅ 익명 처리 로직 추가
-    if (data.isAnonymous) {
-        data.userNickname = '익명';
-    } else if (data.userId) {
+    if (data.userId) {
         const author = await User.findById(data.userId, 'nickname');
         data.userNickname = author?.nickname || '';
     }

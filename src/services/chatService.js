@@ -90,6 +90,11 @@ export const getAllChatRooms = async (filters) => {
     }
     if (filters.roomType) query.roomType = filters.roomType;
     if (filters.capacity) query.capacity = parseInt(filters.capacity);
+    if (filters.roomType)    query.roomType     = filters.roomType;
+    if (filters.isActive !== undefined) {
+        query.isActive = filters.isActive === 'true' || filters.isActive === true;
+    }
+    if (filters.capacity)    query.capacity     = parseInt(filters.capacity);
     if (filters.matchedGender) query.matchedGender = filters.matchedGender;
     if (filters.ageGroup) query.ageGroup = filters.ageGroup;
 
