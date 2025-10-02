@@ -5,7 +5,7 @@ import ChatEncryption from '../utils/encryption/chatEncryption.js';
 import ComprehensiveEncryption from '../utils/encryption/comprehensiveEncryption.js';
 import ReportedMessageBackup from '../models/reportedMessageBackup.js';
 import { filterProfanity } from '../utils/profanityFilter.js';
-
+import IntelligentCache from '../utils/cache/intelligentCache.js';
 /**
  * 새로운 채팅방 생성
  */
@@ -54,46 +54,97 @@ export const getChatRoomById = async (roomId) => {
  * 모든 채팅방 목록 조회 (서버측 필터링 및 페이징 적용)
  * @param {object} filters - 쿼리 파라미터 객체 (roomType, capacity, matchedGender, ageGroup, status, page, limit 등)
  */
+/**
+ * 모든 채팅방 목록 조회 (N+1 쿼리 해결 + Redis 캐싱)
+ * @param {object} filters - 쿼리 파라미터 객체
+ */
 export const getAllChatRooms = async (filters) => {
     const query = {};
-    if (filters.chatUsers) {
-        query.chatUsers = filters.chatUsers;
-    }
 
-    // 차단된 사용자 포함 방 제외
+    // 차단된 사용자 포함 방 제외 (Redis 캐싱 적용)
     if (filters.userId) {
-        const me = await User.findById(filters.userId).select('blockedUsers');
+        // 1. 사용자 차단 목록 캐싱 (5분)
+        const cacheKey = `user_blocks_${filters.userId}`;
+        let userBlocks = await IntelligentCache.getCache(cacheKey);
+
+        if (!userBlocks) {
+            const me = await User.findById(filters.userId)
+                .select('blockedUsers')
+                .lean();
+            userBlocks = me?.blockedUsers?.map(id => id.toString()) || [];
+            await IntelligentCache.setCache(cacheKey, userBlocks, 300); // 5분 TTL
+        }
+
+        // 2. 퇴장한 방 목록 조회
         const exited = await ChatRoomExit.distinct('chatRoom', { user: filters.userId });
-        if (exited.length) query._id = { $nin: exited };   // 이미 나간 방 제외
-        if (me && me.blockedUsers.length > 0) {
-            query.chatUsers = { $nin: me.blockedUsers };
+
+        if (exited.length) query._id = { $nin: exited };
+        if (userBlocks.length > 0) {
+            query.chatUsers = { $nin: userBlocks };
         }
     }
 
+    // 필터 조건 추가
+    if (filters.chatUsers) {
+        query.chatUsers = filters.chatUsers;
+    }
+    if (filters.roomType) query.roomType = filters.roomType;
+    if (filters.capacity) query.capacity = parseInt(filters.capacity);
     if (filters.roomType)    query.roomType     = filters.roomType;
     if (filters.isActive !== undefined) {
         query.isActive = filters.isActive === 'true' || filters.isActive === true;
     }
     if (filters.capacity)    query.capacity     = parseInt(filters.capacity);
     if (filters.matchedGender) query.matchedGender = filters.matchedGender;
-    if (filters.ageGroup)    query.ageGroup     = filters.ageGroup;
+    if (filters.ageGroup) query.ageGroup = filters.ageGroup;
 
-    const page  = parseInt(filters.page)  || 1;
+    const page = parseInt(filters.page) || 1;
     const limit = parseInt(filters.limit) || 10;
-    const skip  = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
-    // 🔧 blockedUsers 필드도 함께 populate (차단 관계 확인용)
-    let rooms = await ChatRoom.find(query)
-        .populate('chatUsers', '_id nickname gender profilePhoto blockedUsers')
-        // 5개 필드 (사용하는 것만)
-        .select('_id chatUsers roomType capacity status matchedGender ageGroup genderSelections createdAt isActive')
-        .lean()
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit);
+    // 3. 집계 파이프라인으로 N+1 해결 (402개 쿼리 → 1개)
+    const rooms = await ChatRoom.aggregate([
+        { $match: query },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+            $lookup: {
+                from: 'users',
+                localField: 'chatUsers',
+                foreignField: '_id',
+                pipeline: [
+                    {
+                        $project: {
+                            _id: 1,
+                            nickname: 1,
+                            gender: 1,
+                            profilePhoto: 1,
+                            blockedUsers: 1
+                        }
+                    }
+                ],
+                as: 'chatUsers'
+            }
+        },
+        {
+            $project: {
+                _id: 1,
+                chatUsers: 1,
+                roomType: 1,
+                capacity: 1,
+                status: 1,
+                matchedGender: 1,
+                ageGroup: 1,
+                genderSelections: 1,
+                createdAt: 1,
+                isActive: 1
+            }
+        }
+    ]);
 
-    // ObjectId → String 변환
-    rooms = rooms.map(room => ({
+    // 4. ObjectId → String 변환 (프론트엔드 호환성)
+    const processedRooms = rooms.map(room => ({
         ...room,
         _id: room._id.toString(),
         chatUsers: room.chatUsers.map(user => ({
@@ -101,7 +152,6 @@ export const getAllChatRooms = async (filters) => {
             _id: user._id.toString(),
             blockedUsers: (user.blockedUsers || []).map(id => id.toString())
         })),
-        // ✅ genderSelections Map도 키를 문자열로 변환
         genderSelections: room.genderSelections
             ? Object.fromEntries(
                 Object.entries(room.genderSelections).map(([key, value]) => [
@@ -111,7 +161,8 @@ export const getAllChatRooms = async (filters) => {
             )
             : {}
     }));
-    return rooms;
+
+    return processedRooms;
 };
 
 /**
