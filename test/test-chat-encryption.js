@@ -1,8 +1,8 @@
 // test-chat-encryption.js - 채팅 암호화 시스템 테스트 스크립트
 
-import ChatEncryption from './src/utils/encryption/chatEncryption.js';
-import ComprehensiveEncryption from './src/utils/encryption/comprehensiveEncryption.js';
-import { testChatEncryption } from './src/services/chatService.js';
+import ChatEncryption from '../src/utils/encryption/chatEncryption.js';
+import ComprehensiveEncryption from '../src/utils/encryption/comprehensiveEncryption.js';
+import { testChatEncryption } from '../src/services/chatService.js';
 
 console.log('🧪 LOCO 채팅 암호화 시스템 통합 테스트 시작...\n');
 

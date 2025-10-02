@@ -46,7 +46,7 @@ export const createReport = async (data) => {
                     '스팸, 도배, 거짓정보': 'spam',
                     '부적절한 메세지(성인/도박/마약 등)': 'inappropriate',
                     '규칙에 위반되는 프로필/모욕성 닉네임': 'inappropriate',
-                    '음란물 배포(이미지)': 'inappropriate'
+                    '음란물 (이미지)': 'inappropriate'
                 };
                 
                 const mappedReason = reasonMapping[data.reportCategory] || 'other';

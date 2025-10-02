@@ -1,5 +1,5 @@
 // 채팅 암호화 테스트 스크립트
-import ChatEncryption from './src/utils/encryption/chatEncryption.js';
+import ChatEncryption from '../src/utils/encryption/chatEncryption.js';
 import dotenv from 'dotenv';
 
 // 환경변수 로드

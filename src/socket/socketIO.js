@@ -5,7 +5,6 @@ import * as userService from "../services/userService.js";
 import * as onlineStatusService from '../services/onlineStatusService.js';
 import mongoose from "mongoose";
 import crypto from 'crypto';
-import { filterProfanity } from '../utils/profanityFilter.js';
 
 export let io;
 
@@ -102,14 +101,7 @@ export const initializeSocket = (server) => {
                 const senderUser = await userService.getUserById(senderId);
                 const senderNick = senderUser ? senderUser.nickname : "알 수 없음";
                 
-                // 2. 사용자 설정에 따라 욕설 필터링 결정
-                // wordFilterEnabled가 true면 필터링, false 또는 없으면 원본
-                const shouldFilter = senderUser?.wordFilterEnabled === true;
-                const filteredText = shouldFilter ? filterProfanity(text) : text;
-                
-                console.log(`🔍 [필터링설정] 사용자: ${senderNick}, 필터링: ${shouldFilter ? 'ON' : 'OFF'}`);
-
-                // 3. DB 저장 (원본 text 전달)
+                // 2. DB 저장 (원본 text 전달)
                 const savedMessage = await chatService.saveMessage(chatRoom, senderId, text, {
                     platform: 'socket',
                     userAgent: 'realtime-chat',
@@ -119,12 +111,12 @@ export const initializeSocket = (server) => {
 
                 console.log(`✅ [메시지저장] 완료: ${savedMessage._id} (${savedMessage.isEncrypted ? '암호화' : '평문'})`);
 
-                // 4. 실제 저장된 메시지로 전송 데이터 구성
+                // 3. 실제 저장된 메시지로 전송 데이터 구성 (원본 텍스트 사용)
                 const messageToSend = {
                     _id: savedMessage._id, // ✅ 실제 DB ID 사용
                     chatRoom,
                     sender: { _id: senderId, id: senderId, nickname: senderNick },
-                    text: filteredText, // ✅ 필터링된 텍스트로 전송
+                    text: text, // ✅ 원본 텍스트를 그대로 전송
                     textTime: savedMessage.textTime || new Date(),
                     isEncrypted: savedMessage.isEncrypted,
                     roomType: roomType,
@@ -137,7 +129,7 @@ export const initializeSocket = (server) => {
                 io.to(chatRoom).emit("receiveMessage", messageToSend);
                 console.log(`📨 [메시지전송] 완료: ${savedMessage._id} → 방 ${chatRoom}`);
 
-                // 5. 개인 알림 전송
+                // 5. 개인 알림 전송 (원본 텍스트로 전송)
                 const roomDoc = await ChatRoom.findById(chatRoom);
                 const exitedUsers = await ChatRoomExit.distinct("user", { chatRoom });
                 const targets = roomDoc.chatUsers.filter(uid =>
@@ -146,12 +138,11 @@ export const initializeSocket = (server) => {
                 );
 
                 targets.forEach(uid => {
-                    const notificationText = filteredText.length > 10 ? `${filteredText.substring(0, 10)}...` : filteredText;
                     io.to(uid.toString()).emit("chatNotification", {
                         chatRoom,
                         roomType: roomType,
-                        message: messageToSend,
-                        notification: `${senderNick}: ${notificationText}`,
+                        message: messageToSend, // 알림 클릭 시 필요한 원본 메시지
+                        notification: `${senderNick}: ${text}`,
                         timestamp: new Date()
                     });
                 });
