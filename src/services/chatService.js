@@ -693,7 +693,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
 
         messages = await ChatMessage.find(filter)
             .populate('sender', '_id nickname profilePhoto')
-            .select('_id text sender textTime isDeleted createdAt encryptedText iv tag isEncrypted')
+            .select('_id text sender textTime isDeleted createdAt encryptedText iv tag isEncrypted isSystem')
             .lean()  // ✅ 추가 (성능 최적화)
             .sort({ createdAt: -1 })
             .skip(skip)
@@ -712,7 +712,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
         // 그 외 채팅방(랜덤 채팅 등)은 모든 메시지를 한 번에 반환
         messages = await ChatMessage.find(filter)
             .populate('sender', '_id nickname profilePhoto')
-            .select('_id text sender textTime isDeleted createdAt encryptedText iv tag isEncrypted')
+            .select('_id text sender textTime isDeleted createdAt encryptedText iv tag isEncrypted isSystem')
             .lean()  // ✅ 추가 (성능 최적화)
             .sort({ createdAt: 1 })
         
