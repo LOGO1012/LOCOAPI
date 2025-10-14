@@ -228,21 +228,33 @@ export const updateUserNaverToken = async (userId, accessToken) => {
 export const getUserById = async (userId) => {
     try {
         let user = await User.findById(userId)
-            .select(
+            .select({
+                _id: 1,
                 // 기본 정보
-                'nickname profilePhoto gender star ' +
+                nickname: 1,
+                profilePhoto: 1,
+                gender: 1,
+                star: 1,
                 // 게임 정보
-                'lolNickname info ' +
+                lolNickname: 1,
+                info: 1,
                 // 채팅 관련
-                'numOfChat chatTimer plan ' +
-                // 신고 관련 (추가!)
-                'reportStatus reportTimer nextRefillAt ' +
-                // 앨범 (추가!)
-                'photo ' +
+                numOfChat: 1,
+                chatTimer: 1,
+                plan: 1,
+                // 신고 관련 (중요!)
+                reportStatus: 1,
+                reportTimer: 1,
+                nextRefillAt: 1,
+                // 앨범
+                photo: 1,
                 // 나이 계산용
-                'birthdate'
-                // wordFilterEnabled, friendReqEnabled 제거!
-            )
+                birthdate: 1,
+                // ✅ 설정 필드 추가!
+                wordFilterEnabled: 1,
+                friendReqEnabled: 1,
+                chatPreviewEnabled: 1
+            })
             .lean();
         if (!user) throw new Error("사용자를 찾을 수 없습니다.");
 
@@ -327,18 +339,29 @@ export const getUserById = async (userId) => {
 export const getUserForAuth = async (userId) => {
     try {
         const user = await User.findById(userId)
-            .select(
-                '_id ' +        // ✅ 필수: 사용자 식별
-                'nickname ' +   // ✅ 필수: 관리자 로그
-                'status ' +     // ✅ 권장: 계정 상태 확인
-                'userLv'  +     // ✅ 필수: 권한 검증
-                'birthdate'     // ✅ 추가: 나이 확인을 위해 추가
-            )
+            .select({
+                _id: 1,
+                nickname: 1,
+                status: 1,
+                userLv: 1,
+                birthdate: 1
+            })
             .lean();
 
         if (!user) {
             throw new Error("사용자를 찾을 수 없습니다.");
         }
+
+        // 🔧 DB 조회 직후 즉시 로그
+        console.log('📊 [getUserForAuth] DB 조회 직후:', {
+            userId: user._id,
+            nickname: user.nickname,
+            status: user.status,
+            userLv: user.userLv,              // ← 여기서 확인!
+            hasUserLv: 'userLv' in user,
+            userLvType: typeof user.userLv,
+            allFields: Object.keys(user)
+        });
 
         // ✅ 나이 정보 계산 추가 (캐시 우선)
         if (user.birthdate) {
