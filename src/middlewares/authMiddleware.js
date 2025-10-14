@@ -1,6 +1,6 @@
 // src/middlewares/authMiddleware.js
 import jwt from 'jsonwebtoken';
-import {getUserById} from "../services/userService.js";
+import {getUserForAuth} from "../services/userService.js";
 
 export const authenticate = async (req, res, next) => {
     try {
@@ -21,11 +21,23 @@ export const authenticate = async (req, res, next) => {
 
         // 3) 액세스 토큰 검증 시도
         try {
+            // JWT 토큰 검증
             const payload = jwt.verify(accessToken, process.env.JWT_SECRET);
-            const user = await getUserById(payload.userId);
+            // ✅ 최적화: getUserForAuth 사용
+            // - 7개 필드만 조회: _id, nickname, email, status, profilePhoto, gender, social, createdAt
+            // - .lean() 사용으로 Mongoose 오버헤드 제거
+            // - 복호화 로직 없음 (birthdate 등 제외)
+            const user = await getUserForAuth(payload.userId);
+
+            // 사용자가 존재하지 않으면 401 반환
             if (!user) {
                 return res.status(401).json({message: "유효하지 않은 사용자입니다."});
             }
+
+
+            // ✅ req.user에 최소한의 정보만 저장
+            // - 이후 미들웨어나 컨트롤러에서 req.user._id로 접근 가능
+            // - 필요한 추가 정보는 해당 컨트롤러에서 별도 조회
             req.user = user;
             return next();
         } catch {
@@ -40,7 +52,7 @@ export const authenticate = async (req, res, next) => {
         }
         try {
             const payload = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
-            const user = await getUserById(payload.userId);
+            const user = await getUserForAuth(payload.userId);
             if (!user) {
                 return res.status(401).json({message: "유효하지 않은 사용자입니다."});
             }

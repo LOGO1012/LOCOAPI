@@ -2,7 +2,7 @@
 // 네이버 OAuth 콜백 요청을 처리하여 사용자 정보를 조회하고, 로그인 또는 회원가입 필요 상태를 반환합니다.
 import { naverAuthSchema } from '../dto/naverAuthValidator.js';
 import { naverLogin, revokeNaverToken } from '../services/naverAuthService.js';
-import { findUserByNaver, getUserById, updateUserNaverToken } from '../services/userService.js'; // ✅ updateUserNaverToken 추가
+import { findUserByNaver, getUserForAuth, updateUserNaverToken } from '../services/userService.js'; // ✅ updateUserNaverToken 추가
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -69,6 +69,33 @@ export const naverCallback = async (req, res, next) => {
         const user = result;
         console.log('DB에서 네이버 사용자 처리 결과:', user);
 
+        const clientUser = {
+            // ✅ 필수 필드 (인증 및 기본 정보)
+            _id: user._id,                  // 사용자 ID
+            nickname: user.nickname,        // 닉네임
+            profilePhoto: user.profilePhoto,// 프로필 사진
+            gender: user.gender,            // 성별
+            status: user.status,            // 계정 상태
+            userLv: user.userLv,            // ⚠️ 중요! 관리자/개발자 메뉴 표시용
+            createdAt: user.createdAt,      // 가입일
+
+            // 🚨 누락되어 있던 필수 필드들! (즉시 추가 필요)
+            friendReqEnabled: user.friendReqEnabled ?? true,    // 친구 요청 수신 설정
+            chatPreviewEnabled: user.chatPreviewEnabled ?? true, // 채팅 미리보기 설정
+            wordFilterEnabled: user.wordFilterEnabled ?? true,   // 욕설 필터 설정
+
+            // ✅ 나이 정보 (있으면 포함) - 🔧 birthdate 추가!
+            birthdate: user.birthdate,          // 생년월일 (암호화된 상태)
+            calculatedAge: user.calculatedAge,  // 만나이
+            ageGroup: user.ageGroup,            // 연령대
+            isMinor: user.isMinor,               // 미성년자 여부
+
+            // ✅ 추가: 채팅 정보
+            numOfChat: user.numOfChat,
+            maxChatCount: user.maxChatCount,
+            nextRefillAt: user.nextRefillAt
+        };
+
         // ✅ 네이버 access_token을 사용자 정보에 저장
         try {
             await updateUserNaverToken(user._id, naverUserData.accessToken);
@@ -102,7 +129,7 @@ export const naverCallback = async (req, res, next) => {
             .json({
                 message:     "네이버 로그인 성공",
                 status:      "success",
-                user,
+                user:        clientUser,
             });
     } catch (err) {
         console.error('네이버 콜백 처리 중 오류:', err);
@@ -110,30 +137,6 @@ export const naverCallback = async (req, res, next) => {
     }
 };
 
-// /**
-//  * Refresh 토큰으로 새 Access 토큰 발급
-//  */
-// export const refreshToken = (req, res) => {
-//     const token = req.cookies.refreshToken;
-//     if (!token) {
-//         return res.status(401).json({ message: "No refresh token" });
-//     }
-//     try {
-//         const payload = jwt.verify(token, REFRESH_SECRET);
-//         const newAccess = jwt.sign(
-//             {
-//                 userId:  payload.userId,
-//                 naverId: payload.naverId,
-//                 name:    payload.name,
-//             },
-//             JWT_SECRET,
-//             { expiresIn: "15m" }
-//         );
-//         return res.json({ accessToken: newAccess });
-//     } catch {
-//         return res.status(401).json({ message: "Invalid refresh token" });
-//     }
-// };
 
 /**
  * 리프레시 토큰으로 새 액세스 토큰 발급
@@ -146,7 +149,7 @@ export const naverRefreshToken = async (req, res) => {
         }
 
         const payload = jwt.verify(rToken, REFRESH_SECRET);
-        const user = await getUserById(payload.userId);
+        const user = await getUserForAuth(payload.userId);
         if (!user) {
             return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
         }
@@ -187,7 +190,7 @@ export const logout = async (req, res) => {
                     console.log('사용자 ID 추출 성공:', decoded.userId);
                     
                     // 사용자 정보 조회하여 네이버 access_token 획득
-                    const user = await getUserById(decoded.userId);
+                    const user = await getUserForAuth(decoded.userId);
                     if (user && user.social && user.social.naver && user.social.naver.accessToken) {
                         console.log('네이버 access_token 발견, 연동해제 시도');
                         
@@ -247,7 +250,7 @@ export const logoutRedirect = async (req, res) => {
             try {
                 const decoded = jwt.decode(token);
                 if (decoded && decoded.userId) {
-                    const user = await getUserById(decoded.userId);
+                    const user = await getUserForAuth(decoded.userId);
                     if (user && user.social && user.social.naver && user.social.naver.accessToken) {
                         try {
                             await revokeNaverToken(user.social.naver.accessToken);

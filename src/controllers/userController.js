@@ -121,7 +121,10 @@ export const updateUserProfile = async (req, res) => {
             }
 
         // 현재 사용자 정보 조회
-        const currentUser = await User.findById(userId);
+        const currentUser = await User.findById(userId)
+            .select('nickname gender info lolNickname')
+            .lean();  // ✅ Mongoose 오버헤드 제거
+
         if (!currentUser) {
             return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
         }
