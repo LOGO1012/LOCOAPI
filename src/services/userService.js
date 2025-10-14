@@ -319,6 +319,11 @@ export const getUserById = async (userId) => {
         // 🚫 [최적화] 불필요한 개인정보 복호화 제거
         // - name, phone 복호화 제거 (프론트엔드에서 사용하지 않음)
         // - 소셜 로그인 정보 복호화 제거 (일반 로그인시 불필요)
+        if (user.lolNickname) {
+            const parts = user.lolNickname.split('#');
+            data.riotGameName = parts[0] || '';
+            data.riotTagLine = parts[1] || '';
+        }
 
         return data;
     } catch (err) {
