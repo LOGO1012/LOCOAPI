@@ -227,7 +227,23 @@ export const updateUserNaverToken = async (userId, accessToken) => {
 // 실시간 만나이 정보 제공
 export const getUserById = async (userId) => {
     try {
-        let user = await User.findById(userId);
+        let user = await User.findById(userId)
+            .select(
+                // 기본 정보
+                'nickname profilePhoto gender star ' +
+                // 게임 정보
+                'lolNickname info ' +
+                // 채팅 관련
+                'numOfChat chatTimer plan ' +
+                // 신고 관련 (추가!)
+                'reportStatus reportTimer nextRefillAt ' +
+                // 앨범 (추가!)
+                'photo ' +
+                // 나이 계산용
+                'birthdate'
+                // wordFilterEnabled, friendReqEnabled 제거!
+            )
+            .lean();
         if (!user) throw new Error("사용자를 찾을 수 없습니다.");
 
         user = await rechargeIfNeeded(user);
@@ -236,9 +252,24 @@ export const getUserById = async (userId) => {
         const last = user.chatTimer ?? new Date();
         const nextRefillAt = new Date(new Date(last).getTime() + REFILL_MS);
 
-        const data = user.toObject();
-        data.maxChatCount = maxChatCount;
-        data.nextRefillAt = nextRefillAt;
+        // ✅ 개선 3: 필요한 필드만 명시적으로 구성
+        const data = {
+            _id: user._id,
+            nickname: user.nickname,
+            profilePhoto: user.profilePhoto,
+            gender: user.gender,
+            star: user.star,
+            lolNickname: user.lolNickname,
+            info: user.info,
+            photo: user.photo || [],
+            wordFilterEnabled: user.wordFilterEnabled,
+            friendReqEnabled: user.friendReqEnabled,
+            numOfChat: user.numOfChat,
+            maxChatCount: maxChatCount,
+            nextRefillAt: nextRefillAt,
+            // 🔧 랜덤채팅을 위해 추가!
+            birthdate: user.birthdate  // 암호화된 상태로 전달 (getUserById에서 조회함)
+        };
 
         // 🔧 birthdate 기반 만나이 계산 (최적화: 캐시 우선, 필요시에만 복호화)
         if (user.birthdate) {
@@ -282,6 +313,82 @@ export const getUserById = async (userId) => {
         throw new Error(err.message);
     }
 };
+
+// ============================================================================
+//   인증 전용 사용자 조회 함수
+// ============================================================================
+
+
+ // 인증용 사용자 정보 조회 (getCurrentUser 전용)
+ // 로그인 유지에 필요한 최소한의 정보만 반환
+ // getUserById()보다 훨씬 가벼움 (채팅 할당량 계산 제외)
+ // 페이지 새로고침 시 로그인 유지를 위해 사용
+
+export const getUserForAuth = async (userId) => {
+    try {
+        const user = await User.findById(userId)
+            .select(
+                '_id ' +        // ✅ 필수: 사용자 식별
+                'nickname ' +   // ✅ 필수: 관리자 로그
+                'status ' +     // ✅ 권장: 계정 상태 확인
+                'userLv'  +     // ✅ 필수: 권한 검증
+                'birthdate'     // ✅ 추가: 나이 확인을 위해 추가
+            )
+            .lean();
+
+        if (!user) {
+            throw new Error("사용자를 찾을 수 없습니다.");
+        }
+
+        // ✅ 나이 정보 계산 추가 (캐시 우선)
+        if (user.birthdate) {
+            try {
+                const ageInfo = await IntelligentCache.getCachedUserAge(userId);
+                if (ageInfo) {
+                    // 캐시에서 가져오기
+                    user.calculatedAge = ageInfo.age;
+                    user.ageGroup = ageInfo.ageGroup;
+                    user.isMinor = ageInfo.isMinor;
+                    console.log(`💾 [인증-캐시] 나이 정보 로드: ${userId} - ${ageInfo.age}세`);
+                } else {
+                    // 캐시 미스: 복호화 후 계산
+                    console.log(`🔓 [인증] birthdate 복호화 시작: ${userId}`);
+                    const decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+
+                    if (decryptedBirthdate) {
+                        const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+                        const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+                        const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+
+                        user.calculatedAge = age;
+                        user.ageGroup = ageGroup;
+                        user.isMinor = isMinor;
+
+                        // 캐시 저장
+                        await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
+                        console.log(`✅ [인증-캐싱] 나이 정보 저장: ${userId} - ${age}세`);
+                    }
+                }
+            } catch (error) {
+                console.error(`⚠️ [인증] 나이 정보 계산 실패: ${userId}`, error);
+                // 에러가 나도 인증은 통과시킴 (나이 정보는 null)
+            }
+        }
+
+        console.log(`✅ [인증] 사용자 정보 조회 성공: ${userId}`, {
+            nickname: user.nickname,
+            hasBirthdate: !!user.birthdate,
+            ageGroup: user.ageGroup,
+            age: user.calculatedAge
+        });
+
+        return user;
+    } catch (err) {
+        console.error(`❌ [인증] 사용자 정보 조회 실패: ${userId}`, err.message);
+        throw new Error(err.message);
+    }
+};
+
 
 // 닉네임으로 사용자 찾기
 //닉네임 기반 사용자 검색

@@ -2,7 +2,7 @@
 // 카카오 인증 요청에서 전달받은 인가코드를 검증하기 위한 Joi 스키마 임포트
 import { kakaoAuthSchema } from '../dto/authValidator.js';
 import { kakaoLogin } from '../services/authService.js';
-import {findUserOrNoUser, getUserById} from '../services/userService.js';
+import {findUserOrNoUser, getUserForAuth} from '../services/userService.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 dotenv.config(); // .env 파일에 정의된 환경변수 로드
@@ -95,6 +95,35 @@ export const kakaoCallback = async (req, res, next) => {
         const user = result;
         console.log('DB에서 사용자 처리 결과:', user);
 
+
+        const clientUser = {
+            // ✅ 필수 필드 (인증 및 기본 정보)
+            _id: user._id,                  // 사용자 ID
+            nickname: user.nickname,        // 닉네임
+            profilePhoto: user.profilePhoto,// 프로필 사진
+            gender: user.gender,            // 성별
+            status: user.status,            // 계정 상태
+            userLv: user.userLv,            // ⚠️ 중요! 관리자/개발자 메뉴 표시용
+            createdAt: user.createdAt,      // 가입일
+
+            // 🚨 누락되어 있던 필수 필드들! (즉시 추가 필요)
+            friendReqEnabled: user.friendReqEnabled ?? true,    // 친구 요청 수신 설정
+            chatPreviewEnabled: user.chatPreviewEnabled ?? true, // 채팅 미리보기 설정
+            wordFilterEnabled: user.wordFilterEnabled ?? true,   // 욕설 필터 설정
+
+            // ✅ 나이 정보 (있으면 포함) - 🔧 birthdate 추가!
+            birthdate: user.birthdate,          // 생년월일 (암호화된 상태)
+            calculatedAge: user.calculatedAge,  // 만나이
+            ageGroup: user.ageGroup,            // 연령대
+            isMinor: user.isMinor,               // 미성년자 여부
+
+            // ✅ 추가: 채팅 정보
+            numOfChat: user.numOfChat,
+            maxChatCount: user.maxChatCount,
+            nextRefillAt: user.nextRefillAt
+        };
+
+
         const payload = {
             userId:  user._id,
             kakaoId: user.social.kakao.providerId,
@@ -114,7 +143,7 @@ export const kakaoCallback = async (req, res, next) => {
             .json({
                 message:     "카카오 로그인 성공",
                 status:      "success",
-                user,
+                user: clientUser,
             });
     } catch (err) {
         console.error('카카오 콜백 처리 중 오류:', err);
@@ -163,7 +192,7 @@ export const refreshToken = async (req, res) => {
 
         const payload = jwt.verify(rToken, REFRESH_SECRET);
         // DB에 실제 userId 존재 여부 확인
-        const user = await getUserById(payload.userId);
+        const user = await getUserForAuth(payload.userId);
         if (!user) {
             return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
         }
@@ -200,7 +229,7 @@ export const getCurrentUser = async (req, res) => {
             const token = authHeader.split(' ')[1];
             try {
                 const payload = jwt.verify(token, JWT_SECRET);
-                const user = await getUserById(payload.userId);
+                const user = await getUserForAuth(payload.userId);
                 if (!user) {
                     return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
                 }
@@ -222,7 +251,7 @@ export const getCurrentUser = async (req, res) => {
             return res.status(401).json({ message: '리프레시 토큰이 유효하지 않습니다.' });
         }
 
-        const user = await getUserById(payload.userId);
+        const user = await getUserForAuth(payload.userId);
         if (!user) {
             return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
         }
