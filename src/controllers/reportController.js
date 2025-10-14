@@ -57,7 +57,7 @@ export const getReports = async (req, res) => {
         const filters = {};
 
         // 신고 구역 필터링: 허용된 값인지 확인 후 추가
-        const allowedAreas = ['친구채팅', '랜덤채팅', '커뮤니티'];
+        const allowedAreas = ['프로필', '친구채팅', '랜덤채팅', '커뮤니티'];
         if (req.query.reportArea && allowedAreas.includes(req.query.reportArea)) {
             filters.reportArea = req.query.reportArea;
         }
