@@ -221,52 +221,147 @@ export const updateUserNaverToken = async (userId, accessToken) => {
 //   기본 사용자 조회 함수
 // ============================================================================
 
-// 사용자 상세 정보 조회 (채팅 할당량 포함)
-//사용자 기본 정보 조회
-// 채팅 할당량 계산 및 자동 충전
-// 실시간 만나이 정보 제공
+/**
+ * 🎯 사용자 상세 정보 조회 (최적화 + 안전성 보장)
+ *
+ * 핵심 전략:
+ * 1. 캐싱: 변하지 않는 정보(nickname, photo 등)는 캐시에서 빠르게 로드
+ * 2. 실시간 계산: numOfChat은 매번 실시간으로 계산 (정확성 보장)
+ * 3. 조건부 업데이트: Race Condition 방지로 데이터 손실 없음
+ *
+ * @param {string} userId - 조회할 사용자 ID
+ * @returns {Object} 사용자 정보 (numOfChat은 실시간 계산된 값)
+ */
 export const getUserById = async (userId) => {
     try {
-        let user = await User.findById(userId)
-            .select({
-                _id: 1,
-                // 기본 정보
-                nickname: 1,
-                profilePhoto: 1,
-                gender: 1,
-                star: 1,
-                // 게임 정보
-                lolNickname: 1,
-                info: 1,
-                // 채팅 관련
-                numOfChat: 1,
-                chatTimer: 1,
-                plan: 1,
-                // 신고 관련 (중요!)
-                reportStatus: 1,
-                reportTimer: 1,
-                nextRefillAt: 1,
-                // 앨범
-                photo: 1,
-                // 나이 계산용
-                birthdate: 1,
-                // ✅ 설정 필드 추가!
-                wordFilterEnabled: 1,
-                friendReqEnabled: 1,
-                chatPreviewEnabled: 1
-            })
-            .lean();
-        if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 📦 1단계: 캐시에서 정적 정보 조회 시도
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 정적 정보: nickname, profilePhoto, gender, star 등 (거의 변하지 않는 데이터)
+        // TTL: 30분 (1800초)
+        let cachedStaticInfo = await IntelligentCache.getUserStaticInfo(userId);
 
-        user = await rechargeIfNeeded(user);
+        let user;
 
-        const maxChatCount = getMax(user.plan?.planType);
-        const last = user.chatTimer ?? new Date();
-        const nextRefillAt = new Date(new Date(last).getTime() + REFILL_MS);
+        if (cachedStaticInfo) {
+            // ✅ 캐시 HIT: 빠른 로드 (DB 조회 없음)
+            console.log(`💾 [캐시 HIT] 사용자 정적 정보: ${userId}`);
+            // 🔍 캐시 유효성 검증: DB에 사용자가 실제로 존재하는지 확인
+            const exists = await User.exists({ _id: userId, status: { $ne: 'deactivated' } });
 
-        // ✅ 개선 3: 필요한 필드만 명시적으로 구성
+            if (!exists) {
+                // ❌ 사용자가 존재하지 않음 → 캐시 무효화 후 에러
+                console.log(`⚠️ [캐시 무효] 사용자가 DB에 없음: ${userId}`);
+                await IntelligentCache.invalidateUserStaticInfo(userId);
+                throw new Error("사용자를 찾을 수 없습니다.");
+            }
+            // ✅ 사용자 존재 확인 → 캐시 데이터 사용
+            user = cachedStaticInfo;
+        } else {
+            // ❌ 캐시 MISS: DB 조회 필요
+            console.log(`🔍 [캐시 MISS] DB 조회 시작: ${userId}`);
+
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // 📊 2단계: MongoDB에서 사용자 정보 조회 (lean() 사용)
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // lean(): Mongoose Document가 아닌 일반 JavaScript 객체로 반환
+            // 장점: 메모리 사용량 30-40% 감소, 조회 속도 2-3배 빠름
+            // 단점: save(), populate() 등 Mongoose 메서드 사용 불가
+            user = await User.findById(userId)
+                .select({
+                    _id: 1,
+                    // 🎨 기본 프로필 정보
+                    nickname: 1,
+                    profilePhoto: 1,
+                    gender: 1,
+                    star: 1,
+                    info: 1,
+                    photo: 1,
+
+                    // 🎮 게임 정보
+                    lolNickname: 1,
+
+                    // 💬 채팅 관련 (실시간 계산에 필요)
+                    numOfChat: 1,        // DB에 저장된 값 (기준점)
+                    chatTimer: 1,         // 마지막 충전 시각 (계산에 필요)
+                    plan: 1,              // 요금제 정보 (maxChatCount 계산용)
+
+                    // 🚫 신고 관련
+                    reportStatus: 1,
+                    reportTimer: 1,
+
+                    // 🎂 나이 계산용
+                    birthdate: 1,
+
+                    // ⚙️ 설정 정보
+                    wordFilterEnabled: 1,
+                    friendReqEnabled: 1,
+                    chatPreviewEnabled: 1,
+                })
+                .lean();  // ✅ lean() 사용 - 성능 최적화
+
+            // 사용자가 존재하지 않으면 에러 발생
+            if (!user) {
+                throw new Error("사용자를 찾을 수 없습니다.");
+            }
+
+
+
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // 💾 3단계: 정적 정보를 캐시에 저장
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // TTL: 1800초 (30분)
+            // 캐시 대상: 모든 필드 (numOfChat, chatTimer 포함)
+            // 이유: 실시간 계산의 기준점이 되므로 함께 저장
+            await IntelligentCache.cacheUserStaticInfo(userId, user, 1800);
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 📸 4단계: 현재 DB 값 스냅샷 저장 (조건부 업데이트용)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 이 값들은 나중에 조건부 업데이트 시 "변경되지 않았는지" 확인하는 조건으로 사용
+        // 중요: 이 시점의 DB 값을 정확히 기억해야 Race Condition 방지 가능
+        const dbNumOfChat = user.numOfChat;    // 현재 DB의 채팅 횟수
+        const dbChatTimer = user.chatTimer;    // 현재 DB의 충전 타이머
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ⚡ 5단계: 실시간 채팅 충전 계산
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // DB 업데이트 없이 메모리에서만 계산
+        // 장점: 빠르고, 항상 최신 값 반환
+        const rechargeResult = calculateRechargeRealtime(user);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 🔄 6단계: 충전이 필요하면 조건부 업데이트 실행 (비동기)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // needsUpdate: 충전 시간이 지나서 DB 업데이트가 필요한 경우 true
+        if (rechargeResult.needsUpdate) {
+            console.log(`🔄 [충전 필요] 사용자: ${userId}, ${dbNumOfChat} → ${rechargeResult.newNumOfChat}`);
+
+
+            //  먼저 캐시 무효화, 그 다음 비동기 업데이트
+            await IntelligentCache.invalidateUserStaticInfo(userId);
+            // ✅ 조건부 업데이트 실행 (비동기 - 응답 속도에 영향 없음)
+            // then/catch로 처리하여 메인 흐름을 차단하지 않음
+            updateChatCountSafely(
+                userId,
+                dbNumOfChat,                      // 조건: 현재 DB 값
+                dbChatTimer,                      // 조건: 현재 타이머 값
+                rechargeResult.newNumOfChat,      // 새로 저장할 채팅 횟수
+                rechargeResult.newChatTimer       // 새로 저장할 타이머
+            ).catch(err => {
+                // 업데이트 실패해도 응답은 정상 처리 (다음 요청 때 재시도)
+                console.error(`❌ [충전 업데이트 실패] ${userId}:`, err.message);
+            });
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 📦 7단계: 클라이언트에 전달할 데이터 구성
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const data = {
-            _id: user._id,
+            _id: user._id.toString(),           // ✅ ObjectId를 문자열로 변환 (중요!)
+
+            // 🎨 프로필 정보
             nickname: user.nickname,
             profilePhoto: user.profilePhoto,
             gender: user.gender,
@@ -274,57 +369,338 @@ export const getUserById = async (userId) => {
             lolNickname: user.lolNickname,
             info: user.info,
             photo: user.photo || [],
+
+            // ⚙️ 설정 정보
             wordFilterEnabled: user.wordFilterEnabled,
             friendReqEnabled: user.friendReqEnabled,
-            numOfChat: user.numOfChat,
-            maxChatCount: maxChatCount,
-            nextRefillAt: nextRefillAt,
-            // 🔧 랜덤채팅을 위해 추가!
-            birthdate: user.birthdate  // 암호화된 상태로 전달 (getUserById에서 조회함)
+            chatPreviewEnabled: user.chatPreviewEnabled,
+
+            // 💬 채팅 정보 (실시간 계산된 값!)
+            numOfChat: rechargeResult.currentNumOfChat,      // ✅ 실시간 계산된 현재 채팅 횟수
+            maxChatCount: rechargeResult.maxChatCount,       // 최대 채팅 횟수
+            nextRefillAt: rechargeResult.nextRefillAt,       // ✅ 다음 충전 시각
+
+            // 🎂 나이 계산용 원본 데이터
+            birthdate: user.birthdate,                        // 암호화된 생년월일
+
+            // 📊 추가 정보 (프론트엔드에서 실시간 계산 가능하도록)
+            chatTimer: user.chatTimer,                        // 마지막 충전 시각
+            planType: user.plan?.planType                     // 요금제 타입
         };
 
-        // 🔧 birthdate 기반 만나이 계산 (최적화: 캐시 우선, 필요시에만 복호화)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 🎂 8단계: 나이 정보 계산 및 추가
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // birthdate가 있으면 만나이, 연령대, 미성년자 여부 계산
         if (user.birthdate) {
             try {
+                // 캐시에서 나이 정보 확인 (복호화 비용 절약)
                 const ageInfo = await IntelligentCache.getCachedUserAge(userId);
+
                 if (ageInfo) {
-                    // 캐시에서 가져오기 (복호화 없음)
+                    // ✅ 캐시 HIT: 복호화 없이 바로 사용
                     data.calculatedAge = ageInfo.age;
                     data.ageGroup = ageInfo.ageGroup;
                     data.isMinor = ageInfo.isMinor;
-                    console.log(`💾 [최적화] 캐시에서 나이 정보 로드: ${userId}`);
+                    console.log(`💾 [캐시] 나이 정보: ${userId} - ${ageInfo.age}세`);
                 } else {
-                    // 캐시가 없을 때만 복호화 수행
-                    console.log(`🔓 [최적화] birthdate 복호화 필요: ${userId}`);
-                    const decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+                    // ❌ 캐시 MISS: 복호화 후 계산
+                    console.log(`🔓 [복호화] birthdate: ${userId}`);
+
+                    let decryptedBirthdate;
+                    try {
+                        decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+                    } catch (decryptError) {
+                        console.error(`❌ birthdate 복호화 실패 (${userId}):`, decryptError.message);
+                        decryptedBirthdate = null;
+                    }
+
                     if (decryptedBirthdate) {
-                        const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
-                        const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
-                        const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+                        try {
+                            const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+                            const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+                            const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
 
-                        data.calculatedAge = age;
-                        data.ageGroup = ageGroup;
-                        data.isMinor = isMinor;
+                            data.calculatedAge = age;
+                            data.ageGroup = ageGroup;
+                            data.isMinor = isMinor;
 
-                        // 캐시 저장
-                        await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
-                        console.log(`✅ [최적화] 나이 정보 캐싱 완료: ${userId} -> ${age}세`);
+                            await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
+                            console.log(`✅ [캐싱] 나이 정보: ${userId} - ${age}세`);
+
+                        } catch (calcError) {
+                            console.error(`❌ 나이 계산 실패 (${userId}):`, calcError.message);
+                            data.calculatedAge = null;
+                            data.ageGroup = null;
+                            data.isMinor = null;
+                        }
+
+                    } else {
+                        console.warn(`⚠️ birthdate 복호화 실패, 나이 정보 제외: ${userId}`);
+                        data.calculatedAge = null;
+                        data.ageGroup = null;
+                        data.isMinor = null;
                     }
                 }
             } catch (error) {
-                console.error('만나이 정보 조회 실패:', error);
+                // 나이 계산 실패해도 다른 정보는 정상 반환
+                console.error('⚠️ 만나이 정보 조회 실패:', error);
             }
         }
 
-        // 🚫 [최적화] 불필요한 개인정보 복호화 제거
-        // - name, phone 복호화 제거 (프론트엔드에서 사용하지 않음)
-        // - 소셜 로그인 정보 복호화 제거 (일반 로그인시 불필요)
-
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ 9단계: 최종 데이터 반환
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         return data;
+
     } catch (err) {
+        // 에러 발생 시 상세 로그 출력
+        console.error(`❌ [getUserById 에러] ${userId}:`, err.message);
         throw new Error(err.message);
     }
 };
+
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🔧 헬퍼 함수: 실시간 채팅 충전 계산 (DB 업데이트 없이)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/**
+ * 채팅 충전 시간 계산 (메모리에서만 계산, DB 업데이트 없음)
+ *
+ * 계산 로직:
+ * 1. 현재 시각과 마지막 충전 시각(chatTimer)의 차이 계산
+ * 2. 차이를 충전 주기(REFILL_MS)로 나눈 몫 = 충전 횟수
+ * 3. 현재 채팅 횟수 + 충전 횟수 (최대값 제한)
+ *
+ * @param {Object} user - 사용자 정보 (lean() 객체)
+ * @returns {Object} 계산 결과
+ *   - currentNumOfChat: 실시간 계산된 현재 채팅 횟수
+ *   - maxChatCount: 최대 채팅 횟수
+ *   - nextRefillAt: 다음 충전 시각
+ *   - needsUpdate: DB 업데이트 필요 여부
+ *   - newNumOfChat: DB에 저장할 새 채팅 횟수
+ *   - newChatTimer: DB에 저장할 새 타이머
+ */
+function calculateRechargeRealtime(user) {
+    // 🔢 1단계: 최대 채팅 횟수 계산
+    const max = getMax(user.plan?.planType);    // 요금제별 최대 횟수
+    const dbNumOfChat = user.numOfChat || 0;     // DB에 저장된 현재 횟수
+
+    let currentNumOfChat = dbNumOfChat;          // 계산할 현재 횟수 (초기값 = DB 값)
+    let needsUpdate = false;                     // DB 업데이트 필요 여부
+    let newNumOfChat = dbNumOfChat;              // DB에 저장할 값
+    let newChatTimer = user.chatTimer;           // DB에 저장할 타이머
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🔍 2단계: 이미 풀충전인 경우 (계산 불필요)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (dbNumOfChat >= max) {
+        const last = user.chatTimer ?? new Date();
+        const nextRefillAt = new Date(new Date(last).getTime() + REFILL_MS);
+
+        return {
+            currentNumOfChat: dbNumOfChat,    // 이미 최대값
+            maxChatCount: max,
+            nextRefillAt,
+            needsUpdate: false                // 업데이트 불필요
+        };
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ⏰ 3단계: 충전 시간 계산
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ✅✅✅ 여기부터 완전히 새로운 코드! ✅✅✅
+    let last;
+    if (user.chatTimer) {
+        const parsedDate = new Date(user.chatTimer);
+
+        if (isNaN(parsedDate.getTime())) {
+            console.warn(`⚠️ chatTimer가 유효하지 않음 (userId: ${user._id}):`, user.chatTimer);
+            last = new Date();
+        } else {
+            last = parsedDate;
+        }
+    } else {
+        last = new Date();
+    }
+
+    const now = Date.now();
+    const elapsed = now - last.getTime();
+
+    if (elapsed < 0) {
+        console.warn(`⚠️ 경과 시간이 음수 (userId: ${user._id}): ${elapsed}ms`);
+        return {
+            currentNumOfChat: dbNumOfChat,
+            maxChatCount: max,
+            nextRefillAt: new Date(Date.now() + REFILL_MS),
+            needsUpdate: true,
+            newNumOfChat: dbNumOfChat,
+            newChatTimer: new Date()
+        };
+    }
+
+    if (isNaN(elapsed)) {
+        console.error(`❌ 경과 시간 계산 오류 (userId: ${user._id})`);
+        return {
+            currentNumOfChat: dbNumOfChat,
+            maxChatCount: max,
+            nextRefillAt: new Date(Date.now() + REFILL_MS),
+            needsUpdate: false
+        };
+    }
+
+
+
+
+
+    const quota = Math.floor(elapsed / REFILL_MS);  // 충전 횟수 (소수점 버림)
+
+    // 예시:
+    // REFILL_MS = 1,200,000ms (20분)
+    // elapsed = 2,500,000ms (41분 40초)
+    // quota = floor(2,500,000 / 1,200,000) = floor(2.08) = 2회 충전
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ✅ 4단계: 충전이 필요한 경우
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (quota > 0) {
+        // 충전 시간이 지났음! (예: 20분 경과)
+
+        // 새 채팅 횟수 계산 (최대값 초과 방지)
+        currentNumOfChat = Math.min(max, dbNumOfChat + quota);
+
+        // DB 업데이트 필요 플래그 설정
+        needsUpdate = true;
+        newNumOfChat = currentNumOfChat;
+
+        // 새 타이머 계산
+        // 예: 2회 충전 → 타이머를 40분(20분 × 2) 앞으로 이동
+        const advanced = new Date(last.getTime() + quota * REFILL_MS);
+        newChatTimer = currentNumOfChat >= max ? null : advanced;
+        // null인 경우: 풀충전 완료 (타이머 리셋)
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 📅 5단계: 다음 충전 시각 계산
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const nextRefillAt = new Date(new Date(last).getTime() + REFILL_MS);
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🎁 6단계: 계산 결과 반환
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    return {
+        currentNumOfChat,     // 클라이언트에 표시할 값 (실시간 계산)
+        maxChatCount: max,
+        nextRefillAt,
+        needsUpdate,          // true면 DB 업데이트 필요
+        newNumOfChat,         // DB에 저장할 값
+        newChatTimer          // DB에 저장할 타이머
+    };
+}
+
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🛡️ 헬퍼 함수: 조건부 안전 업데이트 (Race Condition 방지)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/**
+ * 채팅 횟수 조건부 업데이트 (동시성 문제 방지)
+ *
+ * 핵심 개념:
+ * - Optimistic Locking 방식
+ * - DB 값이 예상한 값과 일치할 때만 업데이트
+ * - 값이 변경되었다면 업데이트 스킵 (데이터 손실 방지)
+ *
+ * 동작 시나리오:
+ *
+ * [성공 케이스]
+ * 1. 조회 시점: numOfChat = 10
+ * 2. 계산: numOfChat = 60으로 충전
+ * 3. 업데이트 시도: "numOfChat이 10인 경우에만 60으로 변경"
+ * 4. DB 확인: 여전히 10 ✅
+ * 5. 업데이트 성공!
+ *
+ * [스킵 케이스 - 동시 수정 발생]
+ * 1. 조회 시점: numOfChat = 10
+ * 2. 계산: numOfChat = 60으로 충전
+ * 3. (다른 요청) 사용자가 채팅 사용 → numOfChat = 9
+ * 4. 업데이트 시도: "numOfChat이 10인 경우에만 60으로 변경"
+ * 5. DB 확인: 현재 9 ❌ (조건 불일치)
+ * 6. 업데이트 스킵! (9 유지 → 채팅 사용 이력 보존)
+ *
+ * @param {string} userId - 사용자 ID
+ * @param {number} oldNumOfChat - 조회 시점의 채팅 횟수 (조건)
+ * @param {Date} oldChatTimer - 조회 시점의 타이머 (조건)
+ * @param {number} newNumOfChat - 저장할 새 채팅 횟수
+ * @param {Date} newChatTimer - 저장할 새 타이머
+ */
+async function updateChatCountSafely(userId, oldNumOfChat, oldChatTimer, newNumOfChat, newChatTimer) {
+    try {
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🛡️ [조건부 업데이트 시작]');
+        console.log(`   사용자 ID: ${userId}`);
+        console.log(`   조건(현재 값): numOfChat = ${oldNumOfChat}, chatTimer = ${oldChatTimer}`);
+        console.log(`   새 값: numOfChat = ${newNumOfChat}, chatTimer = ${newChatTimer}`);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 🔍 findOneAndUpdate: 조건을 만족하는 문서만 업데이트
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const result = await User.findOneAndUpdate(
+            {
+                // ✅ WHERE 조건: 이 조건을 모두 만족해야 업데이트 실행
+                _id: userId,                    // 사용자 ID 일치
+                numOfChat: oldNumOfChat,        // 채팅 횟수가 조회 시점과 동일
+                chatTimer: oldChatTimer         // 타이머가 조회 시점과 동일
+
+                // 💡 핵심: 이 두 값이 하나라도 변경되었다면 업데이트 안 함!
+                // 예: 다른 요청에서 채팅 사용 → numOfChat 변경 → 조건 불일치 → 스킵
+            },
+            {
+                // ✅ SET: 조건이 맞으면 이 값들로 업데이트
+                $set: {
+                    numOfChat: newNumOfChat,    // 새 채팅 횟수
+                    chatTimer: newChatTimer     // 새 타이머
+                }
+            },
+            {
+                new: true,      // 업데이트된 문서 반환 (업데이트 후 값)
+                lean: true      // 일반 객체로 반환 (성능 최적화)
+            }
+        );
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ 결과 확인
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (result) {
+            // result가 null이 아님 = 조건을 만족하는 문서를 찾아 업데이트 성공
+            console.log(`✅ [업데이트 성공] numOfChat: ${oldNumOfChat} → ${newNumOfChat}`);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        } else {
+
+
+            // result가 null = 조건을 만족하는 문서를 찾지 못함 = 값이 이미 변경됨
+            console.log(`⚠️ [업데이트 스킵] DB 값이 이미 변경되었습니다 (동시 수정 발생)`);
+            console.log(`   → 다른 요청에서 이미 값을 수정했거나, 사용자가 채팅을 사용했을 가능성`);
+            console.log(`   → 안전을 위해 업데이트하지 않음 (데이터 손실 방지)`);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+            await IntelligentCache.invalidateUserStaticInfo(userId);
+            console.log('   ✅ 캐시 무효화 완료');
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ [실패] 조건부 업데이트 중 오류 발생');
+
+        // ✅✅✅ 여기부터 새로운 코드! ✅✅✅
+        try {
+            await IntelligentCache.invalidateUserStaticInfo(userId);
+            console.log('   ✅ 오류 후 캐시 무효화 완료');
+        } catch (cacheError) {
+            console.error('   ❌ 캐시 무효화 실패:', cacheError.message);
+        }
+        return false;
+    }
+}
+
 
 // ============================================================================
 //   인증 전용 사용자 조회 함수
@@ -352,12 +728,16 @@ export const getUserForAuth = async (userId) => {
             throw new Error("사용자를 찾을 수 없습니다.");
         }
 
+        // ✅ ObjectId를 문자열로 변환 (중요!)
+        user._id = user._id.toString();
+
         // 🔧 DB 조회 직후 즉시 로그
         console.log('📊 [getUserForAuth] DB 조회 직후:', {
             userId: user._id,
+            userIdType: typeof user._id,
             nickname: user.nickname,
             status: user.status,
-            userLv: user.userLv,              // ← 여기서 확인!
+            userLv: user.userLv,
             hasUserLv: 'userLv' in user,
             userLvType: typeof user.userLv,
             allFields: Object.keys(user)
@@ -1119,116 +1499,6 @@ export const getDecryptedUserForAdmin = async (userId) => {
         throw error;
     }
 };
-// export const getDecryptedUserForAdmin = async (userId) => {
-//     try {
-//         console.log(`🔐 관리자용 복호화 시작: ${userId}`);
-//
-//         // 1️⃣ 캐시에서 복호화된 데이터 확인
-//         let decryptedUser = await IntelligentCache.getDecryptedUser(userId);
-//         if (decryptedUser) {
-//             console.log(`✅ 캐시에서 복호화 데이터 발견: ${userId}`);
-//             return decryptedUser;
-//         }
-//
-//         // 2️⃣ DB에서 원본 데이터 조회
-//         const user = await User.findById(userId).lean();
-//         if (!user) {
-//             console.log(`❌ 사용자를 찾을 수 없음: ${userId}`);
-//             return null;
-//         }
-//
-//         console.log(`📋 원본 데이터 조회 완료: ${userId}`, {
-//             hasName: !!user.name,
-//             hasPhone: !!user.phone,
-//             hasBirthdate: !!user.birthdate,
-//             namePreview: user.name ? user.name.substring(0, 20) + '...' : 'null'
-//         });
-//
-//         // 3️⃣ 암호화 모드 확인 및 복호화 수행
-//         if (process.env.ENABLE_ENCRYPTION === 'true') {
-//             console.log(`🔓 KMS 복호화 모드 활성화`);
-//
-//             // 기본 정보 복호화
-//             decryptedUser = {
-//                 ...user,
-//                 // 원본 암호화 필드 보존 (디버깅용)
-//                 _encrypted_name: user.name,
-//                 _encrypted_phone: user.phone,
-//                 _encrypted_birthdate: user.birthdate,
-//
-//                 // 복호화된 필드 추가
-//                 decrypted_name: user.name ?
-//                     await ComprehensiveEncryption.decryptPersonalInfo(user.name) : '',
-//                 decrypted_phone: user.phone ?
-//                     await ComprehensiveEncryption.decryptPersonalInfo(user.phone) : '',
-//                 decrypted_birthdate: user.birthdate ?
-//                     await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate) : '',
-//             };
-//
-//             // 소셜 정보 복호화
-//             if (user.social?.kakao) {
-//                 decryptedUser.social.kakao = {
-//                     ...user.social.kakao,
-//                     decrypted_name: user.social.kakao.name ?
-//                         await ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.name) : '',
-//                     decrypted_phoneNumber: user.social.kakao.phoneNumber ?
-//                         await ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.phoneNumber) : '',
-//                     decrypted_birthday: user.social.kakao.birthday ?
-//                         await ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.birthday) : '',
-//                     decrypted_birthyear: user.social.kakao.birthyear ?
-//                         await ComprehensiveEncryption.decryptPersonalInfo(user.social.kakao.birthyear) : ''
-//                 };
-//             }
-//
-//             if (user.social?.naver) {
-//                 decryptedUser.social.naver = {
-//                     ...user.social.naver,
-//                     decrypted_name: user.social.naver.name ?
-//                         ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.name) : '',
-//                     decrypted_phoneNumber: user.social.naver.phoneNumber ?
-//                         ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.phoneNumber) : '',
-//                     decrypted_birthday: user.social.naver.birthday ?
-//                         ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.birthday) : '',
-//                     decrypted_birthyear: user.social.naver.birthyear ?
-//                         ComprehensiveEncryption.decryptPersonalInfo(user.social.naver.birthyear) : ''
-//                 };
-//             }
-//
-//             // 나이 정보 계산
-//             if (decryptedUser.decrypted_birthdate) {
-//                 decryptedUser.calculated_age = ComprehensiveEncryption.calculateAge(decryptedUser.decrypted_birthdate);
-//                 decryptedUser.age_group = ComprehensiveEncryption.getAgeGroup(decryptedUser.decrypted_birthdate);
-//                 decryptedUser.is_minor = ComprehensiveEncryption.isMinor(decryptedUser.decrypted_birthdate);
-//             }
-//
-//             console.log(`✅ KMS 복호화 완료: ${userId}`, {
-//                 decrypted_name: decryptedUser.decrypted_name ? decryptedUser.decrypted_name.substring(0, 3) + '***' : 'null',
-//                 decrypted_phone: decryptedUser.decrypted_phone ? decryptedUser.decrypted_phone.substring(0, 3) + '***' : 'null',
-//                 calculated_age: decryptedUser.calculated_age
-//             });
-//         } else {
-//             console.log(`🔓 평문 모드 (암호화 비활성화)`);
-//             decryptedUser = {
-//                 ...user,
-//                 decrypted_name: user.name || '',
-//                 decrypted_phone: user.phone || '',
-//                 decrypted_birthdate: user.birthdate || '',
-//                 calculated_age: user.birthdate ? ComprehensiveEncryption.calculateAge(user.birthdate) : null,
-//                 age_group: user.birthdate ? ComprehensiveEncryption.getAgeGroup(user.birthdate) : null,
-//                 is_minor: user.birthdate ? ComprehensiveEncryption.isMinor(user.birthdate) : false
-//             };
-//         }
-//
-//         // 4️⃣ 캐시에 저장
-//         await IntelligentCache.cacheDecryptedUser(userId, decryptedUser);
-//         console.log(`💾 복호화 데이터 캐시 저장 완료: ${userId}`);
-//
-//         return decryptedUser;
-//     } catch (error) {
-//         console.error(`❌ 관리자용 복호화 실패: ${userId}`, error);
-//         throw error;
-//     }
-// };
 
 
 // 사용자 정보 업데이트 (암호화 자동 적용)
