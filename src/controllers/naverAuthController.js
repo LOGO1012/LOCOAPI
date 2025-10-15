@@ -71,7 +71,7 @@ export const naverCallback = async (req, res, next) => {
 
         const clientUser = {
             // ✅ 필수 필드 (인증 및 기본 정보)
-            _id: user._id,                  // 사용자 ID
+            _id: user._id.toString(),       // ✅ ObjectId를 문자열로 변환
             nickname: user.nickname,        // 닉네임
             profilePhoto: user.profilePhoto,// 프로필 사진
             gender: user.gender,            // 성별

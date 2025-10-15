@@ -6,7 +6,9 @@ class IntelligentCache {
     this.client = null;
     this.isConnected = false;
     this.memoryCache = new Map();
+    this.memoryCleanupInterval = null;
     this.initializeRedis(); // 비동기 초기화 시작
+    this.startMemoryCleanup();
   }
 
   // 복호화된 사용자 데이터 캐시 조회
@@ -187,16 +189,16 @@ class IntelligentCache {
     }
   }
 
-  // 복호화된 사용자 정보 캐싱 (관리자용)
-  async cacheDecryptedUser(userId, decryptedUserData) {
-    const key = `decrypted_user:${userId}`;
-    await this.setCache(key, decryptedUserData, 1800); // 30분 TTL
-  }
-
-  async getDecryptedUser(userId) {
-    const key = `decrypted_user:${userId}`;
-    return await this.getCache(key);
-  }
+  // // 복호화된 사용자 정보 캐싱 (관리자용)
+  // async cacheDecryptedUser(userId, decryptedUserData) {
+  //   const key = `decrypted_user:${userId}`;
+  //   await this.setCache(key, decryptedUserData, 1800); // 30분 TTL
+  // }
+  //
+  // async getDecryptedUser(userId) {
+  //   const key = `decrypted_user:${userId}`;
+  //   return await this.getCache(key);
+  // }
 
   // 🎯 계산된 나이 정보 캐싱 (24시간 TTL)
   async cacheUserAge(userId, age, ageGroup, isMinor) {
@@ -217,18 +219,16 @@ class IntelligentCache {
     const data = await this.getCache(key);
     
     if (!data) return null;
-    
+
+    // 선택적: 로깅용 (디버깅)
     const cacheAge = Date.now() - new Date(data.calculatedAt).getTime();
-    
-    // 24시간 이상 지났으면 무효화
-    if (cacheAge > 86400000) {
-      await this.deleteCache(`user_age:${userId}`);
-      return null;
+    const hoursOld = Math.floor(cacheAge / (1000 * 60 * 60));
+    if (hoursOld > 0) {
+      console.log(`💾 [나이 캐시] ${userId} - ${data.age}세 (캐싱된 지 ${hoursOld}시간)`);
     }
-    
+
     return data;
   }
-
   // 채팅용 사용자 정보 캐싱 (나이 포함)
   async cacheChatUserInfo(userId, userInfo, birthdate = null) {
     const key = `chat_user:${userId}`;
@@ -507,6 +507,170 @@ class IntelligentCache {
       return { searchCacheCount: 0, totalDeveloperCacheSize: 0 };
     }
   }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 🎯 사용자 정적 정보 캐싱 (새로 추가)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /**
+   * 사용자 정적 정보 조회 (변하지 않는 데이터)
+   *
+   * 캐시 대상:
+   * - nickname, profilePhoto, gender, star (거의 변하지 않음)
+   * - numOfChat, chatTimer (실시간 계산의 기준점)
+   *
+   * TTL: 30분 (1800초)
+   *
+   * @param {string} userId - 사용자 ID
+   * @returns {Object|null} 캐시된 사용자 정보 또는 null
+   */
+  async getUserStaticInfo(userId) {
+    try {
+      const key = `user_static:${userId}`;
+
+      // Redis 클라이언트가 있으면 Redis에서 조회
+      if (this.client) {
+        const cached = await this.client.get(key);
+        if (cached) {
+          console.log(`💾 [Redis HIT] 정적 정보: ${userId}`);
+          return JSON.parse(cached);
+        }
+      } else {
+        // ✅ 수정: expires 체크 후 반환
+        const data = this.memoryCache.get(key);
+        if (data) {
+          // TTL 만료 확인
+          if (data.expires > Date.now()) {
+            console.log(`💾 [Memory HIT] 정적 정보: ${userId}`);
+            return JSON.parse(data.value); // ✅ value 필드에서 파싱
+          } else {
+            // 만료된 캐시 삭제
+            this.memoryCache.delete(key);
+            console.log(`🗑️ [Memory 만료] 정적 정보: ${userId}`);
+          }
+        }
+      }
+
+      console.log(`❌ [Cache MISS] 정적 정보: ${userId}`);
+      return null;
+    } catch (error) {
+      console.error(`⚠️ 정적 정보 캐시 조회 실패 (${userId}):`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * 사용자 정적 정보 저장
+   *
+   * @param {string} userId - 사용자 ID
+   * @param {Object} userData - 저장할 사용자 정보
+   * @param {number} ttl - TTL (초 단위, 기본값: 1800초 = 30분)
+   */
+  async cacheUserStaticInfo(userId, userData, ttl = 1800) {
+    try {
+      const key = `user_static:${userId}`;
+
+      // Redis 클라이언트가 있으면 Redis에 저장
+      if (this.client) {
+        await this.client.setEx(key, ttl, JSON.stringify(userData));
+        console.log(`✅ [Redis 캐싱] 정적 정보: ${userId} (TTL: ${ttl}초)`);
+      } else {
+        // ✅ 수정: expires 필드 포함하여 저장
+        this.memoryCache.set(key, {
+          value: JSON.stringify(userData),
+          expires: Date.now() + (ttl * 1000)
+        });
+        console.log(`✅ [Memory 캐싱] 정적 정보: ${userId} (TTL: ${ttl}초)`);
+      }
+    } catch (error) {
+      console.error(`⚠️ 정적 정보 캐싱 실패 (${userId}):`, error.message);
+      // 캐싱 실패해도 애플리케이션은 정상 작동
+    }
+  }
+
+  /**
+   * 사용자 정적 정보 캐시 무효화
+   *
+   * 사용 시점:
+   * - 채팅 충전 업데이트 후
+   * - 프로필 정보 수정 후
+   * - 사용자 정보가 변경된 모든 경우
+   *
+   * @param {string} userId - 사용자 ID
+   */
+  async invalidateUserStaticInfo(userId) {
+    try {
+      const key = `user_static:${userId}`;
+
+      // Redis 클라이언트가 있으면 Redis에서 삭제
+      if (this.client) {
+        await this.client.del(key);
+        console.log(`🗑️ [Redis 무효화] 정적 정보: ${userId}`);
+      } else {
+        // Redis 없으면 메모리 캐시에서 삭제
+        this.memoryCache.delete(key);
+        console.log(`🗑️ [Memory 무효화] 정적 정보: ${userId}`);
+      }
+    } catch (error) {
+      console.error(`⚠️ 정적 정보 캐시 무효화 실패 (${userId}):`, error.message);
+      // 무효화 실패해도 다음 TTL 만료 시 자동 삭제됨
+    }
+  }
+  startMemoryCleanup() {
+    this.memoryCleanupInterval = setInterval(() => {
+      if (!this.client && this.memoryCache && this.memoryCache.size > 0) {
+        const now = Date.now();
+        let cleaned = 0;
+        let total = this.memoryCache.size;
+
+        for (const [key, value] of this.memoryCache.entries()) {
+          if (value.expires && value.expires < now) {
+            this.memoryCache.delete(key);
+            cleaned++;
+          }
+        }
+
+        if (cleaned > 0) {
+          console.log(`🧹 [메모리 캐시 정리] ${cleaned}/${total}개 항목 삭제, 남은 항목: ${this.memoryCache.size}개`);
+        }
+      }
+    }, 5 * 60 * 1000);
+
+    console.log('✅ 메모리 캐시 자동 정리 시작 (5분 간격)');
+  }
+
+  stopMemoryCleanup() {
+    if (this.memoryCleanupInterval) {
+      clearInterval(this.memoryCleanupInterval);
+      this.memoryCleanupInterval = null;
+      console.log('🛑 메모리 캐시 자동 정리 중지');
+    }
+  }
+
+  getMemoryCacheStats() {
+    if (!this.memoryCache) {
+      return { total: 0, expired: 0 };
+    }
+
+    const now = Date.now();
+    let total = 0;
+    let expired = 0;
+
+    for (const [key, value] of this.memoryCache.entries()) {
+      total++;
+      if (value.expires && value.expires < now) {
+        expired++;
+      }
+    }
+
+    return { total, expired, active: total - expired };
+  }
+
+
+
 }
+
+
+
 
 export default new IntelligentCache();
