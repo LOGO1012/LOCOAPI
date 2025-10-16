@@ -21,7 +21,7 @@ const BAD_WORDS_FILE_PATH = path.join(process.cwd(), 'profanity.txt');
  */
 export const reloadBadWords = () => {
   try {
-    console.log(`[ProfanityFilter] 로컬 비속어 목록 파일을 다시 불러옵니다... (경로: ${BAD_WORDS_FILE_PATH})`);
+    console.log(`[ProfanityFilter] 로컬 비속어 목록 파일을 불러옵니다... (경로: ${BAD_WORDS_FILE_PATH})`);
     
     if (fs.existsSync(BAD_WORDS_FILE_PATH)) {
       const fileContent = fs.readFileSync(BAD_WORDS_FILE_PATH, 'utf8');
@@ -53,6 +53,9 @@ export const reloadBadWords = () => {
 
 // 서버 시작 시 비속어 목록 로드 실행
 reloadBadWords();
+
+// 현재 메모리에 로드된 비속어 목록을 반환하는 함수
+export const getBadWords = () => [...badWords];
 
 /**
  * 욕설 및 비속어를 필터링하여 '*'로 대체합니다.

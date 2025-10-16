@@ -1,7 +1,7 @@
 // LOCOAPI/src/controllers/profanityController.js
 import fs from 'fs';
 import path from 'path';
-import { reloadBadWords } from '../utils/profanityFilter.js';
+import { reloadBadWords, getBadWords } from '../utils/profanityFilter.js';
 
 const BAD_WORDS_FILE_PATH = path.join(process.cwd(), 'profanity.txt');
 
@@ -13,7 +13,7 @@ export const getWords = (req, res) => {
         const startIndex = (page - 1) * limit;
         const endIndex = page * limit;
 
-        const allWords = reloadBadWords(); // 파일을 다시 읽어 최신 목록을 가져옴
+        const allWords = getBadWords(); // 메모리에서 직접 가져옴
         const paginatedWords = allWords.slice(startIndex, endIndex);
         
         res.status(200).json({
@@ -85,7 +85,7 @@ export const deleteWord = (req, res) => {
 
 export const getAllWordsForFilter = (req, res) => {
     try {
-        const allWords = reloadBadWords();
+        const allWords = getBadWords(); // 메모리에서 직접 가져옴
         res.status(200).json({
             success: true,
             words: allWords,
