@@ -24,6 +24,7 @@ import {
     getGenderHistory, getNicknameHistory
 } from '../services/historyService.js';
 import { containsProfanity } from '../utils/profanityFilter.js';
+import IntelligentCache from '../utils/cache/intelligentCache.js';
 
 // 총 유저 수 함수
 export const getUserCountController = async (req, res) => {
@@ -379,6 +380,11 @@ export const blockUserController = async (req, res) => {
     const { userId, targetUserId } = req.params;
     try {
         const updated = await blockUserService(userId, targetUserId);
+        // 📌 추가: 차단 관련 캐시 무효화
+        await IntelligentCache.deleteCache(`user_blocks_${userId}`);
+        await IntelligentCache.deleteCache(`users_blocked_me_${targetUserId}`);
+        console.log(`🗑️ [캐시 무효화] 차단: ${userId} -> ${targetUserId}`);
+
         res.status(200).json({ success: true, data: updated.blockedUsers });
     } catch (err) {
         res.status(400).json({ success: false, message: err.message });
@@ -392,6 +398,11 @@ export const unblockUserController = async (req, res) => {
     const { userId, targetUserId } = req.params;
     try {
         const updated = await unblockUserService(userId, targetUserId);
+        // 📌 추가: 차단 해제 관련 캐시 무효화
+        await IntelligentCache.deleteCache(`user_blocks_${userId}`);
+        await IntelligentCache.deleteCache(`users_blocked_me_${targetUserId}`);
+        console.log(`🗑️ [캐시 무효화] 차단 해제: ${userId} -> ${targetUserId}`);
+
         res.status(200).json({ success: true, data: updated.blockedUsers });
     } catch (err) {
         res.status(400).json({ success: false, message: err.message });
