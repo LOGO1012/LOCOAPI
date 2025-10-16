@@ -447,7 +447,11 @@ export const getUserById = async (userId) => {
                 console.error('⚠️ 만나이 정보 조회 실패:', error);
             }
         }
-
+        if (user.lolNickname) {
+            const parts = user.lolNickname.split('#');
+            data.riotGameName = parts[0] || '';
+            data.riotTagLine = parts[1] || '';
+        }
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // ✅ 9단계: 최종 데이터 반환
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
