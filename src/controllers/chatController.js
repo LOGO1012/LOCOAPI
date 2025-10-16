@@ -123,6 +123,8 @@ export const addUserToRoom = async (req, res) => {
     }
 };
 
+
+
 /**
  * 메시지 저장 컨트롤러
  */
@@ -559,6 +561,105 @@ export const getReportedMessages = async (req, res) => {
             success: false,
             message: '신고된 메시지 조회 중 오류가 발생했습니다.',
             error: error.message
+        });
+    }
+};
+
+
+
+/**
+ * 🎯 방 찾기 또는 생성 (통합 API) (별도의 방찾기 함수임)
+ * POST /api/chat/rooms/find-or-create
+ */
+export const findOrCreateRoom = async (req, res) => {
+    try {
+        const {
+            userId,
+            roomType,
+            capacity,
+            matchedGender,
+            ageGroup,
+            selectedGender
+        } = req.body;
+
+        console.log('🔍 [방찾기/생성] 요청:', {
+            userId, roomType, capacity, matchedGender, ageGroup
+        });
+
+        // 1️⃣ 입력 검증
+        if (!userId || !roomType || !capacity || !ageGroup) {
+            return res.status(400).json({
+                success: false,
+                error: '필수 파라미터가 누락되었습니다.'
+            });
+        }
+
+        // 2️⃣ 참가 가능한 방 찾기
+        const findResult = await chatService.findAvailableRoom(
+            userId,
+            roomType,
+            capacity,
+            matchedGender,
+            ageGroup
+        );
+
+        if (findResult.success && findResult.room) {
+            // 3-A. 방을 찾았으면 참가
+            console.log(`✅ [방찾기/생성] 참가 가능한 방 발견: ${findResult.room._id}`);
+
+            try {
+                const joinedRoom = await chatService.addUserToRoom(
+                    findResult.room._id,
+                    userId,
+                    selectedGender,
+                    findResult.user  // 캐시된 사용자 정보 재사용
+                );
+
+                return res.status(200).json({
+                    success: true,
+                    action: 'joined',
+                    room: joinedRoom,
+                    message: '기존 방에 참가했습니다.',
+                    attemptedRooms: findResult.attemptedRooms
+                });
+            } catch (joinError) {
+                // 참가 실패 (동시 참가 등) → 새로 생성으로 폴백
+                console.log(`⚠️ [방찾기/생성] 참가 실패, 새 방 생성: ${joinError.message}`);
+            }
+        }
+
+        // 3-B. 참가 가능한 방이 없음 → 새로 생성
+        console.log('🆕 [방찾기/생성] 새 방 생성');
+
+        const newRoom = await chatService.createChatRoom(
+            roomType,
+            capacity,
+            matchedGender,
+            ageGroup
+        );
+
+        const joinedNewRoom = await chatService.addUserToRoom(
+            newRoom._id,
+            userId,
+            selectedGender,
+            findResult.user  // 캐시된 사용자 정보 재사용
+        );
+
+        return res.status(201).json({
+            success: true,
+            action: 'created',
+            room: joinedNewRoom,
+            message: '새로운 방을 생성했습니다.',
+            attemptedRooms: findResult.attemptedRooms || 0
+        });
+
+    } catch (error) {
+        console.error('❌ [방찾기/생성] 오류:', error);
+
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message,
+            code: error.code
         });
     }
 };

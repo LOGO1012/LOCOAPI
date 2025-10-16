@@ -59,26 +59,69 @@ export const getChatRoomById = async (roomId) => {
  * @param {object} filters - 쿼리 파라미터 객체
  */
 export const getAllChatRooms = async (filters) => {
+    try {
     const query = {};
 
     // 차단된 사용자 포함 방 제외 (Redis 캐싱 적용)
     if (filters.userId) {
+        console.log(`📋 [getAllChatRooms] 사용자 ${filters.userId}의 방 목록 조회 시작`);
         // 1. 사용자 차단 목록 캐싱 (5분)
-        const cacheKey = `user_blocks_${filters.userId}`;
-        let userBlocks = await IntelligentCache.getCache(cacheKey);
+        const myBlocksCacheKey = `user_blocks_${filters.userId}`;
+        let userBlocks = await IntelligentCache.getCache(myBlocksCacheKey);
 
         if (!userBlocks) {
             const me = await User.findById(filters.userId)
                 .select('blockedUsers')
                 .lean();
+
             userBlocks = me?.blockedUsers?.map(id => id.toString()) || [];
-            await IntelligentCache.setCache(cacheKey, userBlocks, 300); // 5분 TTL
+
+            await IntelligentCache.setCache(myBlocksCacheKey, userBlocks, 3600); // 5분 TTL
+            console.log(`💾 [getAllChatRooms] 캐시 저장: 내가 차단한 사람 ${userBlocks.length}명 (TTL: 1시간)`);
+        } else {
+            console.log(`✅ [getAllChatRooms] 캐시 히트: 내가 차단한 사람 ${userBlocks.length}명`);
         }
+        // ─────────────────────────────────────────────────────
+        // 2️⃣ 나를 차단한 사람 목록 (캐싱 적용)
+        // ─────────────────────────────────────────────────────
+        const blockedMeCacheKey = `users_blocked_me_${filters.userId}`;
+        let blockedMeIds = await IntelligentCache.getCache(blockedMeCacheKey);
+
+        if (!blockedMeIds) {
+            console.log(`🔍 [getAllChatRooms] 캐시 미스: 나를 차단한 사람 목록 DB 조회`);
+
+            const blockedMeUsers = await User.find({
+                blockedUsers: filters.userId
+            })
+                .select('_id')
+                .lean();
+
+            blockedMeIds = blockedMeUsers.map(u => u._id.toString());
+
+            // 1시간 캐싱
+            await IntelligentCache.setCache(blockedMeCacheKey, blockedMeIds, 3600);
+            console.log(`💾 [getAllChatRooms] 캐시 저장: 나를 차단한 사람 ${blockedMeIds.length}명 (TTL: 1시간)`);
+        } else {
+            console.log(`✅ [getAllChatRooms] 캐시 히트: 나를 차단한 사람 ${blockedMeIds.length}명`);
+        }
+
+        // ─────────────────────────────────────────────────────
+        // 3️⃣ 전체 차단 목록 (양방향 합치기)
+        // ─────────────────────────────────────────────────────
+        const allBlockedIds = [...new Set([...userBlocks, ...blockedMeIds])];
+        console.log(`🔒 [getAllChatRooms] 전체 차단 목록: ${allBlockedIds.length}명 (내가 차단: ${userBlocks.length}, 나를 차단: ${blockedMeIds.length})`);
+
+        // ─────────────────────────────────────────────────────
+        // 4️⃣ 퇴장한 방 목록 조회
+        // ─────────────────────────────────────────────────────
 
         // 2. 퇴장한 방 목록 조회
         const exited = await ChatRoomExit.distinct('chatRoom', { user: filters.userId });
+        console.log(`🚪 [getAllChatRooms] 퇴장한 방: ${exited.length}개`);
 
-        if (exited.length) query._id = { $nin: exited };
+        if (exited.length > 0) {
+            query._id = { $nin: exited };
+        }
         if (userBlocks.length > 0) {
             query.chatUsers = { $nin: userBlocks };
         }
@@ -88,19 +131,33 @@ export const getAllChatRooms = async (filters) => {
     if (filters.chatUsers) {
         query.chatUsers = filters.chatUsers;
     }
-    if (filters.roomType) query.roomType = filters.roomType;
-    if (filters.capacity) query.capacity = parseInt(filters.capacity);
-    if (filters.roomType)    query.roomType     = filters.roomType;
+    if (filters.roomType) {
+        query.roomType = filters.roomType;
+    }
+    if (filters.capacity) {
+        query.capacity = parseInt(filters.capacity);
+    }
     if (filters.isActive !== undefined) {
         query.isActive = filters.isActive === 'true' || filters.isActive === true;
     }
-    if (filters.capacity)    query.capacity     = parseInt(filters.capacity);
-    if (filters.matchedGender) query.matchedGender = filters.matchedGender;
-    if (filters.ageGroup) query.ageGroup = filters.ageGroup;
+    if (filters.matchedGender) {
+        query.matchedGender = filters.matchedGender;
+    }
+    if (filters.ageGroup) {
+        query.ageGroup = filters.ageGroup;
+    }
 
+    console.log(`🔎 [getAllChatRooms] 최종 쿼리 조건:`, JSON.stringify(query, null, 2));
+
+
+    // 페이지네이션
     const page = parseInt(filters.page) || 1;
     const limit = parseInt(filters.limit) || 10;
     const skip = (page - 1) * limit;
+
+    console.log(`📃 [getAllChatRooms] 페이지네이션: ${page}페이지, ${limit}개씩`);
+
+    const startTime = Date.now();
 
     // 3. 집계 파이프라인으로 N+1 해결 (402개 쿼리 → 1개)
     const rooms = await ChatRoom.aggregate([
@@ -119,8 +176,8 @@ export const getAllChatRooms = async (filters) => {
                             _id: 1,
                             nickname: 1,
                             gender: 1,
-                            profilePhoto: 1,
-                            blockedUsers: 1
+                            // profilePhoto: 1,
+                            // blockedUsers: 1
                         }
                     }
                 ],
@@ -143,6 +200,9 @@ export const getAllChatRooms = async (filters) => {
         }
     ]);
 
+    const queryTime = Date.now() - startTime;
+    console.log(`⏱️ [getAllChatRooms] DB 쿼리 완료: ${queryTime}ms, ${rooms.length}개 방 조회`);
+
     // 4. ObjectId → String 변환 (프론트엔드 호환성)
     const processedRooms = rooms.map(room => ({
         ...room,
@@ -150,7 +210,7 @@ export const getAllChatRooms = async (filters) => {
         chatUsers: room.chatUsers.map(user => ({
             ...user,
             _id: user._id.toString(),
-            blockedUsers: (user.blockedUsers || []).map(id => id.toString())
+            // blockedUsers: (user.blockedUsers || []).map(id => id.toString())
         })),
         genderSelections: room.genderSelections
             ? Object.fromEntries(
@@ -162,8 +222,222 @@ export const getAllChatRooms = async (filters) => {
             : {}
     }));
 
-    return processedRooms;
+        console.log(`✅ [getAllChatRooms] 처리 완료: ${processedRooms.length}개 방 반환`);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 📊 성능 메트릭 로깅
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (queryTime > 100) {
+            console.warn(`⚠️ [getAllChatRooms] 느린 쿼리 감지: ${queryTime}ms`);
+        }
+
+        return processedRooms;
+
+    } catch (error) {
+        console.error('❌ [getAllChatRooms] 오류 발생:', error);
+        console.error('오류 스택:', error.stack);
+        throw new Error(`채팅방 목록 조회 실패: ${error.message}`);
+    }
 };
+
+/**
+ * 🔍 참가 가능한 방 찾기 (차단 관계 + 나이 검증)
+ * @returns {Object} { success, room, user, attemptedRooms, reason }
+ */
+export const findAvailableRoom = async (
+    userId,
+    roomType,
+    capacity,
+    matchedGender,
+    ageGroup
+) => {
+    try {
+        console.log('🔍 [방찾기] 시작:', { userId, roomType, capacity, matchedGender, ageGroup });
+
+        // 1️⃣ 필요한 데이터 병렬 조회 (성능 최적화)
+        const [user, blockedMeCacheResult, exitedRooms] = await Promise.all([
+            User.findById(userId).select('blockedUsers birthdate').lean(),
+            IntelligentCache.getCache(`users_blocked_me_${userId}`),
+            ChatRoomExit.distinct('chatRoom', { user: userId })
+        ]);
+
+        if (!user) {
+            throw new Error('사용자를 찾을 수 없습니다.');
+        }
+
+        // 2️⃣ 차단 관계 조회 (캐시 우선)
+        let blockedMeIds = blockedMeCacheResult;
+
+        if (!blockedMeIds) {
+            // 캐시 미스 - DB에서 조회
+            const blockedMeUsers = await User.find({
+                blockedUsers: userId
+            }).select('_id').lean();
+
+            blockedMeIds = blockedMeUsers.map(u => u._id.toString());
+
+            // 캐시에 저장 (TTL: 1시간)
+            await IntelligentCache.setCache(
+                `users_blocked_me_${userId}`,
+                blockedMeIds,
+                3600
+            );
+            console.log(`💾 [방찾기] 캐시 저장: 나를 차단 ${blockedMeIds.length}명`);
+        } else {
+            console.log(`✅ [방찾기] 캐시 히트: 나를 차단 ${blockedMeIds.length}명`);
+        }
+
+        const myBlockedIds = user.blockedUsers?.map(id => id.toString()) || [];
+        const allBlockedIds = [...new Set([...myBlockedIds, ...blockedMeIds])];
+
+        console.log(`🔒 [방찾기] 전체 차단: ${allBlockedIds.length}명`);
+        console.log(`🚪 [방찾기] 퇴장한 방: ${exitedRooms.length}개`);
+
+        // 3️⃣ 나이 검증 (랜덤채팅만)
+        if (roomType === 'random' && ageGroup) {
+            if (!user.birthdate) {
+                const err = new Error('랜덤채팅 이용을 위해서는 생년월일 정보가 필요합니다.');
+                err.status = 403;
+                err.code = 'BIRTHDATE_REQUIRED';
+                throw err;
+            }
+
+            // 암호화된 birthdate 복호화
+            let decryptedBirthdate;
+            try {
+                decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+            } catch (decryptError) {
+                console.error('❌ birthdate 복호화 실패:', decryptError);
+                const err = new Error('생년월일 정보 확인 불가');
+                err.status = 500;
+                err.code = 'DECRYPTION_FAILED';
+                throw err;
+            }
+
+            if (!decryptedBirthdate) {
+                const err = new Error('생년월일 정보가 유효하지 않습니다.');
+                err.status = 403;
+                err.code = 'BIRTHDATE_INVALID';
+                throw err;
+            }
+
+            // 나이 계산
+            const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+
+            if (age === null || isNaN(age)) {
+                const err = new Error('나이 확인이 불가능하여 안전을 위해 입장을 제한합니다.');
+                err.status = 403;
+                err.code = 'AGE_VERIFICATION_FAILED';
+                throw err;
+            }
+
+            const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+            const userAgeGroup = isMinor ? 'minor' : 'adult';
+
+            if (userAgeGroup !== ageGroup) {
+                const err = new Error(
+                    `${ageGroup === 'minor' ? '미성년자' : '성인'} 전용 방만 참가할 수 있습니다.`
+                );
+                err.status = 403;
+                err.code = 'AGE_GROUP_MISMATCH';
+                throw err;
+            }
+
+            console.log(`✅ [방찾기] 나이 검증 통과: ${age}세 (${userAgeGroup})`);
+        }
+
+        // 4️⃣ 후보 방 검색
+        const query = {
+            roomType: roomType,
+            capacity: capacity,
+            matchedGender: matchedGender,
+            ageGroup: ageGroup,
+            isActive: false,
+            status: 'waiting',
+            _id: { $nin: exitedRooms }  // 퇴장한 방 제외
+        };
+
+        const candidateRooms = await ChatRoom.find(query)
+            .populate({
+                path: 'chatUsers',
+                select: '_id blockedUsers',
+                options: { lean: true }
+            })
+            .sort({ createdAt: 1 })  // 오래된 방부터
+            .limit(20)  // 최대 20개 방만 검색
+            .lean();
+
+        console.log(`📋 [방찾기] 후보 방: ${candidateRooms.length}개`);
+
+        // 5️⃣ 각 방마다 양방향 차단 체크
+        let attemptedRooms = 0;
+
+        for (const room of candidateRooms) {
+            attemptedRooms++;
+
+            // 이미 참가 중인지 체크
+            if (room.chatUsers.some(u => u._id.toString() === userId)) {
+                console.log(`⚠️ [방찾기] 이미 참가 중: ${room._id}`);
+                continue;
+            }
+
+            // 방이 가득 찼는지 체크
+            if (room.chatUsers.length >= room.capacity) {
+                console.log(`⚠️ [방찾기] 정원 초과: ${room._id}`);
+                continue;
+            }
+
+            // 양방향 차단 관계 체크
+            let hasBlockedRelation = false;
+
+            for (const participant of room.chatUsers) {
+                const participantId = participant._id.toString();
+
+                // 내가 차단했는지
+                const iBlockedThem = myBlockedIds.includes(participantId);
+
+                // 상대가 나를 차단했는지
+                const theyBlockedMe = participant.blockedUsers?.some(
+                    id => id.toString() === userId
+                );
+
+                if (iBlockedThem || theyBlockedMe) {
+                    hasBlockedRelation = true;
+                    console.log(`🔒 [방찾기] 차단 관계: ${room._id}`);
+                    break;
+                }
+            }
+
+            // 차단 관계 없으면 이 방 선택!
+            if (!hasBlockedRelation) {
+                console.log(`✅ [방찾기] 발견: ${room._id} (시도: ${attemptedRooms}번)`);
+
+                return {
+                    success: true,
+                    room: room,
+                    user: user,  // 캐시된 사용자 정보 반환 (재사용)
+                    attemptedRooms: attemptedRooms
+                };
+            }
+        }
+
+        // 6️⃣ 참가 가능한 방 없음
+        console.log(`❌ [방찾기] 참가 가능한 방 없음 (${attemptedRooms}개 시도)`);
+
+        return {
+            success: false,
+            room: null,
+            user: user,  // 캐시된 사용자 정보 반환 (새 방 생성 시 사용)
+            attemptedRooms: attemptedRooms,
+            reason: 'NO_AVAILABLE_ROOM'
+        };
+
+    } catch (error) {
+        console.error('❌ [방찾기] 오류:', error);
+        throw error;
+    }
+};
+
 
 /**
  * 채팅방에 사용자 추가
@@ -171,7 +445,7 @@ export const getAllChatRooms = async (filters) => {
  * @param {string} userId - 사용자 ID
  * @param {string} selectedGender - 선택한 성별 카테고리 (opposite/any/same)
  */
-export const addUserToRoom = async (roomId, userId, selectedGender = null) => {
+export const addUserToRoom = async (roomId, userId, selectedGender = null, cachedUser = null) => {
     try {
 
         // 1) 방  현재 참가자들의 blockedUsers 정보 조회
@@ -193,7 +467,7 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null) => {
         }
 
         // 2) 입장하려는 사용자 본인의 blockedUsers 가져오기
-        const joiner = await User.findById(userId).select('blockedUsers birthdate');
+        const joiner = cachedUser || await User.findById(userId).select('blockedUsers birthdate');
         if (!joiner) {
             throw new Error('사용자를 찾을 수 없습니다.');
         }
