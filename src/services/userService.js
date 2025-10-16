@@ -1084,26 +1084,120 @@ export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online
 //    차단 관리 함수
 // ============================================================================
 
-// 사용자 차단
+// // 사용자 차단
+// export const blockUserService = async (userId, targetId) => {
+//     const user = await User.findById(userId);
+//     if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+//     if (!user.blockedUsers.includes(targetId)) {
+//         user.blockedUsers.push(targetId);
+//         await user.save();
+//         await IntelligentCache.invalidateUserCache(userId);
+//     }
+//     return user;
+// };
+//
+// // 차단 해제
+// export const unblockUserService = async (userId, targetId) => {
+//     const user = await User.findById(userId);
+//     if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+//     user.blockedUsers = user.blockedUsers.filter(id => id.toString() !== targetId);
+//     await user.save();
+//     await IntelligentCache.invalidateUserCache(userId);
+//     return user;
+// };
+
+/**
+ * 사용자 차단 (개선: 캐시 무효화 양방향)
+ * @param {string} userId - 차단하는 사용자 ID
+ * @param {string} targetId - 차단당하는 사용자 ID
+ */
 export const blockUserService = async (userId, targetId) => {
-    const user = await User.findById(userId);
-    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-    if (!user.blockedUsers.includes(targetId)) {
-        user.blockedUsers.push(targetId);
-        await user.save();
+    try {
+        console.log(`🔒 [blockUserService] ${userId}가 ${targetId}를 차단`);
+
+        // 1. DB 업데이트 ($addToSet: 중복 방지)
+        const user = await User.findByIdAndUpdate(
+            userId,
+            { $addToSet: { blockedUsers: targetId } },
+            { new: true }
+        );
+
+        if (!user) {
+            throw new Error('사용자를 찾을 수 없습니다.');
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 2️⃣ 캐시 무효화 (양방향 + 기존 캐시)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        // ✅ 기존 사용자 캐시 무효화 (기존 로직 유지)
         await IntelligentCache.invalidateUserCache(userId);
+
+        // ✅ 차단하는 사람의 "내가 차단한 목록" 캐시 무효화
+        const myBlocksCacheKey = `user_blocks_${userId}`;
+        await IntelligentCache.deleteCache(myBlocksCacheKey);
+        console.log(`🗑️ [blockUserService] 캐시 무효화: ${myBlocksCacheKey}`);
+
+        // ✅ 차단당하는 사람의 "나를 차단한 목록" 캐시 무효화
+        const blockedMeCacheKey = `users_blocked_me_${targetId}`;
+        await IntelligentCache.deleteCache(blockedMeCacheKey);
+        console.log(`🗑️ [blockUserService] 캐시 무효화: ${blockedMeCacheKey}`);
+
+        console.log(`✅ [blockUserService] 차단 완료 및 캐시 무효화 성공`);
+
+        return user;
+
+    } catch (error) {
+        console.error('❌ [blockUserService] 오류:', error);
+        throw new Error(`차단 처리 실패: ${error.message}`);
     }
-    return user;
 };
 
-// 차단 해제
+/**
+ * 차단 해제 (개선: 캐시 무효화 양방향)
+ * @param {string} userId - 차단 해제하는 사용자 ID
+ * @param {string} targetId - 차단 해제당하는 사용자 ID
+ */
 export const unblockUserService = async (userId, targetId) => {
-    const user = await User.findById(userId);
-    if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-    user.blockedUsers = user.blockedUsers.filter(id => id.toString() !== targetId);
-    await user.save();
-    await IntelligentCache.invalidateUserCache(userId);
-    return user;
+    try {
+        console.log(`🔓 [unblockUserService] ${userId}가 ${targetId} 차단 해제`);
+
+        // 1. DB 업데이트 ($pull: 배열에서 제거)
+        const user = await User.findByIdAndUpdate(
+            userId,
+            { $pull: { blockedUsers: targetId } },
+            { new: true }
+        );
+
+        if (!user) {
+            throw new Error('사용자를 찾을 수 없습니다.');
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 2️⃣ 캐시 무효화 (양방향 + 기존 캐시)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        // ✅ 기존 사용자 캐시 무효화 (기존 로직 유지)
+        await IntelligentCache.invalidateUserCache(userId);
+
+        // ✅ 차단 해제하는 사람의 "내가 차단한 목록" 캐시 무효화
+        const myBlocksCacheKey = `user_blocks_${userId}`;
+        await IntelligentCache.deleteCache(myBlocksCacheKey);
+        console.log(`🗑️ [unblockUserService] 캐시 무효화: ${myBlocksCacheKey}`);
+
+        // ✅ 차단 해제당하는 사람의 "나를 차단한 목록" 캐시 무효화
+        const blockedMeCacheKey = `users_blocked_me_${targetId}`;
+        await IntelligentCache.deleteCache(blockedMeCacheKey);
+        console.log(`🗑️ [unblockUserService] 캐시 무효화: ${blockedMeCacheKey}`);
+
+        console.log(`✅ [unblockUserService] 차단 해제 완료 및 캐시 무효화 성공`);
+
+        return user;
+
+    } catch (error) {
+        console.error('❌ [unblockUserService] 오류:', error);
+        throw new Error(`차단 해제 실패: ${error.message}`);
+    }
 };
 
 // 차단 목록 조회
