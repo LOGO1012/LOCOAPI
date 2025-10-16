@@ -165,6 +165,10 @@ export const updateUserProfile = async (req, res) => {
             runValidators: true
         });
 
+        await IntelligentCache.invalidateUserStaticInfo(userId);
+        await IntelligentCache.invalidateUserCache(userId);
+        console.log(`✅ [캐시 무효화] 프로필 업데이트: ${userId}`);
+
         // 히스토리 저장
         if (updateData.nickname && updateData.nickname !== currentUser.nickname) {
         await saveNicknameHistory(
