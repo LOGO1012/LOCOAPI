@@ -64,10 +64,6 @@ const subReplySchema = new Schema({
         type: String,
         default: null,
     },
-    commentRegDate: {
-        type: Date,
-        default: Date.now,
-    },
     // ✅ 익명 작성 여부 추가
     isAnonymous: {
         type: Boolean,
@@ -102,10 +98,6 @@ const replySchema = new Schema({
     replyImage: {
         type: String,
         default: null,
-    },
-    commentRegDate: {
-        type: Date,
-        default: Date.now,
     },
     // ✅ 익명 작성 여부 추가
     isAnonymous: {
@@ -142,10 +134,6 @@ const commentSchema = new Schema({
     commentImage: {
         type: String,
         default: null,
-    },
-    commentRegDate: {
-        type: Date,
-        default: Date.now,
     },
     // ✅ 익명 작성 여부 추가
     isAnonymous: {
@@ -203,10 +191,6 @@ const communitySchema = new Schema({
         required: true,
         enum: ['자유', '유머', '질문', '사건사고', '전적인증', '개발요청'],
     },
-    communityRegDate: {
-        type: Date,
-        default: Date.now,
-    },
     communityImages: [{
         type: String,
         required: false
@@ -255,5 +239,10 @@ communitySchema.index({ isDeleted: 1, createdAt: -1 }); // 복합 인덱스 (필
 communitySchema.index({ communityViews: -1, createdAt: -1 }); // 조회수와 날짜 복합 인덱스
 communitySchema.index({ isDeleted: 1, createdAt: -1, communityViews: -1 });
 communitySchema.index({ isDeleted: 1, createdAt: -1, recommended: -1 });
+
+// ✅ "내 댓글" 조회를 위한 인덱스 추가
+communitySchema.index({ 'comments.userId': 1 });
+communitySchema.index({ 'comments.replies.userId': 1 });
+communitySchema.index({ 'comments.replies.subReplies.userId': 1 });
 
 export const Community = model('Community', communitySchema);
