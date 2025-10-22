@@ -3,6 +3,7 @@ import PageResponseDTO from '../../src/dto/common/PageResponseDTO.js';
 import cron from "node-cron";
 import {User} from "../models/UserProfile.js"; // 파일 경로를 실제 경로에 맞게 수정하세요.
 import {containsProfanity, filterProfanity} from '../utils/profanityFilter.js';
+import redisClient from '../config/redis.js';
 
 export const getCommunitiesPage = async (
     pageRequestDTO,
@@ -122,6 +123,7 @@ export const getCommunitiesPage = async (
 
     const totalCount = await Community.countDocuments(filter);
     const communities = await Community.find(filter)
+        .select('_id communityTitle communityCategory userNickname commentCount communityViews recommended createdAt isAnonymous anonymousNickname') // Removed commentCount
         .sort(sortCriteria)
         .skip(skip)
         .limit(size)
@@ -138,6 +140,14 @@ const generateAnonymousNickname = () => {
 
 // 커뮤니티 생성
 export const createCommunity = async (data) => {
+    // 입력 유효성 검사
+    if (!data.communityTitle || data.communityTitle.trim() === '') {
+        throw new Error('제목은 필수 항목입니다.');
+    }
+    if (!data.communityContents || data.communityContents.trim() === '') {
+        throw new Error('내용은 필수 항목입니다.');
+    }
+
     // 욕설 포함 여부 확인
     if (containsProfanity(data.communityTitle) || containsProfanity(data.communityContents)) {
         throw new Error('제목이나 내용에 비속어가 포함되어 있어 게시글을 생성할 수 없습니다.');
@@ -155,6 +165,14 @@ export const createCommunity = async (data) => {
 
 // 커뮤니티 업데이트
 export const updateCommunity = async (id, data) => {
+    // 입력 유효성 검사
+    if (!data.communityTitle || data.communityTitle.trim() === '') {
+        throw new Error('제목은 필수 항목입니다.');
+    }
+    if (!data.communityContents || data.communityContents.trim() === '') {
+        throw new Error('내용은 필수 항목입니다.');
+    }
+
     // 욕설 포함 여부 확인
     if (containsProfanity(data.communityTitle) || containsProfanity(data.communityContents)) {
         throw new Error('제목이나 내용에 비속어가 포함되어 있어 게시글을 수정할 수 없습니다.');
@@ -188,7 +206,8 @@ export const incrementViews = async (id) => {
         {_id: id, isDeleted: false},
         {$inc: {communityViews: 1}},
         {new: true}
-    );
+    )
+    // .populate('userId', 'nickname profileImage'); // Only populate main post author
 };
 
 // 추천 기능: 사용자별로 한 번만 추천할 수 있도록 처리
@@ -233,6 +252,7 @@ const _addCommentItem = async (communityId, parentIds, data) => {
     if (data.commentContents) {
         data.commentContents = filterProfanity(data.commentContents);
     }
+    data.createdAt = new Date();
 
     let query;
     let update;
@@ -274,7 +294,6 @@ export const addSubReply = (communityId, commentId, replyId, subReplyData) =>
 // 통합 댓글 삭제 로직
 
 const _deleteCommentItem = async (communityId, parentIds) => {
-
     const {commentId, replyId, subReplyId} = parentIds;
 
 
@@ -341,9 +360,7 @@ const _deleteCommentItem = async (communityId, parentIds) => {
         };
 
     } else {
-
         throw new Error("Invalid arguments for deleting comment item.");
-
     }
 
     return await Community.findOneAndUpdate(query, update, options);
@@ -373,9 +390,7 @@ export const deleteSubReply = async (communityId, commentId, replyId, subReplyId
 
 // 아래는 24시간마다 집계 결과를 갱신하기 위한 캐시와 관련 함수입니다.
 
-// 전역 캐시 변수
-let cachedTopViewed = [];
-let cachedTopCommented = [];
+// 전역 캐시 변수는 이제 Redis로 대체됩니다.
 
 // ✅ 캐시 업데이트 함수 - 카테고리 정보 추가, 최근 일주일 기준으로 변경
 export const updateTopCaches = async () => {
@@ -385,7 +400,7 @@ export const updateTopCaches = async () => {
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
         // ✅ 최근 일주일 최다 조회 (카테고리 정보 추가)
-        cachedTopViewed = await Community.aggregate([
+        const topViewed = await Community.aggregate([
             {
                 $match: {
                     isDeleted: false,
@@ -405,100 +420,32 @@ export const updateTopCaches = async () => {
             }
         ]);
 
+        // Store cachedTopViewed in Redis
+        await redisClient.setEx('topViewedCommunities', 3600, JSON.stringify(topViewed));
+
         // ✅ 최근 일주일 최다 댓글 (카테고리 정보 추가)
-        cachedTopCommented = await Community.aggregate([
+        const topCommented = await Community.aggregate([
             {
                 $match: {
                     isDeleted: false,
                     createdAt: {$gte: oneWeekAgo}
                 }
             },
-            {
-                $addFields: {
-                    totalComments: {
-                        $sum: [
-                            // 댓글 수 (isDeleted: false인 것만)
-                            {
-                                $size: {
-                                    $filter: {
-                                        input: '$comments',
-                                        cond: {$eq: ['$$this.isDeleted', false]}
-                                    }
-                                }
-                            },
-                            // 대댓글 수 (isDeleted: false인 것만)
-                            {
-                                $sum: {
-                                    $map: {
-                                        input: {
-                                            $filter: {
-                                                input: '$comments',
-                                                cond: {$eq: ['$$this.isDeleted', false]}
-                                            }
-                                        },
-                                        as: 'comment',
-                                        in: {
-                                            $size: {
-                                                $filter: {
-                                                    input: '$$comment.replies',
-                                                    cond: {$eq: ['$$this.isDeleted', false]}
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            // 대대댓글 수 (isDeleted: false인 것만)
-                            {
-                                $sum: {
-                                    $map: {
-                                        input: {
-                                            $filter: {
-                                                input: '$comments',
-                                                cond: {$eq: ['$$this.isDeleted', false]}
-                                            }
-                                        },
-                                        as: 'comment',
-                                        in: {
-                                            $sum: {
-                                                $map: {
-                                                    input: {
-                                                        $filter: {
-                                                            input: '$$comment.replies',
-                                                            cond: {$eq: ['$$this.isDeleted', false]}
-                                                        }
-                                                    },
-                                                    as: 'reply',
-                                                    in: {
-                                                        $size: {
-                                                            $filter: {
-                                                                input: '$$reply.subReplies',
-                                                                cond: {$eq: ['$$this.isDeleted', false]}
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        ]
-                    }
-                }
-            },
-            {$sort: {totalComments: -1}},
+            {$sort: {commentCount: -1}},
             {$limit: 10},
             {
                 $project: {
                     communityTitle: 1,
-                    totalComments: 1,
+                    totalComments: '$commentCount',
                     createdAt: 1,
                     communityCategory: 1, // ✅ 카테고리 정보 추가
                     _id: 1 // ✅ 게시글 ID도 추가 (링크 연결용)
                 }
             }
         ]);
+
+        // Store cachedTopCommented in Redis
+        await redisClient.setEx('topCommentedCommunities', 3600, JSON.stringify(topCommented));
 
         console.log('Top caches updated successfully (recent week basis with category info).');
     } catch (err) {
@@ -517,11 +464,33 @@ cron.schedule('0 0 * * *', async () => {
 
 // ✅ API에서 캐시된 데이터를 반환 (이제 최근 일주일 데이터)
 export const getTopViewedCommunities = async () => {
-    return cachedTopViewed;
+    let cached = await redisClient.get('topViewedCommunities');
+    if (cached) {
+        return JSON.parse(cached);
+    }
+
+    // If cache is empty, refresh it and try again
+    await updateTopCaches();
+    cached = await redisClient.get('topViewedCommunities');
+    if (cached) {
+        return JSON.parse(cached);
+    }
+    return []; // Fallback if cache refresh also fails
 };
 
 export const getTopCommentedCommunities = async () => {
-    return cachedTopCommented;
+    let cached = await redisClient.get('topCommentedCommunities');
+    if (cached) {
+        return JSON.parse(cached);
+    }
+
+    // If cache is empty, refresh it and try again
+    await updateTopCaches();
+    cached = await redisClient.get('topCommentedCommunities');
+    if (cached) {
+        return JSON.parse(cached);
+    }
+    return []; // Fallback if cache refresh also fails
 };
 
 // 투표 생성
