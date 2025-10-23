@@ -1,9 +1,13 @@
 // controllers/userController.js
 import {
-    acceptFriendRequestService, blockUserService, declineFriendRequestService,
-    decrementChatCount, deleteFriend, getBlockedUsersService, getFriendRequests, getPaginatedFriends,
+    acceptFriendRequestService,
+    declineFriendRequestService,
+    decrementChatCount,
+    deleteFriend,
+    getBlockedUsersService,
+    getFriendRequests, getPaginatedFriends,
     getUserById,
-    getUserByNickname, sendFriendRequest, unblockUserService,
+    getUserByNickname, sendFriendRequest,
     deactivateUserService,
     reactivateUserService,
     archiveAndPrepareNew
@@ -161,10 +165,29 @@ export const updateUserProfile = async (req, res) => {
         }
 
         // 사용자 정보 업데이트
-        const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            updateData,
+            {
             new: true,
             runValidators: true
         });
+
+        // ✅ 경량 응답: 프론트에 필요한 필드만 선택
+        const lightResponse = {
+            _id: updatedUser._id,
+            nickname: updatedUser.nickname,
+            info: updatedUser.info,
+            gender: updatedUser.gender,
+            lolNickname: updatedUser.lolNickname,
+            suddenNickname: updatedUser.suddenNickname,
+            battleNickname: updatedUser.battleNickname,
+            profilePhoto: updatedUser.profilePhoto,
+            photo: updatedUser.photo,
+            coinLeft: updatedUser.coinLeft,
+            star: updatedUser.star
+        };
+
 
         await IntelligentCache.invalidateUserStaticInfo(userId);
         await IntelligentCache.invalidateUserCache(userId);
@@ -197,7 +220,7 @@ export const updateUserProfile = async (req, res) => {
 
         res.status(200).json({
             message: '프로필이 성공적으로 업데이트되었습니다.',
-            user: updatedUser
+            user: lightResponse
         });
 
     } catch (error) {
@@ -252,13 +275,12 @@ export const getUserByNicknameController = async (req, res) => {
 export const decrementChatCountController = async (req, res) => {
     try {
         const { userId } = req.params;
-        const updatedUser = await decrementChatCount(userId);
-        res.status(200).json({
-            success: true,
-            message: "Chat count decremented successfully.",
-            user: updatedUser,
-        });
+        const result  = await decrementChatCount(userId);
+
+        res.status(200).json(result);
+
     } catch (error) {
+        console.error(`❌ [decrementChatCountController] 오류: ${req.params.userId}`, error);
         res.status(400).json({
             success: false,
             message: error.message,
@@ -275,7 +297,9 @@ export const acceptFriendRequestController = async (req, res) => {
         res.status(200).json({
             success: true,
             message: "친구 요청을 수락하였으며, 친구 목록에 추가되었습니다.",
-            data: result
+            data: {
+                friend: result.friend  // ✅ populate된 친구 정보
+            }
         });
     } catch (error) {
         res.status(400).json({
@@ -292,20 +316,20 @@ export const sendFriendRequestController = async (req, res) => {
     const { senderId, receiverId } = req.body;
     try {
         // 친구 요청 생성
-        const newRequest = await sendFriendRequest(senderId, receiverId);
+        const { request, senderNickname } = await sendFriendRequest(senderId, receiverId);
         // 보낸 유저의 정보를 가져와 닉네임을 조회
-        const senderUser = await getUserById(senderId);
+        // const senderUser = await getUserById(senderId);
 
         // 보낸 유저의 닉네임을 포함하여 알림 전송
         io.to(receiverId).emit('friendRequestNotification', {
-            message: `${senderUser.nickname}님이 친구 요청을 보냈습니다.`,
-            friendRequest: newRequest,
+            message: `${senderNickname}님이 친구 요청을 보냈습니다.`,
+            friendRequest: request,
         });
 
         res.status(200).json({
             success: true,
             message: "친구 요청을 보냈습니다.",
-            data: newRequest
+            data: request
         });
     } catch (error) {
         res.status(400).json({
@@ -344,7 +368,6 @@ export const declineFriendRequestController = async (req, res) => {
         res.status(200).json({
             success: true,
             message: result.message,
-            data: result,
         });
     } catch (error) {
         res.status(400).json({
@@ -373,41 +396,41 @@ export const deleteFriendController = async (req, res) => {
     }
 };
 
-/**
- * 사용자 차단
- */
-export const blockUserController = async (req, res) => {
-    const { userId, targetUserId } = req.params;
-    try {
-        const updated = await blockUserService(userId, targetUserId);
-        // 📌 추가: 차단 관련 캐시 무효화
-        await IntelligentCache.deleteCache(`user_blocks_${userId}`);
-        await IntelligentCache.deleteCache(`users_blocked_me_${targetUserId}`);
-        console.log(`🗑️ [캐시 무효화] 차단: ${userId} -> ${targetUserId}`);
-
-        res.status(200).json({ success: true, data: updated.blockedUsers });
-    } catch (err) {
-        res.status(400).json({ success: false, message: err.message });
-    }
-};
-
-/**
- * 차단 해제
- */
-export const unblockUserController = async (req, res) => {
-    const { userId, targetUserId } = req.params;
-    try {
-        const updated = await unblockUserService(userId, targetUserId);
-        // 📌 추가: 차단 해제 관련 캐시 무효화
-        await IntelligentCache.deleteCache(`user_blocks_${userId}`);
-        await IntelligentCache.deleteCache(`users_blocked_me_${targetUserId}`);
-        console.log(`🗑️ [캐시 무효화] 차단 해제: ${userId} -> ${targetUserId}`);
-
-        res.status(200).json({ success: true, data: updated.blockedUsers });
-    } catch (err) {
-        res.status(400).json({ success: false, message: err.message });
-    }
-};
+// /**
+//  * 사용자 차단
+//  */
+// export const blockUserController = async (req, res) => {
+//     const { userId, targetUserId } = req.params;
+//     try {
+//         const updated = await blockUserService(userId, targetUserId);
+//         // 📌 추가: 차단 관련 캐시 무효화
+//         await IntelligentCache.deleteCache(`user_blocks_${userId}`);
+//         await IntelligentCache.deleteCache(`users_blocked_me_${targetUserId}`);
+//         console.log(`🗑️ [캐시 무효화] 차단: ${userId} -> ${targetUserId}`);
+//
+//         res.status(200).json({ success: true, data: updated.blockedUsers });
+//     } catch (err) {
+//         res.status(400).json({ success: false, message: err.message });
+//     }
+// };
+//
+// /**
+//  * 차단 해제
+//  */
+// export const unblockUserController = async (req, res) => {
+//     const { userId, targetUserId } = req.params;
+//     try {
+//         const updated = await unblockUserService(userId, targetUserId);
+//         // 📌 추가: 차단 해제 관련 캐시 무효화
+//         await IntelligentCache.deleteCache(`user_blocks_${userId}`);
+//         await IntelligentCache.deleteCache(`users_blocked_me_${targetUserId}`);
+//         console.log(`🗑️ [캐시 무효화] 차단 해제: ${userId} -> ${targetUserId}`);
+//
+//         res.status(200).json({ success: true, data: updated.blockedUsers });
+//     } catch (err) {
+//         res.status(400).json({ success: false, message: err.message });
+//     }
+// };
 
 /**
  * 차단 목록 조회
