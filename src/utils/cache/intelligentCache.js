@@ -322,14 +322,20 @@ class IntelligentCache {
 
   // 캐시 삭제
   async deleteCache(key) {
+    if (!this.isConnected) return false;
+
     try {
       if (this.client) {
         await this.client.del(key);
+        console.log(`🗑️ [캐시 삭제] ${key}`);
       } else if (this.memoryCache) {
         this.memoryCache.delete(key);
+        console.log(`🗑️ [메모리 캐시 삭제] ${key}`);
       }
+      return true;
     } catch (error) {
       console.error('캐시 삭제 실패:', error);
+      return false;
     }
   }
 
@@ -665,6 +671,65 @@ class IntelligentCache {
 
     return { total, expired, active: total - expired };
   }
+
+  /**
+   * 패턴 매칭 캐시 일괄 삭제 (선택 사항)
+   *
+   * @param {string} pattern - 삭제할 캐시 키 패턴 (예: 'user_*')
+   * @returns {Promise<number>} 삭제된 키 개수
+   */
+  async deleteCacheByPattern(pattern) {
+    if (!this.isConnected) return 0;
+
+    try {
+      if (this.client) {
+        // Redis SCAN으로 패턴 매칭 키 찾기
+        const keys = [];
+        let cursor = 0;
+
+        do {
+          const reply = await this.client.scan(cursor, {
+            MATCH: pattern,
+            COUNT: 100
+          });
+          cursor = reply.cursor;
+          keys.push(...reply.keys);
+        } while (cursor !== 0);
+
+        if (keys.length > 0) {
+          await this.client.del(keys);
+          console.log(`🗑️ [패턴 캐시 삭제] ${pattern}: ${keys.length}개`);
+        }
+
+        return keys.length;
+      } else if (this.memoryCache) {
+        // 메모리 캐시에서 패턴 매칭
+        let count = 0;
+        const regex = new RegExp(pattern.replace('*', '.*'));
+
+        for (const key of this.memoryCache.keys()) {
+          if (regex.test(key)) {
+            this.memoryCache.delete(key);
+            count++;
+          }
+        }
+
+        console.log(`🗑️ [메모리 패턴 캐시 삭제] ${pattern}: ${count}개`);
+        return count;
+      }
+
+      return 0;
+    } catch (error) {
+      console.error(`❌ [패턴 캐시 삭제 실패] ${pattern}:`, error.message);
+      return 0;
+    }
+  }
+
+
+
+
+
+
 
 
 
