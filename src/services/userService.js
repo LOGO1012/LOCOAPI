@@ -14,6 +14,101 @@ import { Community } from '../models/Community.js';
 import { Qna } from '../models/Qna.js';
 import {containsProfanity} from "../utils/profanityFilter.js";
 
+
+/**
+ * 🎂 나이 정보 조회 (통합 버전)
+ *
+ * 모든 나이 계산 로직의 유일한 진입점
+ * - 캐시 우선 조회로 복호화 최소화
+ * - 에러 처리 통합
+ * - 일관된 반환 형식
+ *
+ * @param {string} userId - 사용자 ID
+ * @param {string} birthdate - 암호화된 생년월일 (선택, 제공하면 DB 조회 생략)
+ * @returns {Promise<Object|null>} { age, ageGroup, isMinor } 또는 null
+ *
+ * @example
+ * // 캐시 우선 조회 (가장 빠름)
+ * const ageInfo = await getAgeInfoUnified(userId);
+ *
+ * // birthdate가 있으면 DB 조회 생략
+ * const ageInfo = await getAgeInfoUnified(userId, user.birthdate);
+ */
+export const getAgeInfoUnified = async (userId, birthdate = null) => {
+    try {
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 1️⃣ 캐시 확인 (가장 빠른 경로)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const cachedAge = await IntelligentCache.getCachedUserAge(userId);
+
+        if (cachedAge) {
+            console.log(`💾 [통합 나이] 캐시 HIT: ${userId} - ${cachedAge.age}세`);
+            return cachedAge;
+        }
+
+        console.log(`💭 [통합 나이] 캐시 MISS: ${userId}`);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 2️⃣ birthdate가 없으면 DB에서 조회
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (!birthdate) {
+            const user = await User.findById(userId).select('birthdate').lean();
+
+            if (!user || !user.birthdate) {
+                console.log(`⚠️ [통합 나이] birthdate 없음: ${userId}`);
+                return null;
+            }
+
+            birthdate = user.birthdate;
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 3️⃣ birthdate 복호화
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        console.log(`🔓 [통합 나이] 복호화 시작: ${userId}`);
+        let decryptedBirthdate;
+
+        try {
+            decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(birthdate);
+        } catch (decryptError) {
+            console.error(`❌ [통합 나이] 복호화 실패: ${userId}`, decryptError.message);
+            return null;
+        }
+
+        if (!decryptedBirthdate) {
+            console.warn(`⚠️ [통합 나이] 복호화 결과 없음: ${userId}`);
+            return null;
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 4️⃣ 나이 계산 (ComprehensiveEncryption 활용)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+        const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+        const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+
+        // 나이 계산 실패 시 null 반환
+        if (age === null || isNaN(age)) {
+            console.error(`❌ [통합 나이] 나이 계산 실패: ${userId}`);
+            return null;
+        }
+
+        const ageInfo = { age, ageGroup, isMinor };
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 5️⃣ 캐시 저장 (TTL: 24시간)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor, 86400);
+        console.log(`✅ [통합 나이] 캐싱 완료: ${userId} - ${age}세 (${ageGroup})`);
+
+        return ageInfo;
+
+    } catch (error) {
+        console.error(`❌ [통합 나이] 예외 발생: ${userId}`, error.message);
+        return null;
+    }
+};
+
 // ============================================================================
 //   소셜 로그인 관련 함수
 // ============================================================================
@@ -392,65 +487,19 @@ export const getUserById = async (userId) => {
         // 🎂 8단계: 나이 정보 계산 및 추가
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // birthdate가 있으면 만나이, 연령대, 미성년자 여부 계산
+        // ✅ 새로운 코드 (5줄로 간소화)
         if (user.birthdate) {
-            try {
-                // 캐시에서 나이 정보 확인 (복호화 비용 절약)
-                const ageInfo = await IntelligentCache.getCachedUserAge(userId);
+            const ageInfo = await getAgeInfoUnified(userId, user.birthdate);
 
-                if (ageInfo) {
-                    // ✅ 캐시 HIT: 복호화 없이 바로 사용
-                    data.calculatedAge = ageInfo.age;
-                    data.ageGroup = ageInfo.ageGroup;
-                    data.isMinor = ageInfo.isMinor;
-                    console.log(`💾 [캐시] 나이 정보: ${userId} - ${ageInfo.age}세`);
-                } else {
-                    // ❌ 캐시 MISS: 복호화 후 계산
-                    console.log(`🔓 [복호화] birthdate: ${userId}`);
-
-                    let decryptedBirthdate;
-                    try {
-                        decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
-                    } catch (decryptError) {
-                        console.error(`❌ birthdate 복호화 실패 (${userId}):`, decryptError.message);
-                        decryptedBirthdate = null;
-                    }
-
-                    if (decryptedBirthdate) {
-                        try {
-                            const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
-                            const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
-                            const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
-
-                            data.calculatedAge = age;
-                            data.ageGroup = ageGroup;
-                            data.isMinor = isMinor;
-
-                            await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
-                            console.log(`✅ [캐싱] 나이 정보: ${userId} - ${age}세`);
-
-                        } catch (calcError) {
-                            console.error(`❌ 나이 계산 실패 (${userId}):`, calcError.message);
-                            data.calculatedAge = null;
-                            data.ageGroup = null;
-                            data.isMinor = null;
-                        }
-
-                    } else {
-                        console.warn(`⚠️ birthdate 복호화 실패, 나이 정보 제외: ${userId}`);
-                        data.calculatedAge = null;
-                        data.ageGroup = null;
-                        data.isMinor = null;
-                    }
-                }
-            } catch (error) {
-                // 나이 계산 실패해도 다른 정보는 정상 반환
-                console.error('⚠️ 만나이 정보 조회 실패:', error);
+            if (ageInfo) {
+                data.calculatedAge = ageInfo.age;
+                data.ageGroup = ageInfo.ageGroup;
+                data.isMinor = ageInfo.isMinor;
+            } else {
+                data.calculatedAge = null;
+                data.ageGroup = null;
+                data.isMinor = null;
             }
-        }
-        if (user.lolNickname) {
-            const parts = user.lolNickname.split('#');
-            data.riotGameName = parts[0] || '';
-            data.riotTagLine = parts[1] || '';
         }
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // ✅ 9단계: 최종 데이터 반환
@@ -718,6 +767,17 @@ async function updateChatCountSafely(userId, oldNumOfChat, oldChatTimer, newNumO
 
 export const getUserForAuth = async (userId) => {
     try {
+
+        const cacheKey = `auth_user_${userId}`;
+        const cached = await IntelligentCache.getCache(cacheKey);
+
+        if (cached) {
+            console.log(`💾 [getUserForAuth] 캐시 HIT: ${userId}`);
+            return cached;
+        }
+        console.log(`🔍 [getUserForAuth] 캐시 MISS, DB 조회: ${userId}`);
+
+
         const user = await User.findById(userId)
             .select({
                 _id: 1,
@@ -732,8 +792,20 @@ export const getUserForAuth = async (userId) => {
             throw new Error("사용자를 찾을 수 없습니다.");
         }
 
-        // ✅ ObjectId를 문자열로 변환 (중요!)
-        user._id = user._id.toString();
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 🔄 3단계: 응답 데이터 구성
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const authUser = {
+            _id: user._id.toString(),
+            nickname: user.nickname,
+            status: user.status,
+            userLv: user.userLv
+        };
+
+
+        // // ✅ ObjectId를 문자열로 변환 (중요!)
+        // user._id = user._id.toString();
 
         // 🔧 DB 조회 직후 즉시 로그
         console.log('📊 [getUserForAuth] DB 조회 직후:', {
@@ -753,9 +825,9 @@ export const getUserForAuth = async (userId) => {
                 const ageInfo = await IntelligentCache.getCachedUserAge(userId);
                 if (ageInfo) {
                     // 캐시에서 가져오기
-                    user.calculatedAge = ageInfo.age;
-                    user.ageGroup = ageInfo.ageGroup;
-                    user.isMinor = ageInfo.isMinor;
+                    authUser.calculatedAge = ageInfo.age;
+                    authUser.ageGroup = ageInfo.ageGroup;
+                    authUser.isMinor = ageInfo.isMinor;
                     console.log(`💾 [인증-캐시] 나이 정보 로드: ${userId} - ${ageInfo.age}세`);
                 } else {
                     // 캐시 미스: 복호화 후 계산
@@ -767,9 +839,9 @@ export const getUserForAuth = async (userId) => {
                         const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
                         const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
 
-                        user.calculatedAge = age;
-                        user.ageGroup = ageGroup;
-                        user.isMinor = isMinor;
+                        authUser.calculatedAge = age;
+                        authUser.ageGroup = ageGroup;
+                        authUser.isMinor = isMinor;
 
                         // 캐시 저장
                         await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
@@ -782,6 +854,13 @@ export const getUserForAuth = async (userId) => {
             }
         }
 
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 💾 5단계: 캐시 저장 (TTL: 30분)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        await IntelligentCache.setCache(cacheKey, authUser, 1800);
+
+        console.log(`✅ [getUserForAuth] 완료: ${userId} (${JSON.stringify(authUser).length} bytes)`);
+
         console.log(`✅ [인증] 사용자 정보 조회 성공: ${userId}`, {
             nickname: user.nickname,
             hasBirthdate: !!user.birthdate,
@@ -789,7 +868,7 @@ export const getUserForAuth = async (userId) => {
             age: user.calculatedAge
         });
 
-        return user;
+        return authUser;
     } catch (err) {
         console.error(`❌ [인증] 사용자 정보 조회 실패: ${userId}`, err.message);
         throw new Error(err.message);
@@ -801,8 +880,13 @@ export const getUserForAuth = async (userId) => {
 //닉네임 기반 사용자 검색
 export const getUserByNickname = async (nickname) => {
     try {
-        const user = await User.findOne({ nickname });
-        if (!user) throw new Error("User not found.");
+        const user = await User.findOne({ nickname })
+            .select('_id nickname')  // ✅ 2개 필드만
+            .lean();
+
+        if (!user) {
+            throw new Error('해당 닉네임을 가진 사용자를 찾을 수 없습니다.');
+        }
         return user;
     } catch (error) {
         throw new Error(error.message);
@@ -815,15 +899,38 @@ export const rateUser = async (userId, rating) => {
     if (typeof rating !== "number" || rating < 0 || rating > 5) {
         throw new Error("Rating must be a number between 0 and 5.");
     }
-    const user = await User.findById(userId);
-    if (!user) throw new Error("User not found.");
-    user.star += rating;
-    await user.save();
+    const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        { $inc: { star: rating } },
+        {
+            new: true,
+            select: '_id star'  // ✅ 응답에 필요한 필드만
+        }
+    );
+    if (!updatedUser) throw new Error("User not found.");
+
     await IntelligentCache.invalidateUserCache(userId);
-    return user;
+    // ✅ 최소한의 정보만 반환
+    return {
+        success: true,
+        star: updatedUser.star,
+        userId: updatedUser._id
+    };
 };
 
-
+// // 사용자 별점 평가
+// //매너 평가 시스템 (별점 누적)
+// export const rateUser = async (userId, rating) => {
+//     if (typeof rating !== "number" || rating < 0 || rating > 5) {
+//         throw new Error("Rating must be a number between 0 and 5.");
+//     }
+//     const user = await User.findById(userId);
+//     if (!user) throw new Error("User not found.");
+//     user.star += rating;
+//     await user.save();
+//     await IntelligentCache.invalidateUserCache(userId);
+//     return user;
+// };
 
 // ============================================================================
 //    채팅 관련 함수
@@ -833,18 +940,68 @@ export const rateUser = async (userId, rating) => {
 // 채팅 사용 시 남은 횟수 -1
 // 최대 횟수에서 처음 차감 시 타이머 시작
 export const decrementChatCount = async (userId) => {
-    const user = await User.findById(userId);
-    if (!user) throw new Error("User not found.");
+    try {
+        console.log(`🔽 [decrementChatCount] 시작: ${userId}`);
 
-    const max = getMax(user.plan?.planType);
-    const before = user.numOfChat ?? 0;
-    user.numOfChat = Math.max(0, before - 1);
+        // 1️⃣ 필요한 필드만 조회
+        const user = await User.findById(userId)
+            .select('numOfChat chatTimer plan.planType')
+            .lean();
 
-    if (before === max) user.chatTimer = new Date();
+        if (!user) {
+            throw new Error("User not found.");
+        }
 
-    await user.save();
-    await IntelligentCache.invalidateUserCache(userId);
-    return user;
+        // 2️⃣ 현재 상태 계산 (✅ getMax 사용 가능)
+        const max = getMax(user.plan?.planType);
+        const before = user.numOfChat ?? 0;
+        const newNumOfChat = Math.max(0, before - 1);
+
+        console.log(`   현재: ${before}, 차감 후: ${newNumOfChat}, 최대: ${max}`);
+
+        // 3️⃣ 타이머 설정 여부 판단
+        const needsTimerReset = before === max;
+        const newChatTimer = needsTimerReset ? new Date() : user.chatTimer;
+
+        // 4️⃣ DB 업데이트
+        const updateData = {
+            numOfChat: newNumOfChat
+        };
+
+        if (needsTimerReset) {
+            updateData.chatTimer = newChatTimer;
+            console.log(`   🕐 타이머 리셋: ${newChatTimer}`);
+        }
+
+        await User.findByIdAndUpdate(
+            userId,
+            { $set: updateData },
+            { lean: true }
+        );
+
+        // 5️⃣ 캐시 무효화
+        await IntelligentCache.invalidateUserStaticInfo(userId);
+        console.log(`   🗑️ 캐시 무효화 완료`);
+
+        // 6️⃣ 다음 충전 시각 계산 (✅ REFILL_MS 사용 가능)
+        const nextRefillAt = newChatTimer
+            ? new Date(newChatTimer.getTime() + REFILL_MS)
+            : null;
+
+        console.log(`✅ [decrementChatCount] 완료: ${userId}`);
+
+        // 7️⃣ 필요한 필드만 반환
+        return {
+            success: true,
+            numOfChat: newNumOfChat,
+            maxChatCount: max,
+            nextRefillAt: nextRefillAt
+        };
+
+    } catch (error) {
+        console.error(`❌ [decrementChatCount] 오류: ${userId}`, error);
+        throw error;
+    }
 };
 
 // 채팅방에서 표시할 간단한 사용자 정보
@@ -908,24 +1065,97 @@ export const getChatUserInfo = async (userId) => {
 // 친구 요청 수락
 // 친구 요청 수락 처리, 양방향 친구 관계 생성, 요청 기록 삭제
 export const acceptFriendRequestService = async (requestId) => {
+    try {
     // 해당 친구요청 조회
-    const friendRequest = await FriendRequest.findById(requestId);
+    console.log(`🤝 [친구수락] 시작: ${requestId}`);
+
+    const friendRequest = await FriendRequest.findById(requestId)
+        .populate('sender', '_id nickname profilePhoto star gender lolNickname');
 
     if (!friendRequest) throw new Error("친구 요청을 찾을 수 없습니다.");
 
     if (friendRequest.status !== 'pending') throw new Error("이미 처리된 친구 요청입니다.");
 
-    // 양쪽 사용자의 친구 배열에 서로의 ID추가
-    await User.findByIdAndUpdate(friendRequest.sender, { $push: { friends: friendRequest.receiver } });
-    await User.findByIdAndUpdate(friendRequest.receiver, { $push: { friends: friendRequest.sender } });
+    const senderId = friendRequest.sender._id.toString();
+    const receiverId = friendRequest.receiver.toString();
+
+    console.log(`📝 [친구수락] 요청 정보:`, {
+        sender: senderId,
+        receiver: receiverId,
+        status: friendRequest.status
+    });
+
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 2️⃣ 양방향 친구 관계 생성 (병렬 처리)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await Promise.all([
+        User.findByIdAndUpdate(
+            senderId,
+            { $addToSet: { friends: receiverId } }  // ✅ $addToSet: 중복 방지
+        ),
+        User.findByIdAndUpdate(
+            receiverId,
+            { $addToSet: { friends: senderId } }
+        )
+    ]);
+
+    console.log(`✅ [친구수락] 양방향 친구 관계 생성 완료`);
+
+    // // 양쪽 사용자의 친구 배열에 서로의 ID추가
+    // await User.findByIdAndUpdate(friendRequest.sender, {
+    //     $push: { friends: friendRequest.receiver } });
+    // await User.findByIdAndUpdate(friendRequest.receiver, {
+    //     $push: { friends: friendRequest.sender._id } });
 
     // 친구 요청 문서를 DB에서 삭제
     await FriendRequest.findByIdAndDelete(requestId);
 
-    await IntelligentCache.invalidateUserCache(friendRequest.sender);
-    await IntelligentCache.invalidateUserCache(friendRequest.receiver);
+    await Promise.all([
+        // ✅ 인증 캐시 무효화
+        IntelligentCache.deleteCache(`auth_user_${senderId}`),
+        IntelligentCache.deleteCache(`auth_user_${receiverId}`),
 
-    return { message: "친구 요청이 수락되어 삭제되었습니다.", friendRequest: friendRequest };
+        // ✅ 친구 ID 캐시 무효화
+        IntelligentCache.deleteCache(`user_friends_ids_${senderId}`),
+        IntelligentCache.deleteCache(`user_friends_ids_${receiverId}`),
+
+        // ✅ 프로필 캐시 무효화
+        IntelligentCache.deleteCache(`user_profile_full_${senderId}`),
+        IntelligentCache.deleteCache(`user_profile_full_${receiverId}`),
+
+        // ✅ 기존 사용자 캐시 무효화
+        IntelligentCache.invalidateUserCache(senderId),
+        IntelligentCache.invalidateUserCache(receiverId)
+    ]);
+
+    console.log(`🗑️ [친구수락] 캐시 무효화 완료`);
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 5️⃣ 친구 정보 반환 (populate된 sender 정보)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const friendInfo = {
+        _id: friendRequest.sender._id.toString(),
+        nickname: friendRequest.sender.nickname,
+        profilePhoto: friendRequest.sender.profilePhoto,
+        star: friendRequest.sender.star,
+        gender: friendRequest.sender.gender,
+        lolNickname: friendRequest.sender.lolNickname
+    };
+
+    console.log(`🎉 [친구수락] 완료:`, {
+        sender: senderId,
+        receiver: receiverId,
+        friendNickname: friendInfo.nickname
+    });
+    return {
+        message: "친구 요청이 수락되었습니다.",
+        friend: friendInfo
+    };
+    } catch (error) {
+        console.error(`❌ [친구수락] 실패:`, error.message);
+        throw error;
+    }
 };
 
 // 친구 요청 보내기
@@ -934,34 +1164,78 @@ export const acceptFriendRequestService = async (requestId) => {
 export const sendFriendRequest = async (senderId, receiverId) => {
 
     // 수신자가 요청을 차단했는지 미리 확인
-    const receiverUser = await User.findById(receiverId).select('friendReqEnabled');
+    const receiverUser = await User.findById(receiverId)
+        .select('friendReqEnabled blockedUsers')
+        .lean();
+
     if (!receiverUser) throw new Error('받는 사용자를 찾을 수 없습니다.');
     if (!receiverUser.friendReqEnabled) throw new Error('상대가 친구 요청을 차단했습니다.');
+
+    // ⭐ 2. 수신자가 나를 차단했는지 확인 (새로 추가!)
+    const isBlockedByReceiver = receiverUser.blockedUsers &&
+        receiverUser.blockedUsers.some(
+            blockedId => blockedId.toString() === senderId.toString()
+        );
+    if (isBlockedByReceiver) {
+        throw new Error('상대방에게 친구 요청을 보낼 수 없습니다.');
+    }
+
+
 
     if (senderId === receiverId) throw new Error("자기 자신에게 친구 요청을 보낼 수 없습니다.");
 
     // 보내는 사용자의 정보를 조회하여 이미 친구인지 확인
-    const senderUser = await User.findById(senderId);
+    const senderUser = await User.findById(senderId)
+        .select('friends blockedUsers nickname')
+        .lean();
     if (!senderUser) throw new Error("보낸 사용자 정보를 찾을 수 없습니다.");
 
+    // ⭐ 5. 내가 상대를 차단했는지 확인
+    const isBlockedBySender = senderUser.blockedUsers?.some(
+        blockedId => blockedId.toString() === receiverId.toString()
+    );
+    if (isBlockedBySender) {
+        throw new Error('차단한 사용자에게 친구 요청을 보낼 수 없습니다.');
+    }
+
     // 이미 친구인지 확인
-    const alreadyFriends = senderUser.friends.some(friendId => friendId.toString() === receiverId.toString());
+    const alreadyFriends = senderUser.friends.some(
+        friendId => friendId.toString() === receiverId.toString()
+    );
     if (alreadyFriends) throw new Error("이미 친구입니다.");
 
     // 이미 패딩 상태의 요청이 존재하는지 확인
-    const existingRequest = await FriendRequest.findOne({ sender: senderId, receiver: receiverId, status: 'pending' });
+    const existingRequest = await FriendRequest.findOne({
+        sender: senderId,
+        receiver: receiverId,
+        status: 'pending'
+    });
+
     if (existingRequest) throw new Error("이미 친구 요청을 보냈습니다.");
 
     // 새로운 친구 요청 생성
-    const newRequest = new FriendRequest({ sender: senderId, receiver: receiverId });
+    const newRequest = new FriendRequest({
+        sender: senderId,
+        receiver: receiverId
+    });
     await newRequest.save();
-    return newRequest;
+    // ✅ 9. 발신자 닉네임을 포함하여 반환 (컨트롤러에서 추가 조회 불필요!)
+    return {
+        request: newRequest,
+        senderNickname: senderUser.nickname  // ⭐ 이미 조회한 닉네임 반환
+    };
 };
 
 // 받은 친구 요청 목록
 // 내가 받은 대기 중인 친구 요청 조회
 export const getFriendRequests = async (receiverId) => {
-    const requests = await FriendRequest.find({ receiver: receiverId, status: 'pending' }).populate('sender', 'nickname name photo');
+    const requests = await FriendRequest.find({
+        receiver: receiverId,
+        status: 'pending' })
+        .populate('sender', '_id nickname profilePhoto')
+        .select('_id sender createdAt')  // ✅ receiver, status, updatedAt 제외
+        .lean();  // ✅ Mongoose 오버헤드 제거
+
     return requests;
 };
 
@@ -969,15 +1243,24 @@ export const getFriendRequests = async (receiverId) => {
 export const declineFriendRequestService = async (requestId) => {
 
     // 해당 친구 요청 조회
-    const friendRequest = await FriendRequest.findById(requestId);
+    const friendRequest = await FriendRequest.findById(requestId)
+        .select('status')
+        .lean();
+
     if (!friendRequest) throw new Error("친구 요청을 찾을 수 없습니다.");
 
     // 이미 처리된 요청이면 에러 발생
     if (friendRequest.status !== 'pending') throw new Error("이미 처리된 친구 요청입니다.");
 
     // 상태를 declined로 업데이트 한 후 저장 (로깅등 필요할 경우 대비)
-    friendRequest.status = 'declined';
-    await friendRequest.save();
+    // ✅ 선택: 로깅 (선택사항)
+    await FriendRequestLog.create({
+        requestId,
+        sender: friendRequest.sender,
+        receiver: friendRequest.receiver,
+        action: 'declined',
+        timestamp: new Date()
+    });
 
     // DB에서 해당 친구 요청 알림 삭제
     await FriendRequest.findByIdAndDelete(requestId);
@@ -987,50 +1270,105 @@ export const declineFriendRequestService = async (requestId) => {
 
 // 친구 삭제
 export const deleteFriend = async (userId, friendId, io) => {
+    try {
 
+
+    console.log(`💔 [친구삭제] 시작:`, { userId, friendId });
     //요청 사용자가 존재하는지 확인
-    const user = await User.findById(userId);
-    if (!user) throw new Error("사용자를 찾을 수 없습니다.");
+    // ✅ 1. 사용자 검증 + friends 배열 확인 (한 번에 처리)
+    const user = await User.findById(userId)
+        .select('friends')  // ✅ friends 배열만 조회
+        .lean();
 
-    // 삭제 대상 친구가 존재하는지 확인
-    const friend = await User.findById(friendId);
-    if (!friend) throw new Error("친구를 찾을 수 없습니다.");
+    if (!user) {
+        throw new Error("사용자를 찾을 수 없습니다.");
+    }
 
-    // 친구 목록에 해당 친구가 있는지 확인
-    if (!user.friends.includes(friendId)) throw new Error("해당 사용자는 친구 목록에 존재하지 않습니다.");
+    // ✅ 친구 관계 확인
+    const isFriend = user.friends.some(id => id.toString() === friendId);
+    if (!isFriend) {
+        throw new Error("해당 사용자는 친구 목록에 존재하지 않습니다.");
+    }
 
-    // 사용자와 친구 양쪽에서 친구 ID 제거
-    await User.findByIdAndUpdate(userId, { $pull: { friends: friendId } });
-    await User.findByIdAndUpdate(friendId, { $pull: { friends: userId } });
+
+    // ✅ 2. 친구 존재 확인 (exists 사용 - 가장 빠름)
+    const friendExists = await User.exists({ _id: friendId });
+    if (!friendExists) {
+        throw new Error("친구를 찾을 수 없습니다.");
+
+    }
+
+    console.log(`✅ [친구삭제] 검증 완료`);
+
+
+    // ✅ 3. 양쪽 친구 목록에서 제거 (기존 로직 유지)
+    await Promise.all([
+        User.findByIdAndUpdate(userId, { $pull: { friends: friendId } }),
+        User.findByIdAndUpdate(friendId, { $pull: { friends: userId } })
+    ]);
+
+    console.log(`✅ [친구삭제] 양방향 관계 삭제 완료`);
 
     // Find and deactivate the friend chat room
+    // ✅ 4. 채팅방 검색 및 비활성화 (필요 필드만)
     const chatRoom = await ChatRoom.findOne({
         roomType: 'friend',
         chatUsers: { $all: [userId, friendId] }
-    });
+    })
+        .select('_id isActive')  // ✅ 필요한 필드만
+        .lean();
 
     if (chatRoom) {
-        chatRoom.isActive = false;
-        await chatRoom.save();
+        // ✅ 바로 업데이트 (save() 대신 updateOne 사용)
+        await ChatRoom.updateOne(
+            { _id: chatRoom._id },
+            { $set: { isActive: false } }
+        );
 
-        // Emit socket events to both users with roomId
+        // 소켓 이벤트 전송
         if (io) {
-            io.to(userId).emit('friendDeleted', { friendId: friendId, roomId: chatRoom._id.toString() });
-            io.to(friendId).emit('friendDeleted', { friendId: userId, roomId: chatRoom._id.toString() });
+            io.to(userId).emit('friendDeleted', {
+                friendId: friendId,
+                roomId: chatRoom._id.toString()
+            });
+            io.to(friendId).emit('friendDeleted', {
+                friendId: userId,
+                roomId: chatRoom._id.toString()
+            });
         }
     } else {
-        // If there's no chat room, just emit the event without roomId
         if (io) {
             io.to(userId).emit('friendDeleted', { friendId: friendId, roomId: null });
             io.to(friendId).emit('friendDeleted', { friendId: userId, roomId: null });
         }
     }
 
-    // 캐싱
-    await IntelligentCache.invalidateUserCache(userId);
-    await IntelligentCache.invalidateUserCache(friendId);
+    await Promise.all([
+        // ✅ 인증 캐시 무효화
+        IntelligentCache.deleteCache(`auth_user_${userId}`),
+        IntelligentCache.deleteCache(`auth_user_${friendId}`),
 
-    return { message: "친구가 삭제되었습니다." };
+        // ✅ 친구 ID 캐시 무효화 (가장 중요!)
+        IntelligentCache.deleteCache(`user_friends_ids_${userId}`),
+        IntelligentCache.deleteCache(`user_friends_ids_${friendId}`),
+
+        // ✅ 프로필 캐시 무효화
+        IntelligentCache.deleteCache(`user_profile_full_${userId}`),
+        IntelligentCache.deleteCache(`user_profile_full_${friendId}`),
+
+        // ✅ 기존 사용자 캐시 무효화
+        IntelligentCache.invalidateUserCache(userId),
+        IntelligentCache.invalidateUserCache(friendId)
+    ]);
+
+    return {
+        message: "친구가 삭제되었습니다."
+    };
+
+} catch (error) {
+    console.error(`❌ [친구삭제] 실패:`, error.message);
+    throw error;
+}
 };
 
 // 친구 목록 페이지네이션 조회
@@ -1084,121 +1422,101 @@ export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online
 //    차단 관리 함수
 // ============================================================================
 
-// // 사용자 차단
+
+
+// /**
+//  * 사용자 차단 (개선: 캐시 무효화 양방향)
+//  * @param {string} userId - 차단하는 사용자 ID
+//  * @param {string} targetId - 차단당하는 사용자 ID
+//  */
 // export const blockUserService = async (userId, targetId) => {
-//     const user = await User.findById(userId);
-//     if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-//     if (!user.blockedUsers.includes(targetId)) {
-//         user.blockedUsers.push(targetId);
-//         await user.save();
+//     try {
+//         console.log(`🔒 [blockUserService] ${userId}가 ${targetId}를 차단`);
+//
+//         // 1. DB 업데이트 ($addToSet: 중복 방지)
+//         const user = await User.findByIdAndUpdate(
+//             userId,
+//             { $addToSet: { blockedUsers: targetId } },
+//             { new: true }
+//         );
+//
+//         if (!user) {
+//             throw new Error('사용자를 찾을 수 없습니다.');
+//         }
+//
+//         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//         // 2️⃣ 캐시 무효화 (양방향 + 기존 캐시)
+//         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+//         // ✅ 기존 사용자 캐시 무효화 (기존 로직 유지)
 //         await IntelligentCache.invalidateUserCache(userId);
+//
+//         // ✅ 차단하는 사람의 "내가 차단한 목록" 캐시 무효화
+//         const myBlocksCacheKey = `user_blocks_${userId}`;
+//         await IntelligentCache.deleteCache(myBlocksCacheKey);
+//         console.log(`🗑️ [blockUserService] 캐시 무효화: ${myBlocksCacheKey}`);
+//
+//         // ✅ 차단당하는 사람의 "나를 차단한 목록" 캐시 무효화
+//         const blockedMeCacheKey = `users_blocked_me_${targetId}`;
+//         await IntelligentCache.deleteCache(blockedMeCacheKey);
+//         console.log(`🗑️ [blockUserService] 캐시 무효화: ${blockedMeCacheKey}`);
+//
+//         console.log(`✅ [blockUserService] 차단 완료 및 캐시 무효화 성공`);
+//
+//         return user;
+//
+//     } catch (error) {
+//         console.error('❌ [blockUserService] 오류:', error);
+//         throw new Error(`차단 처리 실패: ${error.message}`);
 //     }
-//     return user;
 // };
 //
-// // 차단 해제
+// /**
+//  * 차단 해제 (개선: 캐시 무효화 양방향)
+//  * @param {string} userId - 차단 해제하는 사용자 ID
+//  * @param {string} targetId - 차단 해제당하는 사용자 ID
+//  */
 // export const unblockUserService = async (userId, targetId) => {
-//     const user = await User.findById(userId);
-//     if (!user) throw new Error('사용자를 찾을 수 없습니다.');
-//     user.blockedUsers = user.blockedUsers.filter(id => id.toString() !== targetId);
-//     await user.save();
-//     await IntelligentCache.invalidateUserCache(userId);
-//     return user;
+//     try {
+//         console.log(`🔓 [unblockUserService] ${userId}가 ${targetId} 차단 해제`);
+//
+//         // 1. DB 업데이트 ($pull: 배열에서 제거)
+//         const user = await User.findByIdAndUpdate(
+//             userId,
+//             { $pull: { blockedUsers: targetId } },
+//             { new: true }
+//         );
+//
+//         if (!user) {
+//             throw new Error('사용자를 찾을 수 없습니다.');
+//         }
+//
+//         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//         // 2️⃣ 캐시 무효화 (양방향 + 기존 캐시)
+//         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+//         // ✅ 기존 사용자 캐시 무효화 (기존 로직 유지)
+//         await IntelligentCache.invalidateUserCache(userId);
+//
+//         // ✅ 차단 해제하는 사람의 "내가 차단한 목록" 캐시 무효화
+//         const myBlocksCacheKey = `user_blocks_${userId}`;
+//         await IntelligentCache.deleteCache(myBlocksCacheKey);
+//         console.log(`🗑️ [unblockUserService] 캐시 무효화: ${myBlocksCacheKey}`);
+//
+//         // ✅ 차단 해제당하는 사람의 "나를 차단한 목록" 캐시 무효화
+//         const blockedMeCacheKey = `users_blocked_me_${targetId}`;
+//         await IntelligentCache.deleteCache(blockedMeCacheKey);
+//         console.log(`🗑️ [unblockUserService] 캐시 무효화: ${blockedMeCacheKey}`);
+//
+//         console.log(`✅ [unblockUserService] 차단 해제 완료 및 캐시 무효화 성공`);
+//
+//         return user;
+//
+//     } catch (error) {
+//         console.error('❌ [unblockUserService] 오류:', error);
+//         throw new Error(`차단 해제 실패: ${error.message}`);
+//     }
 // };
-
-/**
- * 사용자 차단 (개선: 캐시 무효화 양방향)
- * @param {string} userId - 차단하는 사용자 ID
- * @param {string} targetId - 차단당하는 사용자 ID
- */
-export const blockUserService = async (userId, targetId) => {
-    try {
-        console.log(`🔒 [blockUserService] ${userId}가 ${targetId}를 차단`);
-
-        // 1. DB 업데이트 ($addToSet: 중복 방지)
-        const user = await User.findByIdAndUpdate(
-            userId,
-            { $addToSet: { blockedUsers: targetId } },
-            { new: true }
-        );
-
-        if (!user) {
-            throw new Error('사용자를 찾을 수 없습니다.');
-        }
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 2️⃣ 캐시 무효화 (양방향 + 기존 캐시)
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        // ✅ 기존 사용자 캐시 무효화 (기존 로직 유지)
-        await IntelligentCache.invalidateUserCache(userId);
-
-        // ✅ 차단하는 사람의 "내가 차단한 목록" 캐시 무효화
-        const myBlocksCacheKey = `user_blocks_${userId}`;
-        await IntelligentCache.deleteCache(myBlocksCacheKey);
-        console.log(`🗑️ [blockUserService] 캐시 무효화: ${myBlocksCacheKey}`);
-
-        // ✅ 차단당하는 사람의 "나를 차단한 목록" 캐시 무효화
-        const blockedMeCacheKey = `users_blocked_me_${targetId}`;
-        await IntelligentCache.deleteCache(blockedMeCacheKey);
-        console.log(`🗑️ [blockUserService] 캐시 무효화: ${blockedMeCacheKey}`);
-
-        console.log(`✅ [blockUserService] 차단 완료 및 캐시 무효화 성공`);
-
-        return user;
-
-    } catch (error) {
-        console.error('❌ [blockUserService] 오류:', error);
-        throw new Error(`차단 처리 실패: ${error.message}`);
-    }
-};
-
-/**
- * 차단 해제 (개선: 캐시 무효화 양방향)
- * @param {string} userId - 차단 해제하는 사용자 ID
- * @param {string} targetId - 차단 해제당하는 사용자 ID
- */
-export const unblockUserService = async (userId, targetId) => {
-    try {
-        console.log(`🔓 [unblockUserService] ${userId}가 ${targetId} 차단 해제`);
-
-        // 1. DB 업데이트 ($pull: 배열에서 제거)
-        const user = await User.findByIdAndUpdate(
-            userId,
-            { $pull: { blockedUsers: targetId } },
-            { new: true }
-        );
-
-        if (!user) {
-            throw new Error('사용자를 찾을 수 없습니다.');
-        }
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 2️⃣ 캐시 무효화 (양방향 + 기존 캐시)
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        // ✅ 기존 사용자 캐시 무효화 (기존 로직 유지)
-        await IntelligentCache.invalidateUserCache(userId);
-
-        // ✅ 차단 해제하는 사람의 "내가 차단한 목록" 캐시 무효화
-        const myBlocksCacheKey = `user_blocks_${userId}`;
-        await IntelligentCache.deleteCache(myBlocksCacheKey);
-        console.log(`🗑️ [unblockUserService] 캐시 무효화: ${myBlocksCacheKey}`);
-
-        // ✅ 차단 해제당하는 사람의 "나를 차단한 목록" 캐시 무효화
-        const blockedMeCacheKey = `users_blocked_me_${targetId}`;
-        await IntelligentCache.deleteCache(blockedMeCacheKey);
-        console.log(`🗑️ [unblockUserService] 캐시 무효화: ${blockedMeCacheKey}`);
-
-        console.log(`✅ [unblockUserService] 차단 해제 완료 및 캐시 무효화 성공`);
-
-        return user;
-
-    } catch (error) {
-        console.error('❌ [unblockUserService] 오류:', error);
-        throw new Error(`차단 해제 실패: ${error.message}`);
-    }
-};
 
 // 차단 목록 조회
 export const getBlockedUsersService = async (userId) => {
@@ -1599,7 +1917,7 @@ export const getDecryptedUserForAdmin = async (userId) => {
 };
 
 
-// 사용자 정보 업데이트 (암호화 자동 적용)
+// 사용자 정보 업데이트 (암호화 자동 적용)(관리자용)
 // 개인정보 자동 암호화, 캐시 무효화, 해시 필드 자동 갱신
 export const updateUser = async (userId, updateData) => {
     try {
@@ -1627,29 +1945,7 @@ export const updateUser = async (userId, updateData) => {
     }
 };
 
-// 나이 정보만 빠르게 조회
-// 캐시 우선 나이 정보 조회, 매칭 시스템에서 성능 최적화, 실시간 만나이 계산
-export const getUserAgeInfo = async (userId) => {
-    try {
-        let ageInfo = await IntelligentCache.getCachedUserAge(userId);
-        if (!ageInfo) {
-            const user = await User.findById(userId).select('birthdate').lean();
-            if (!user || !user.birthdate) return null;
-            const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
-            if (!decryptedBirthdate) return null;
 
-            // 🔧 birthdate 기반 만나이 계산
-            const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
-            const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
-            const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
-            ageInfo = { age, ageGroup, isMinor };
-            await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
-        }
-        return ageInfo;
-    } catch (error) {
-        throw error;
-    }
-};
 
 export const reactivateUserService = async (userId) => {
     const user = await User.findById(userId);
@@ -1785,34 +2081,51 @@ const _attachCalculatedAge = async (user) => {
     }
 
     try {
-        // toObject()를 호출하여 Mongoose 문서가 아닌 일반 객체로 만듭니다.
-        const userObject = typeof user.toObject === 'function' ? user.toObject() : { ...user };
+        // Mongoose 문서를 일반 객체로 변환
+        const userObject = typeof user.toObject === 'function'
+            ? user.toObject()
+            : { ...user };
 
-        const ageInfo = await IntelligentCache.getCachedUserAge(userObject._id);
+        // ✅ 통합 함수 호출 (기존 30줄 → 10줄로 간소화)
+        const ageInfo = await getAgeInfoUnified(userObject._id, userObject.birthdate);
+
         if (ageInfo) {
+            // 나이 정보 추가
             userObject.calculatedAge = ageInfo.age;
             userObject.ageGroup = ageInfo.ageGroup;
             userObject.isMinor = ageInfo.isMinor;
-        } else {
-            const decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(userObject.birthdate);
-            if (decryptedBirthdate) {
-                const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
-                const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
-                const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
-
-                userObject.calculatedAge = age;
-                userObject.ageGroup = ageGroup;
-                userObject.isMinor = isMinor;
-
-                // 캐시 저장
-                await IntelligentCache.cacheUserAge(userObject._id, age, ageGroup, isMinor);
-            }
         }
+
         return userObject;
     } catch (error) {
         console.error(`_attachCalculatedAge 에러 (${user._id}):`, error);
-        // 에러 발생 시에도 원본 사용자 객체(또는 plain object)를 반환
+        // 에러 발생 시에도 사용자 객체 반환
         return typeof user.toObject === 'function' ? user.toObject() : { ...user };
     }
 };
 
+// // 나이 정보만 빠르게 조회
+// // 캐시 우선 나이 정보 조회, 매칭 시스템에서 성능 최적화, 실시간 만나이 계산
+// export const getUserAgeInfo = async (userId) => {
+//     try {
+//         let ageInfo = await IntelligentCache.getCachedUserAge(userId);
+//         if (!ageInfo) {
+//             const user = await User.findById(userId).select('birthdate').lean();
+//             if (!user || !user.birthdate) return null;
+//             const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
+//             if (!decryptedBirthdate) return null;
+//
+//             // 🔧 birthdate 기반 만나이 계산
+//             const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+//             const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+//             const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
+//             ageInfo = { age, ageGroup, isMinor };
+//             await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
+//         }
+//         return ageInfo;
+//     } catch (error) {
+//         throw error;
+//     }
+// };
+
+export { calculateRechargeRealtime };

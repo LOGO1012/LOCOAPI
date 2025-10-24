@@ -290,52 +290,52 @@ const userSchema = new Schema({
     timestamps: true           // createdAt, updatedAt 필드를 자동으로 추가하여 생성 및 수정 시각 기록
 });
 
-// 🎯 가상 필드로 실시간 나이 계산 (birthdate 기반)
-userSchema.virtual('calculatedAge').get(function() {
-  if (!this.birthdate) return null; // birthdate가 없으면 null 반환
-  
-  try {
-    // 암호화된 생년월일 복호화
-    const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(this.birthdate);
-    if (!decryptedBirthdate) return null;
-    
-    // 한국 만 나이 계산
-    return ComprehensiveEncryption.calculateAge(decryptedBirthdate);
-  } catch (error) {
-    console.error('나이 계산 실패:', error);
-    return null;
-  }
-});
-
-// 🎯 나이 그룹 가상 필드
-userSchema.virtual('ageGroup').get(function() {
-  if (!this.birthdate) return null;
-  
-  try {
-    const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(this.birthdate);
-    if (!decryptedBirthdate) return null;
-    
-    return ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
-  } catch (error) {
-    console.error('나이 그룹 계산 실패:', error);
-    return null;
-  }
-});
-
-// 🎯 미성년자 여부 가상 필드
-userSchema.virtual('isMinor').get(function() {
-  if (!this.birthdate) return null;
-  
-  try {
-    const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(this.birthdate);
-    if (!decryptedBirthdate) return null;
-    
-    return ComprehensiveEncryption.isMinor(decryptedBirthdate);
-  } catch (error) {
-    console.error('미성년자 확인 실패:', error);
-    return null;
-  }
-});
+// // 🎯 가상 필드로 실시간 나이 계산 (birthdate 기반)
+// userSchema.virtual('calculatedAge').get(function() {
+//   if (!this.birthdate) return null; // birthdate가 없으면 null 반환
+//
+//   try {
+//     // 암호화된 생년월일 복호화
+//     const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(this.birthdate);
+//     if (!decryptedBirthdate) return null;
+//
+//     // 한국 만 나이 계산
+//     return ComprehensiveEncryption.calculateAge(decryptedBirthdate);
+//   } catch (error) {
+//     console.error('나이 계산 실패:', error);
+//     return null;
+//   }
+// });
+//
+// // 🎯 나이 그룹 가상 필드
+// userSchema.virtual('ageGroup').get(function() {
+//   if (!this.birthdate) return null;
+//
+//   try {
+//     const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(this.birthdate);
+//     if (!decryptedBirthdate) return null;
+//
+//     return ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
+//   } catch (error) {
+//     console.error('나이 그룹 계산 실패:', error);
+//     return null;
+//   }
+// });
+//
+// // 🎯 미성년자 여부 가상 필드
+// userSchema.virtual('isMinor').get(function() {
+//   if (!this.birthdate) return null;
+//
+//   try {
+//     const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(this.birthdate);
+//     if (!decryptedBirthdate) return null;
+//
+//     return ComprehensiveEncryption.isMinor(decryptedBirthdate);
+//   } catch (error) {
+//     console.error('미성년자 확인 실패:', error);
+//     return null;
+//   }
+// });
 
 // 텍스트 인덱스 (해시 필드 추가)
 userSchema.index({name: "text", nickname: "text", phone: "text", gender: "text", birthdate: "text", userLv: "text"});

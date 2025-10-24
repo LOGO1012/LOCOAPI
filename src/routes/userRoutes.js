@@ -12,8 +12,6 @@ import {
     getFriendRequestsController,
     deleteFriendController,
     declineFriendRequestController,
-    blockUserController,
-    unblockUserController,
     getBlockedUsersController,
     getSummonerRecord, getPaginatedFriendsController,
     getUserCountController, getGenderCountController,
@@ -27,6 +25,24 @@ import {
     updateWordFilter
 } from "../controllers/userController.js";
 import { authenticate } from '../middlewares/authMiddleware.js';
+// ✅ 신규 추가
+import {
+    getUserBasicController,
+    getUserRiotInfoController,
+    getUserNicknameController,
+    getUserFriendProfileController,
+    blockUserMinimalController,
+    unblockUserMinimalController
+} from "../controllers/userLightController.js";
+
+import {
+    getUserMinimalController,
+    getUserFullProfileController,
+    getUserChatStatusController,
+    getUserForEditController,
+    getUserFriendIdsController
+} from '../controllers/userProfileLightController.js';
+
 
 const router = express.Router();
 
@@ -73,6 +89,23 @@ router.get('/debug/server-status', async (req, res) => {
     }
 });
 
+
+router.get("/:userId/basic", getUserBasicController);
+router.get("/:userId/riot-info", getUserRiotInfoController);
+router.get("/:userId/nickname", getUserNicknameController);
+router.get("/:userId/friend-profile", getUserFriendProfileController);
+
+
+router.get("/:userId/profile-minimal", getUserMinimalController);     // 최소 프로필
+router.get("/:userId/profile-full", getUserFullProfileController);    // 풀 프로필
+router.get("/:userId/chat-status", getUserChatStatusController);      // 채팅 상태
+router.get("/:userId/profile-edit", getUserForEditController);             // 프로필 편집용 경량 API
+router.get('/:userId/friends-ids', getUserFriendIdsController);
+
+//차단
+router.post('/:userId/block/:targetUserId/minimal', blockUserMinimalController);
+router.delete('/:userId/block/:targetUserId/minimal', unblockUserMinimalController);
+
 //유저 수 가져오기
 router.get("/user-count", getUserCountController);
 
@@ -114,8 +147,8 @@ router.post('/:userId/friend-request/decline', declineFriendRequestController);
 router.delete("/:userId/friends/:friendId", deleteFriendController);
 
 // 차단 기능
-router.post   ('/:userId/block/:targetUserId',   blockUserController);
-router.delete ('/:userId/block/:targetUserId',   unblockUserController);
+// router.post   ('/:userId/block/:targetUserId',   blockUserController);
+// router.delete ('/:userId/block/:targetUserId',   unblockUserController);
 router.get    ('/:userId/blocked',               getBlockedUsersController);
 
 router.get('/lol/:gameName/:tagLine', getSummonerRecord);

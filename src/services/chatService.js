@@ -467,48 +467,12 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null, cache
         }
 
         // 2) 입장하려는 사용자 본인의 blockedUsers 가져오기
-        const joiner = cachedUser || await User.findById(userId).select('blockedUsers birthdate');
+        const joiner = cachedUser || await User.findById(userId)
+            .select('blockedUsers birthdate');
         if (!joiner) {
             throw new Error('사용자를 찾을 수 없습니다.');
         }
 
-        // 🔞 나이 검증 로직 추가
-        if (room.roomType === 'random' && room.ageGroup) {
-            // User 모델의 virtual 필드를 통한 나이 계산
-            const joinerAge = joiner.calculatedAge; // virtual 필드 사용
-            const joinerIsMinor = joiner.isMinor;    // virtual 필드 사용
-            
-            // 생년월일이 없는 경우 차단
-            if (!joiner.birthdate) {
-                const err = new Error('랜덤채팅 이용을 위해서는 생년월일 정보가 필요합니다.');
-                err.status = 403;
-                err.code = 'BIRTHDATE_REQUIRED';
-                throw err;
-            }
-            
-            // 나이 계산 실패 시 차단
-            if (joinerAge === null) {
-                const err = new Error('나이 확인이 불가능하여 안전을 위해 입장을 제한합니다.');
-                err.status = 403;
-                err.code = 'AGE_VERIFICATION_FAILED';
-                throw err;
-            }
-            
-            // 채팅방 연령대와 사용자 연령대 매칭 확인
-            const joinerAgeGroup = joinerIsMinor ? 'minor' : 'adult';
-            
-            if (room.ageGroup !== joinerAgeGroup) {
-                const roomType = room.ageGroup === 'minor' ? '미성년자' : '성인';
-                const userType = joinerAgeGroup === 'minor' ? '미성년자' : '성인';
-                
-                const err = new Error(`${roomType} 전용 채팅방입니다. (현재: ${userType})`);
-                err.status = 403;
-                err.code = 'AGE_GROUP_MISMATCH';
-                throw err;
-            }
-            
-            console.log(`✅ 나이 검증 통과: ${joinerAge}세 (${joinerAgeGroup}) → ${room.ageGroup} 채팅방`);
-        }
 
         // 3) 차단 관계 양방향 검사
         const blockedByMe = room.chatUsers.some(u =>
