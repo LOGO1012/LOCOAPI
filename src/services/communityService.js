@@ -504,7 +504,8 @@ export const updateTopCaches = async () => {
         ]);
 
         // Store cachedTopViewed in Redis
-        await redisClient.setEx('topViewedCommunities', 3600, JSON.stringify(topViewed));
+        // 24시간 간격 업데이트
+        await redisClient.setEx('topViewedCommunities', 86400, JSON.stringify(topViewed));
 
         // ✅ 최근 일주일 최다 댓글 (카테고리 정보 추가)
         const topCommented = await Community.aggregate([
@@ -528,7 +529,8 @@ export const updateTopCaches = async () => {
         ]);
 
         // Store cachedTopCommented in Redis
-        await redisClient.setEx('topCommentedCommunities', 3600, JSON.stringify(topCommented));
+        // 24시간 간격 업데이트
+        await redisClient.setEx('topCommentedCommunities', 86400, JSON.stringify(topCommented));
 
         console.log('Top caches updated successfully (recent week basis with category info).');
     } catch (err) {
