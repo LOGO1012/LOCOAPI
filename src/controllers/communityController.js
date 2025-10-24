@@ -196,6 +196,8 @@ export const cancelRecommendCommunity = async (req, res) => {
 
 // 댓글 추가 컨트롤러
 export const addComment = async (req, res) => {
+    console.log('addComment called with id:', req.params.id);
+    console.log('commentData:', req.body);
     try {
         const { id } = req.params;
         const commentData = { ...req.body };
@@ -205,8 +207,8 @@ export const addComment = async (req, res) => {
             commentData.commentImage = `/comments/${req.file.filename}`; // 수정됨
         }
 
-        const updatedCommunity = await communityService.addComment(id, commentData);
-        res.status(200).json(updatedCommunity);
+        const createdComment = await communityService.addComment(id, commentData);
+        res.status(200).json(createdComment);
     } catch (error) {
         res.status(500).json({ message: '댓글 추가에 실패했습니다.', error });
     }
@@ -223,8 +225,8 @@ export const addReply = async (req, res) => {
             replyData.replyImage = `/replies/${req.file.filename}`; // 수정됨
         }
 
-        const updatedCommunity = await communityService.addReply(id, commentId, replyData);
-        res.status(200).json(updatedCommunity);
+        const updatedComment = await communityService.addReply(commentId, replyData);
+        res.status(200).json(updatedComment);
     } catch (error) {
         res.status(500).json({ message: '대댓글 추가에 실패했습니다.', error });
     }
@@ -241,8 +243,8 @@ export const addSubReply = async (req, res) => {
             subReplyData.subReplyImage = `/subreplies/${req.file.filename}`; // 수정됨
         }
 
-        const updatedCommunity = await communityService.addSubReply(id, commentId, replyId, subReplyData);
-        res.status(200).json(updatedCommunity);
+        const updatedSubReply = await communityService.addSubReply(replyId, subReplyData);
+        res.status(200).json(updatedSubReply);
     } catch (error) {
         res.status(500).json({ message: '대대댓글 추가에 실패했습니다.', error });
     }
@@ -251,11 +253,11 @@ export const addSubReply = async (req, res) => {
 export const deleteComment = async (req, res) => {
     try {
         const { id, commentId } = req.params;
-        const updatedCommunity = await communityService.deleteComment(id, commentId);
-        if (!updatedCommunity) {
+        const updatedComment = await communityService.deleteComment(commentId);
+        if (!updatedComment) {
             return res.status(404).json({ message: '댓글을 찾을 수 없습니다.' });
         }
-        res.status(200).json(updatedCommunity);
+        res.status(200).json(updatedComment);
     } catch (error) {
         res.status(500).json({ message: '댓글 삭제에 실패했습니다.', error });
     }
@@ -264,11 +266,11 @@ export const deleteComment = async (req, res) => {
 export const deleteReply = async (req, res) => {
     try {
         const { id, commentId, replyId } = req.params;
-        const updatedCommunity = await communityService.deleteReply(id, commentId, replyId);
-        if (!updatedCommunity) {
+        const updatedReply = await communityService.deleteReply(replyId);
+        if (!updatedReply) {
             return res.status(404).json({ message: '대댓글을 찾을 수 없습니다.' });
         }
-        res.status(200).json(updatedCommunity);
+        res.status(200).json(updatedReply);
     } catch (error) {
         res.status(500).json({ message: '대댓글 삭제에 실패했습니다.', error });
     }
@@ -276,16 +278,49 @@ export const deleteReply = async (req, res) => {
 
 export const deleteSubReply = async (req, res) => {
     try {
-        const { id, commentId, replyId, subReplyId } = req.params;
-        const updatedCommunity = await communityService.deleteSubReply(id, commentId, replyId, subReplyId);
-        if (!updatedCommunity) {
+        const { commentId, replyId, subReplyId } = req.params;
+        const updatedSubReply = await communityService.deleteSubReply(subReplyId);
+        if (!updatedSubReply) {
             return res.status(404).json({ message: '대대댓글을 찾을 수 없습니다.' });
         }
-        res.status(200).json(updatedCommunity);
+        res.status(200).json(updatedSubReply);
     } catch (error) {
         res.status(500).json({ message: '대대댓글 삭제에 실패했습니다.', error });
     }
 };
+
+
+
+export const getComments = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const comments = await communityService.getCommentsByPost(id);
+        res.status(200).json(comments);
+    } catch (error) {
+        res.status(500).json({ message: '댓글 조회에 실패했습니다.', error });
+    }
+};
+
+export const getReplies = async (req, res) => {
+    try {
+        const { commentId } = req.params;
+        const replies = await communityService.getRepliesByComment(commentId);
+        res.status(200).json(replies);
+    } catch (error) {
+        res.status(500).json({ message: '대댓글 조회에 실패했습니다.', error });
+    }
+};
+
+export const getSubReplies = async (req, res) => {
+    try {
+        const { replyId } = req.params;
+        const subReplies = await communityService.getSubRepliesByReply(replyId);
+        res.status(200).json(subReplies);
+    } catch (error) {
+        res.status(500).json({ message: '대대댓글 조회에 실패했습니다.', error });
+    }
+};
+
 
 // 최다 조회 목록 API 엔드포인트
 export const getTopViewed = async (req, res) => {
@@ -412,13 +447,13 @@ export const cancelVote = async (req, res) => {
 // 댓글 투표 생성
 export const createCommentPoll = async (req, res) => {
     try {
-        const { id, commentId } = req.params;
+        const { commentId } = req.params;
         const pollData = {
             ...req.body,
             createdBy: req.body.userId
         };
 
-        const createdPoll = await communityService.createCommentPoll(id, commentId, pollData);
+        const createdPoll = await communityService.createCommentPoll(commentId, pollData);
         res.status(201).json(createdPoll);
     } catch (error) {
         // 투표 제한 에러는 400으로 처리
@@ -432,7 +467,7 @@ export const createCommentPoll = async (req, res) => {
 // 댓글 투표 참여
 export const voteCommentPoll = async (req, res) => {
     try {
-        const { id, commentId, pollId } = req.params;
+        const { commentId, pollId } = req.params;
         const { userId, optionIndex } = req.body;
 
         if (!userId) {
@@ -443,7 +478,7 @@ export const voteCommentPoll = async (req, res) => {
             return res.status(400).json({ message: '유효한 선택지를 선택해주세요.' });
         }
 
-        const updatedPoll = await communityService.voteCommentPoll(id, commentId, pollId, userId, optionIndex);
+        const updatedPoll = await communityService.voteCommentPoll(commentId, pollId, userId, optionIndex);
         res.status(200).json(updatedPoll);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -453,8 +488,8 @@ export const voteCommentPoll = async (req, res) => {
 // 댓글 투표 결과 조회
 export const getCommentPollResults = async (req, res) => {
     try {
-        const { id, commentId, pollId } = req.params;
-        const results = await communityService.getCommentPollResults(id, commentId, pollId);
+        const { commentId, pollId } = req.params;
+        const results = await communityService.getCommentPollResults(commentId, pollId);
         res.status(200).json(results);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -464,14 +499,14 @@ export const getCommentPollResults = async (req, res) => {
 // 댓글 투표 상태 확인
 export const getCommentUserVoteStatus = async (req, res) => {
     try {
-        const { id, commentId, pollId } = req.params;
+        const { commentId, pollId } = req.params;
         const { userId } = req.query;
 
         if (!userId) {
             return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
         }
 
-        const status = await communityService.getCommentUserVoteStatus(id, commentId, pollId, userId);
+        const status = await communityService.getCommentUserVoteStatus(commentId, pollId, userId);
         res.status(200).json(status || { hasVoted: false, votedOption: null });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -481,14 +516,14 @@ export const getCommentUserVoteStatus = async (req, res) => {
 // 댓글 투표 취소
 export const cancelCommentVote = async (req, res) => {
     try {
-        const { id, commentId, pollId } = req.params;
+        const { commentId, pollId } = req.params;
         const { userId } = req.body;
 
         if (!userId) {
             return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
         }
 
-        const result = await communityService.cancelCommentVoteFromPoll(id, commentId, pollId, userId);
+        const result = await communityService.cancelCommentVoteFromPoll(commentId, pollId, userId);
         res.status(200).json(result);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -498,14 +533,14 @@ export const cancelCommentVote = async (req, res) => {
 // 댓글 투표 삭제
 export const deleteCommentPoll = async (req, res) => {
     try {
-        const { id, commentId, pollId } = req.params;
+        const { commentId, pollId } = req.params;
         const { userId } = req.body;
 
         if (!userId) {
             return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
         }
 
-        const result = await communityService.deleteCommentPoll(id, commentId, pollId, userId);
+        const result = await communityService.deleteCommentPoll(commentId, pollId, userId);
         res.status(200).json(result);
     } catch (error) {
         res.status(400).json({ message: error.message });

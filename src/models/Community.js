@@ -2,160 +2,9 @@
 
 import mongoose from 'mongoose';
 import { User } from './UserProfile.js';
+import { pollSchema } from './Poll.js';
 
 const { Schema, model } = mongoose;
-
-// 투표 옵션 스키마
-const pollOptionSchema = new Schema({
-    text: {
-        type: String,
-        required: true,
-        maxlength: 50
-    },
-    votes: {
-        type: Number,
-        default: 0
-    },
-    votedUsers: [{
-        type: Schema.Types.ObjectId,
-        ref: 'User'
-    }]
-});
-
-// 투표 스키마
-const pollSchema = new Schema({
-    question: {
-        type: String,
-        required: true,
-        maxlength: 100
-    },
-    options: [pollOptionSchema],
-    createdBy: {
-        type: Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    },
-    expiresAt: {
-        type: Date,
-        required: true
-    },
-    totalVotes: {
-        type: Number,
-        default: 0
-    },
-    isActive: {
-        type: Boolean,
-        default: true
-    }
-}, { timestamps: true });
-
-// 대대댓글 스키마
-const subReplySchema = new Schema({
-    userId: {
-        type: Schema.Types.ObjectId,
-        ref: 'User',
-        required: true,
-    },
-    commentContents: {
-        type: String,
-        required: true,
-    },
-    subReplyImage: {
-        type: String,
-        default: null,
-    },
-    // ✅ 익명 작성 여부 추가
-    isAnonymous: {
-        type: Boolean,
-        default: false,
-    },
-    // ✅ 익명일 때 표시할 닉네임 (선택사항)
-    anonymousNickname: {
-        type: String,
-        default: null,
-    },
-    isDeleted: {
-        type: Boolean,
-        default: false,
-    },
-    deletedAt: {
-        type: Date,
-        default: null,
-    },
-}, { timestamps: true });
-
-// 대댓글 스키마
-const replySchema = new Schema({
-    userId: {
-        type: Schema.Types.ObjectId,
-        ref: 'User',
-        required: true,
-    },
-    commentContents: {
-        type: String,
-        required: true,
-    },
-    replyImage: {
-        type: String,
-        default: null,
-    },
-    // ✅ 익명 작성 여부 추가
-    isAnonymous: {
-        type: Boolean,
-        default: false,
-    },
-    // ✅ 익명일 때 표시할 닉네임 (선택사항)
-    anonymousNickname: {
-        type: String,
-        default: null,
-    },
-    isDeleted: {
-        type: Boolean,
-        default: false,
-    },
-    deletedAt: {
-        type: Date,
-        default: null,
-    },
-    subReplies: [subReplySchema],
-}, { timestamps: true });
-
-// 댓글 스키마
-const commentSchema = new Schema({
-    userId: {
-        type: Schema.Types.ObjectId,
-        ref: 'User',
-        required: true,
-    },
-    commentContents: {
-        type: String,
-        required: true,
-    },
-    commentImage: {
-        type: String,
-        default: null,
-    },
-    // ✅ 익명 작성 여부 추가
-    isAnonymous: {
-        type: Boolean,
-        default: false,
-    },
-    // ✅ 익명일 때 표시할 닉네임 (선택사항)
-    anonymousNickname: {
-        type: String,
-        default: null,
-    },
-    isDeleted: {
-        type: Boolean,
-        default: false,
-    },
-    deletedAt: {
-        type: Date,
-        default: null,
-    },
-    replies: [replySchema],
-    polls: [pollSchema],
-}, { timestamps: true });
 
 // 게시물 스키마
 const communitySchema = new Schema({
@@ -207,7 +56,6 @@ const communitySchema = new Schema({
         type: Number,
         default: 0,
     },
-    comments: [commentSchema],
     commentCount: {
         type: Number,
         default: 0,
@@ -240,9 +88,5 @@ communitySchema.index({ communityViews: -1, createdAt: -1 }); // 조회수와 �
 communitySchema.index({ isDeleted: 1, createdAt: -1, communityViews: -1 });
 communitySchema.index({ isDeleted: 1, createdAt: -1, recommended: -1 });
 
-// ✅ "내 댓글" 조회를 위한 인덱스 추가
-communitySchema.index({ 'comments.userId': 1 });
-communitySchema.index({ 'comments.replies.userId': 1 });
-communitySchema.index({ 'comments.replies.subReplies.userId': 1 });
 
 export const Community = model('Community', communitySchema);

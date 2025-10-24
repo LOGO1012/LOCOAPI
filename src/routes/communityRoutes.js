@@ -31,6 +31,12 @@ router.post('/:id/recommend', communityController.recommendCommunity);
 // 추천 취소 엔드포인트 추가
 router.delete('/:id/recommend', communityController.cancelRecommendCommunity);
 
+router.get('/:id/comments', communityController.getComments);
+
+router.get('/comments/:commentId/replies', communityController.getReplies);
+
+router.get('/replies/:replyId/subreplies', communityController.getSubReplies);
+
 // 댓글 추가 엔드포인트 (commentImage 파일 업로드 처리)
 router.post('/:id/comments', upload.single('commentImage'), communityController.addComment);
 
@@ -67,21 +73,21 @@ router.delete('/:id/polls/:pollId', communityController.deletePoll);
 router.post('/:id/polls/:pollId/cancel-vote', communityController.cancelVote);
 
 // 댓글 투표 생성
-router.post('/:id/comments/:commentId/polls', communityController.createCommentPoll);
+router.post('/comments/:commentId/polls', communityController.createCommentPoll);
 
 // 댓글 투표 참여
-router.post('/:id/comments/:commentId/polls/:pollId/vote', communityController.voteCommentPoll);
+router.post('/comments/:commentId/polls/:pollId/vote', communityController.voteCommentPoll);
 
 // 댓글 투표 결과 조회
-router.get('/:id/comments/:commentId/polls/:pollId/results', communityController.getCommentPollResults);
+router.get('/comments/:commentId/polls/:pollId/results', communityController.getCommentPollResults);
 
 // 댓글 투표 상태 확인
-router.get('/:id/comments/:commentId/polls/:pollId/status', communityController.getCommentUserVoteStatus);
+router.get('/comments/:commentId/polls/:pollId/status', communityController.getCommentUserVoteStatus);
 
 // 댓글 투표 취소
-router.post('/:id/comments/:commentId/polls/:pollId/cancel-vote', communityController.cancelCommentVote);
+router.post('/comments/:commentId/polls/:pollId/cancel-vote', communityController.cancelCommentVote);
 
 // 댓글 투표 삭제
-router.delete('/:id/comments/:commentId/polls/:pollId', communityController.deleteCommentPoll);
+router.delete('/comments/:commentId/polls/:pollId', communityController.deleteCommentPoll);
 
 export default router;
