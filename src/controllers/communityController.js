@@ -295,7 +295,7 @@ export const getComments = async (req, res) => {
     try {
         const { id } = req.params;
         const page = parseInt(req.query.page || '1', 10);
-        const size = parseInt(req.query.size || '20', 20);
+        const size = parseInt(req.query.size || '20', 10);
 
         const { comments, totalCount } = await communityService.getCommentsByPost(id, page, size);
         
