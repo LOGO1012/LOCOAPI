@@ -294,8 +294,16 @@ export const deleteSubReply = async (req, res) => {
 export const getComments = async (req, res) => {
     try {
         const { id } = req.params;
-        const comments = await communityService.getCommentsByPost(id);
-        res.status(200).json(comments);
+        const page = parseInt(req.query.page || '1', 10);
+        const size = parseInt(req.query.size || '20', 20);
+
+        const { comments, totalCount } = await communityService.getCommentsByPost(id, page, size);
+        
+        res.status(200).json({ 
+            comments, 
+            totalPages: Math.ceil(totalCount / size),
+            currentPage: page 
+        });
     } catch (error) {
         res.status(500).json({ message: '댓글 조회에 실패했습니다.', error });
     }
