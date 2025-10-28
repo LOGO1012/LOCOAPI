@@ -760,11 +760,21 @@ export const deletePoll = async (communityId, pollId, userId) => {
 
 
 // communityService.js
-export const getCommentsByPost = async (postId) => {
-    // ✅ 삭제되지 않은 댓글만 조회
+export const getCommentsByPost = async (postId, page = 1, size = 20) => {
+    const skip = (page - 1) * size;
+
+    const totalCount = await Comment.countDocuments({
+        postId: new mongoose.Types.ObjectId(postId),
+    });
+
+    // ✅ 삭제되지 않은 댓글만 조회, 페이지네이션 적용
     const comments = await Comment.find({
         postId: new mongoose.Types.ObjectId(postId),
-    }).lean();
+    })
+        .sort({ createdAt: -1 }) // 최신순으로 정렬
+        .skip(skip)
+        .limit(size)
+        .lean();
 
     for (const comment of comments) {
         // ✅ 삭제되지 않은 답글만 조회
@@ -786,7 +796,7 @@ export const getCommentsByPost = async (postId) => {
         comment.replies = Array.isArray(replies) ? replies : [];
     }
 
-    return comments;
+    return { comments, totalCount };
 };
 
 
