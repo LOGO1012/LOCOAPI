@@ -47,4 +47,6 @@ export const commentSchema = new Schema({
     polls: [pollSchema],
 }, { timestamps: true });
 
+commentSchema.index({ userId: 1, postId: 1 });
+
 export const Comment = model('Comment', commentSchema);

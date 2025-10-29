@@ -1,5 +1,6 @@
 // src/controllers/communityController.js
-import PageRequestDTO from '../../src/dto/common/PageRequestDTO.js'; // 파일 경로를 실제 경로에 맞게 수정하세요.
+import PageRequestDTO from '../../src/dto/common/PageRequestDTO.js';
+import {User} from "../models/UserProfile.js";
 import * as communityService from '../services/communityService.js';
 import {saveRemoteImage} from "../utils/saveRemoteImage.js";
 
@@ -45,6 +46,19 @@ export const getCommunity = async (req, res) => {
         res.status(200).json(updatedCommunity);
     } catch (error) {
         res.status(500).json({ message: '커뮤니티 조회에 실패했습니다.', error });
+    }
+};
+
+export const getCommunityForEdit = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const community = await communityService.getCommunityForEdit(id);
+        if (!community) {
+            return res.status(404).json({ message: '커뮤니티를 찾을 수 없습니다.' });
+        }
+        res.status(200).json(community);
+    } catch (error) {
+        res.status(500).json({ message: '커뮤니티 편집 정보를 불러오는 데 실패했습니다.', error });
     }
 };
 
@@ -391,34 +405,6 @@ export const votePoll = async (req, res) => {
     }
 };
 
-// 투표 결과 조회
-export const getPollResults = async (req, res) => {
-    try {
-        const { id, pollId } = req.params;
-        const results = await communityService.getPollResults(id, pollId);
-        res.status(200).json(results);
-    } catch (error) {
-        res.status(400).json({ message: error.message });
-    }
-};
-
-// 사용자 투표 상태 확인
-export const getUserVoteStatus = async (req, res) => {
-    try {
-        const { id, pollId } = req.params;
-        const { userId } = req.query;
-
-        if (!userId) {
-            return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
-        }
-
-        const status = await communityService.getUserVoteStatus(id, pollId, userId);
-        res.status(200).json(status || { hasVoted: false, votedOption: null });
-    } catch (error) {
-        res.status(400).json({ message: error.message });
-    }
-};
-
 // 투표 삭제
 export const deletePoll = async (req, res) => {
     try {
@@ -429,7 +415,12 @@ export const deletePoll = async (req, res) => {
             return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
         }
 
-        const result = await communityService.deletePoll(id, pollId, userId);
+        // isAdmin 정보는 실제 인증 미들웨어에서 가져와야 함
+        // 현재는 임시로 User 모델을 조회하여 userLv를 확인
+        const user = await User.findById(userId);
+        const isAdmin = user?.userLv >= 2;
+
+        const result = await communityService.deletePoll(id, pollId, userId, isAdmin);
         res.status(200).json(result);
     } catch (error) {
         res.status(400).json({ message: error.message });

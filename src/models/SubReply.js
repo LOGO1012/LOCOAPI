@@ -46,5 +46,7 @@ const subReplySchema = new Schema({
     },
 }, { timestamps: true });
 
+subReplySchema.index({ userId: 1, replyId: 1 });
+
 export const SubReply = model("SubReply", subReplySchema);
 
