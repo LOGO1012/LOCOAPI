@@ -17,7 +17,8 @@ const pollOptionSchema = new Schema({
     },
     votedUsers: [{
         type: Schema.Types.ObjectId,
-        ref: 'User'
+        ref: 'User',
+        index: true // 인덱스 추가
     }]
 });
 

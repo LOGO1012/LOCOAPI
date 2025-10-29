@@ -36,48 +36,11 @@ export const getCommunitiesPage = async (
     }
 
     if (category === '내 댓글') {
-        // ✅ 1. Comment에서 사용자 댓글이 있는 게시글 ID 조회
-        const userComments = await Comment.find({
-            userId: userId
-        }).distinct('postId');
-
-        // ✅ 2. Reply에서 사용자 답글이 있는 commentId 조회
-        const userReplyCommentIds = await Reply.find({
-            userId: userId
-        }).distinct('commentId');
-
-        // commentId로 postId 조회
-        const userReplyPostIds = await Comment.find({
-            _id: { $in: userReplyCommentIds }
-        }).distinct('postId');
-
-        // ✅ 3. SubReply에서 사용자 대댓글이 있는 replyId 조회
-        const userSubReplyReplyIds = await SubReply.find({
-            userId: userId
-        }).distinct('replyId');
-
-        // replyId로 commentId 조회
-        const userSubReplyCommentIds = await Reply.find({
-            _id: { $in: userSubReplyReplyIds }
-        }).distinct('commentId');
-
-        // commentId로 postId 조회
-        const userSubReplyPostIds = await Comment.find({
-            _id: { $in: userSubReplyCommentIds }
-        }).distinct('postId');
-
-        // ✅ 4. 모든 postId 합치기 (중복 제거)
-        const postIds = [...new Set([
-            ...userComments,
-            ...userReplyPostIds,
-            ...userSubReplyPostIds
-        ])];
-
-        const filter = { _id: { $in: postIds }, isDeleted: false };
+        const filter = { commentedUserIds: userId, isDeleted: false };
         const totalCount = await Community.countDocuments(filter);
 
         const communities = await Community.find(filter)
-            .select('_id communityTitle communityCategory userNickname commentCount communityViews recommended createdAt isAnonymous anonymousNickname')
+            .select('_id communityTitle communityCategory userNickname commentCount communityViews recommended createdAt isAnonymous')
             .sort(sortCriteria)
             .skip(skip)
             .limit(size)
@@ -144,19 +107,13 @@ export const getCommunitiesPage = async (
 
     const totalCount = await Community.countDocuments(filter);
     const communities = await Community.find(filter)
-        .select('_id communityTitle communityCategory userNickname commentCount communityViews recommended createdAt isAnonymous anonymousNickname') // Removed commentCount
+        .select('_id communityTitle communityCategory userNickname commentCount communityViews recommended createdAt isAnonymous communityImages') // Removed commentCount
         .sort(sortCriteria)
         .skip(skip)
         .limit(size)
         .lean();
 
     return new PageResponseDTO(communities, pageRequestDTO, totalCount);
-};
-
-// 익명 닉네임 생성 함수 추가
-const generateAnonymousNickname = () => {
-    const randomNum = Math.floor(Math.random() * 10000);
-    return `익명${randomNum}`;
 };
 
 // 커뮤니티 생성
@@ -181,7 +138,17 @@ export const createCommunity = async (data) => {
     }
 
     const community = new Community(data);
-    return await community.save();
+    const savedCommunity = await community.save();
+
+    // 생성 후 필요한 최소한의 필드만 반환
+    return {
+        _id: savedCommunity._id,
+        communityTitle: savedCommunity.communityTitle,
+        communityCategory: savedCommunity.communityCategory,
+        userNickname: savedCommunity.userNickname,
+        isAnonymous: savedCommunity.isAnonymous,
+        createdAt: savedCommunity.createdAt,
+    };
 };
 
 // 커뮤니티 업데이트
@@ -204,7 +171,8 @@ export const updateCommunity = async (id, data) => {
         data.userNickname = author?.nickname || '';
     }
 
-    return await Community.findByIdAndUpdate(id, data, {new: true});
+    return await Community.findByIdAndUpdate(id, data, {new: true})
+        .select('_id communityTitle communityCategory userNickname isAnonymous updatedAt');
 };
 
 // 커뮤니티 삭제
@@ -217,7 +185,7 @@ export const deleteCommunity = async (id) => {
             deletedAt: new Date()
         },
         {new: true}
-    );
+    ).select('_id isDeleted deletedAt');
 };
 
 // 조회수 증가 (커뮤니티 조회 시)
@@ -227,13 +195,20 @@ export const incrementViews = async (id) => {
         {_id: id, isDeleted: false},
         {$inc: {communityViews: 1}},
         {new: true}
-    ); // Only populate main post author
+    ).select('_id userId userNickname isAnonymous communityTitle communityContents communityCategory communityImages recommended recommendedUsers communityViews commentCount createdAt polls');
+};
+
+export const getCommunityForEdit = async (id) => {
+    return await Community.findOne({ _id: id, isDeleted: false })
+        .select('_id communityTitle communityContents communityCategory isAnonymous communityImages')
+        .lean();
 };
 
 // 추천 기능: 사용자별로 한 번만 추천할 수 있도록 처리
 // ✅ 추천 기능 (삭제되지 않은 게시글만)
 export const recommendCommunity = async (id, userId) => {
-    const community = await Community.findOne({_id: id, isDeleted: false});
+    const community = await Community.findOne({_id: id, isDeleted: false})
+        .select('_id isDeleted recommendedUsers recommended');
     if (!community) {
         throw new Error("커뮤니티를 찾을 수 없습니다.");
     }
@@ -244,7 +219,14 @@ export const recommendCommunity = async (id, userId) => {
 
     community.recommendedUsers.push(userId);
     community.recommended = community.recommendedUsers.length;
-    return await community.save();
+    const savedCommunity = await community.save();
+
+    return {
+        _id: savedCommunity._id,
+        recommended: savedCommunity.recommended,
+        recommendedUsers: savedCommunity.recommendedUsers,
+        updatedAt: savedCommunity.updatedAt,
+    };
 };
 
 // 추천 취소 기능: 사용자 ID가 있을 때만 추천 목록에서 제거하고 추천 수 감소
@@ -256,7 +238,7 @@ export const cancelRecommendCommunity = async (id, userId) => {
             $inc: {recommended: -1}
         },
         {new: true}
-    );
+    ).select('_id recommended recommendedUsers updatedAt');
     if (!updated) {
         throw new Error('추천한 내역이 없습니다.');
     }
@@ -284,7 +266,10 @@ export const addComment = async (communityId, commentData) => {
     });
 
     await comment.save();
-    await Community.findByIdAndUpdate(communityId, { $inc: { commentCount: 1 } });
+    await Community.findByIdAndUpdate(communityId, { 
+        $inc: { commentCount: 1 },
+        $addToSet: { commentedUserIds: commentData.userId } // Add userId to commentedUserIds
+    });
     return comment;
 };
 
@@ -309,8 +294,13 @@ export const addReply = async (commentId, replyData) => {
     });
 
     await reply.save();
-    const comment = await Comment.findById(commentId);
-    await Community.findByIdAndUpdate(comment.postId, { $inc: { commentCount: 1 } });
+    const comment = await Comment.findById(commentId).select('_id postId');
+    if (comment) {
+        await Community.findByIdAndUpdate(comment.postId, {
+            $inc: { commentCount: 1 },
+            $addToSet: { commentedUserIds: replyData.userId } // Add userId to commentedUserIds
+        });
+    }
     return reply;
 };
 
@@ -335,9 +325,14 @@ export const addSubReply = async (replyId, subReplyData) => {
     });
 
     await subReply.save();
-    const reply = await Reply.findById(replyId);
-    const comment = await Comment.findById(reply.commentId);
-    await Community.findByIdAndUpdate(comment.postId, { $inc: { commentCount: 1 } });
+    const reply = await Reply.findById(replyId).select('_id commentId'); // commentId만 조회
+    const comment = await Comment.findById(reply.commentId).select('_id postId'); // postId만 조회
+    if (comment) {
+        await Community.findByIdAndUpdate(comment.postId, {
+            $inc: { commentCount: 1 },
+            $addToSet: { commentedUserIds: subReplyData.userId } // Add userId to commentedUserIds
+        });
+    }
     return subReply;
 };
 
@@ -357,23 +352,26 @@ export const deleteComment = async (commentId) => {
         await comment.save();
 
         // ✅ commentCount는 -1만 감소
-        const community = await Community.findById(comment.postId);
+        const community = await Community.findById(comment.postId).select('_id commentCount');
         if (community) {
             community.commentCount = Math.max(0, community.commentCount - 1);
+
+            // Check if the user has any other comments, replies, or sub-replies on this post
+            const userId = comment.userId;
+            const postId = comment.postId;
+
+            const hasOtherComments = await Comment.exists({ postId: postId, userId: userId, isDeleted: false, _id: { $ne: commentId } });
+            const hasOtherReplies = await Reply.exists({ commentId: { $in: await Comment.find({ postId: postId }).distinct('_id') }, userId: userId, isDeleted: false });
+            const hasOtherSubReplies = await SubReply.exists({ replyId: { $in: await Reply.find({ commentId: { $in: await Comment.find({ postId: postId }).distinct('_id') } }).distinct('_id') }, userId: userId, isDeleted: false });
+
+            if (!hasOtherComments && !hasOtherReplies && !hasOtherSubReplies) {
+                await Community.findByIdAndUpdate(postId, { $pull: { commentedUserIds: userId } });
+            }
             await community.save();
         }
 
         // 업데이트된 댓글 정보 반환
-        const plainComment = comment.toObject();
-        const replies = await Reply.find({ commentId: commentId }).lean();
-
-        for (const r of replies) {
-            const subReplies = await SubReply.find({ replyId: r._id }).lean();
-            r.subReplies = Array.isArray(subReplies) ? subReplies : [];
-        }
-
-        plainComment.replies = Array.isArray(replies) ? replies : [];
-        return plainComment;
+        return { _id: commentId, isDeleted: true, deletedAt: new Date() };
     } catch (error) {
         console.error('댓글 삭제 오류:', error);
         throw error;
@@ -394,7 +392,7 @@ export const deleteReply = async (replyId) => {
         await reply.save();
 
         // 댓글 정보 조회
-        const comment = await Comment.findById(reply.commentId);
+        const comment = await Comment.findById(reply.commentId).select('_id postId');
         if (!comment) {
             throw new Error("댓글을 찾을 수 없습니다.");
         }
@@ -403,20 +401,23 @@ export const deleteReply = async (replyId) => {
         const community = await Community.findById(comment.postId);
         if (community) {
             community.commentCount = Math.max(0, community.commentCount - 1);
+
+            // Check if the user has any other comments, replies, or sub-replies on this post
+            const userId = reply.userId;
+            const postId = comment.postId;
+
+            const hasOtherComments = await Comment.exists({ postId: postId, userId: userId, isDeleted: false });
+            const hasOtherReplies = await Reply.exists({ commentId: { $in: await Comment.find({ postId: postId }).distinct('_id') }, userId: userId, isDeleted: false, _id: { $ne: replyId } });
+            const hasOtherSubReplies = await SubReply.exists({ replyId: { $in: await Reply.find({ commentId: { $in: await Comment.find({ postId: postId }).distinct('_id') } }).distinct('_id') }, userId: userId, isDeleted: false });
+
+            if (!hasOtherComments && !hasOtherReplies && !hasOtherSubReplies) {
+                await Community.findByIdAndUpdate(postId, { $pull: { commentedUserIds: userId } });
+            }
             await community.save();
         }
 
         // 업데이트된 댓글 정보 반환
-        const plainComment = comment.toObject ? comment.toObject() : comment;
-        const replies = await Reply.find({ commentId: comment._id }).lean();
-
-        for (const r of replies) {
-            const subReplies = await SubReply.find({ replyId: r._id }).lean();
-            r.subReplies = Array.isArray(subReplies) ? subReplies : [];
-        }
-
-        plainComment.replies = Array.isArray(replies) ? replies : [];
-        return plainComment;
+        return { _id: replyId, isDeleted: true, deletedAt: new Date() };
     } catch (error) {
         console.error('답글 삭제 오류:', error);
         throw error;
@@ -437,12 +438,12 @@ export const deleteSubReply = async (subReplyId) => {
         await subReply.save();
 
         // 답글 정보 조회
-        const reply = await Reply.findById(subReply.replyId);
+        const reply = await Reply.findById(subReply.replyId).select('_id commentId');
         if (!reply) {
             throw new Error("답글을 찾을 수 없습니다.");
         }
 
-        const comment = await Comment.findById(reply.commentId);
+        const comment = await Comment.findById(reply.commentId).select('_id postId');
         if (!comment) {
             throw new Error("댓글을 찾을 수 없습니다.");
         }
@@ -451,20 +452,23 @@ export const deleteSubReply = async (subReplyId) => {
         const community = await Community.findById(comment.postId);
         if (community) {
             community.commentCount = Math.max(0, community.commentCount - 1);
+
+            // Check if the user has any other comments, replies, or sub-replies on this post
+            const userId = subReply.userId;
+            const postId = comment.postId;
+
+            const hasOtherComments = await Comment.exists({ postId: postId, userId: userId, isDeleted: false });
+            const hasOtherReplies = await Reply.exists({ commentId: { $in: await Comment.find({ postId: postId }).distinct('_id') }, userId: userId, isDeleted: false });
+            const hasOtherSubReplies = await SubReply.exists({ replyId: { $in: await Reply.find({ commentId: { $in: await Comment.find({ postId: postId }).distinct('_id') } }).distinct('_id') }, userId: userId, isDeleted: false, _id: { $ne: subReplyId } });
+
+            if (!hasOtherComments && !hasOtherReplies && !hasOtherSubReplies) {
+                await Community.findByIdAndUpdate(postId, { $pull: { commentedUserIds: userId } });
+            }
             await community.save();
         }
 
         // 업데이트된 댓글 정보 반환
-        const plainComment = comment.toObject ? comment.toObject() : comment;
-        const replies = await Reply.find({ commentId: comment._id }).lean();
-
-        for (const r of replies) {
-            const subReplies = await SubReply.find({ replyId: r._id }).lean();
-            r.subReplies = Array.isArray(subReplies) ? subReplies : [];
-        }
-
-        plainComment.replies = Array.isArray(replies) ? replies : [];
-        return plainComment;
+        return { _id: subReplyId, isDeleted: true, deletedAt: new Date() };
     } catch (error) {
         console.error('대댓글 삭제 오류:', error);
         throw error;
@@ -611,148 +615,125 @@ export const createPoll = async (communityId, pollData) => {
         community.polls.push(newPoll);
         const savedCommunity = await community.save();
 
-        // 새로 생성된 투표만 반환
-        const createdPoll = savedCommunity.polls[savedCommunity.polls.length - 1];
+        // 새로 생성된 투표만 반환 (votedUsers 제외)
+        const createdPoll = savedCommunity.polls[savedCommunity.polls.length - 1].toObject();
+        createdPoll.options.forEach(option => {
+            delete option.votedUsers;
+        });
         return createdPoll;
     } catch (error) {
         throw new Error(`투표 생성 실패: ${error.message}`);
     }
 };
 
-// 투표하기
+// 투표하기 (원자적 연산으로 리팩토링)
 export const votePoll = async (communityId, pollId, userId, optionIndex) => {
     try {
-        const community = await Community.findOne({_id: communityId, isDeleted: false});
-        if (!community) {
+        const community = await Community.findOne(
+            { _id: communityId, "polls._id": pollId, isDeleted: false },
+            { "polls.$": 1, "isDeleted": 1 }
+        ).lean();
+
+        if (!community || community.isDeleted) {
             throw new Error("게시글을 찾을 수 없습니다.");
         }
 
-        const poll = community.polls.id(pollId);
+        const poll = community.polls[0];
         if (!poll) {
             throw new Error("투표를 찾을 수 없습니다.");
         }
 
-        // 투표 만료 확인
         if (new Date() > poll.expiresAt) {
             throw new Error("투표가 마감되었습니다.");
         }
 
-        // 이미 투표했는지 확인
-        const hasVoted = poll.options.some(option =>
-            option.votedUsers.includes(userId)
+        // 사용자가 이미 투표한 옵션 찾기
+        const userVotedOption = poll.options.find(opt => opt.votedUsers.some(voterId => voterId.equals(userId)));
+
+        // 1. 만약 사용자가 이미 투표했다면, 기존 투표를 먼저 제거
+        if (userVotedOption) {
+            await Community.updateOne(
+                { _id: communityId, "polls.options._id": userVotedOption._id },
+                {
+                    $pull: { "polls.$.options.$[opt].votedUsers": userId },
+                    $inc: {
+                        "polls.$.options.$[opt].votes": -1,
+                        "polls.$.totalVotes": -1
+                    }
+                },
+                { arrayFilters: [{ "opt._id": userVotedOption._id }] }
+            );
+        }
+
+        // 2. 새로운 선택지에 투표 추가
+        const newOptionId = poll.options[optionIndex]._id;
+        await Community.updateOne(
+            { _id: communityId, "polls._id": pollId },
+            {
+                $push: { "polls.$.options.$[opt].votedUsers": userId },
+                $inc: {
+                    "polls.$.options.$[opt].votes": 1,
+                    "polls.$.totalVotes": 1
+                }
+            },
+            { arrayFilters: [{ "opt._id": newOptionId }] }
         );
 
-        if (hasVoted) {
-            // 기존 투표 취소
-            poll.options.forEach(option => {
-                const userIndex = option.votedUsers.indexOf(userId);
-                if (userIndex > -1) {
-                    option.votedUsers.splice(userIndex, 1);
-                    option.votes = Math.max(0, option.votes - 1);
-                    poll.totalVotes = Math.max(0, poll.totalVotes - 1);
-                }
-            });
-        }
+        // 3. 최종 결과를 다시 조회하여 반환
+        const finalCommunity = await Community.findById(communityId).lean();
+        const finalPoll = finalCommunity.polls.find(p => p._id.equals(pollId));
 
-        // 새로운 투표 추가
-        if (optionIndex >= 0 && optionIndex < poll.options.length) {
-            poll.options[optionIndex].votedUsers.push(userId);
-            poll.options[optionIndex].votes += 1;
-            poll.totalVotes += 1;
-        }
+        return {
+            _id: finalPoll._id,
+            question: finalPoll.question,
+            options: finalPoll.options.map(option => ({
+                text: option.text,
+                votes: option.votes,
+                percentage: finalPoll.totalVotes > 0 ? Math.round((option.votes / finalPoll.totalVotes) * 100) : 0
+            })),
+            totalVotes: finalPoll.totalVotes,
+            expiresAt: finalPoll.expiresAt,
+            isActive: finalPoll.isActive && new Date() <= finalPoll.expiresAt,
+            createdAt: finalPoll.createdAt
+        };
 
-        await community.save();
-        return poll;
     } catch (error) {
         throw new Error(`투표 실패: ${error.message}`);
     }
 };
 
-// 투표 결과 조회
-export const getPollResults = async (communityId, pollId) => {
-    try {
-        const community = await Community.findOne({_id: communityId, isDeleted: false});
-        if (!community) {
-            throw new Error("게시글을 찾을 수 없습니다.");
-        }
 
-        const poll = community.polls.id(pollId);
-        if (!poll) {
-            throw new Error("투표를 찾을 수 없습니다.");
-        }
-
-        // 사용자 정보는 제외하고 결과만 반환
-        const results = {
-            _id: poll._id,
-            question: poll.question,
-            options: poll.options.map(option => ({
-                text: option.text,
-                votes: option.votes,
-                percentage: poll.totalVotes > 0 ? Math.round((option.votes / poll.totalVotes) * 100) : 0
-            })),
-            totalVotes: poll.totalVotes,
-            expiresAt: poll.expiresAt,
-            isActive: poll.isActive && new Date() <= poll.expiresAt,
-            createdAt: poll.createdAt
-        };
-
-        return results;
-    } catch (error) {
-        throw new Error(`투표 결과 조회 실패: ${error.message}`);
-    }
-};
-
-// 사용자의 투표 상태 확인
-export const getUserVoteStatus = async (communityId, pollId, userId) => {
-    try {
-        const community = await Community.findOne({_id: communityId, isDeleted: false});
-        if (!community) return null;
-
-        const poll = community.polls.id(pollId);
-        if (!poll) return null;
-
-        // 사용자가 투표한 옵션 찾기
-        const votedOptionIndex = poll.options.findIndex(option =>
-            option.votedUsers.includes(userId)
-        );
-
-        return {
-            hasVoted: votedOptionIndex >= 0,
-            votedOption: votedOptionIndex >= 0 ? votedOptionIndex : null
-        };
-    } catch (error) {
-        return null;
-    }
-};
 
 // 투표 삭제 (투표 생성자나 게시글 작성자, 관리자만 가능)
-export const deletePoll = async (communityId, pollId, userId) => {
+export const deletePoll = async (communityId, pollId, userId, isAdmin) => {
     try {
-        const community = await Community.findOne({_id: communityId, isDeleted: false});
-        if (!community) {
-            throw new Error("게시글을 찾을 수 없습니다.");
+        let updateConditions = {
+            _id: communityId,
+            isDeleted: false,
+            "polls._id": pollId,
+        };
+
+        // 관리자가 아니면 권한 조건 추가
+        if (!isAdmin) {
+            updateConditions.$or = [
+                { userId: userId }, // 게시글 작성자
+                { "polls.createdBy": userId }, // 투표 생성자
+            ];
         }
 
-        const poll = community.polls.id(pollId);
-        if (!poll) {
-            throw new Error("투표를 찾을 수 없습니다.");
+        const result = await Community.updateOne(
+            updateConditions,
+            { $pull: { polls: { _id: pollId } } }
+        );
+
+        if (result.matchedCount === 0) {
+            throw new Error("투표를 찾을 수 없거나 삭제할 권한이 없습니다.");
+        }
+        if (result.modifiedCount === 0) {
+            throw new Error("투표 삭제에 실패했습니다.");
         }
 
-        // 권한 확인
-        const user = await User.findById(userId);
-        const isAdmin = user?.userLv >= 2;
-        const isPostAuthor = community.userId.toString() === userId;
-        const isPollCreator = poll.createdBy.toString() === userId;
-
-        if (!isAdmin && !isPostAuthor && !isPollCreator) {
-            throw new Error("투표를 삭제할 권한이 없습니다.");
-        }
-
-        // 투표 삭제
-        community.polls.pull(pollId);
-        await community.save();
-
-        return {message: "투표가 삭제되었습니다."};
+        return { message: "투표가 삭제되었습니다." };
     } catch (error) {
         throw new Error(`투표 삭제 실패: ${error.message}`);
     }
@@ -808,36 +789,61 @@ export const getSubRepliesByReply = async (replyId) => {
     return SubReply.find({ replyId, isDeleted: false });
 };
 
+// 투표 취소 (원자적 연산으로 리팩토링)
 export const cancelVoteFromPoll = async (communityId, pollId, userId) => {
     try {
-        const community = await Community.findOne({_id: communityId, isDeleted: false});
-        if (!community) {
+        // 1. 사용자가 투표한 옵션을 찾기 위해 현재 투표 상태 조회
+        const community = await Community.findOne(
+            { _id: communityId, "polls._id": pollId, isDeleted: false },
+            { "polls.$": 1, "isDeleted": 1 }
+        ).lean();
+
+        if (!community || community.isDeleted) {
             throw new Error("게시글을 찾을 수 없습니다.");
         }
 
-        const poll = community.polls.id(pollId);
+        const poll = community.polls[0];
         if (!poll) {
             throw new Error("투표를 찾을 수 없습니다.");
         }
 
-        // 사용자의 기존 투표 제거
-        let voteRemoved = false;
-        poll.options.forEach(option => {
-            const userIndex = option.votedUsers.indexOf(userId);
-            if (userIndex > -1) {
-                option.votedUsers.splice(userIndex, 1);
-                option.votes = Math.max(0, option.votes - 1);
-                poll.totalVotes = Math.max(0, poll.totalVotes - 1);
-                voteRemoved = true;
-            }
-        });
+        const userVotedOption = poll.options.find(opt => opt.votedUsers.some(voterId => voterId.equals(userId)));
 
-        if (!voteRemoved) {
+        if (!userVotedOption) {
             throw new Error("취소할 투표가 없습니다.");
         }
 
-        await community.save();
-        return poll;
+        // 2. 기존 투표 제거 (원자적 연산)
+        await Community.updateOne(
+            { _id: communityId, "polls.options._id": userVotedOption._id },
+            {
+                $pull: { "polls.$.options.$[opt].votedUsers": userId },
+                $inc: {
+                    "polls.$.options.$[opt].votes": -1,
+                    "polls.$.totalVotes": -1
+                }
+            },
+            { arrayFilters: [{ "opt._id": userVotedOption._id }] }
+        );
+
+        // 3. 업데이트된 결과를 다시 조회하여 반환
+        const finalCommunity = await Community.findById(communityId).lean();
+        const finalPoll = finalCommunity.polls.find(p => p._id.equals(pollId));
+
+        return {
+            _id: finalPoll._id,
+            question: finalPoll.question,
+            options: finalPoll.options.map(option => ({
+                text: option.text,
+                votes: option.votes,
+                percentage: finalPoll.totalVotes > 0 ? Math.round((option.votes / finalPoll.totalVotes) * 100) : 0
+            })),
+            totalVotes: finalPoll.totalVotes,
+            expiresAt: finalPoll.expiresAt,
+            isActive: finalPoll.isActive && new Date() <= finalPoll.expiresAt,
+            createdAt: finalPoll.createdAt
+        };
+
     } catch (error) {
         throw new Error(`투표 취소 실패: ${error.message}`);
     }

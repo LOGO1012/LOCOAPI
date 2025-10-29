@@ -45,4 +45,6 @@ const replySchema = new Schema({
     },
 }, { timestamps: true });
 
+replySchema.index({ userId: 1, commentId: 1 });
+
 export const Reply = model('Reply', replySchema);

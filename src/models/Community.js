@@ -22,11 +22,6 @@ const communitySchema = new Schema({
         type: Boolean,
         default: false,
     },
-    // ✅ 익명일 때 표시할 닉네임 (선택사항)
-    anonymousNickname: {
-        type: String,
-        default: null,
-    },
     communityTitle: {
         type: String,
         required: true,
@@ -68,6 +63,10 @@ const communitySchema = new Schema({
         type: Date,
         default: null,
     },
+    commentedUserIds: [{ // Added for '내 댓글' category optimization
+        type: Schema.Types.ObjectId,
+        ref: 'User'
+    }],
     polls: [pollSchema],
 }, { timestamps: true });
 
@@ -79,12 +78,15 @@ communitySchema.index({
 
 communitySchema.index({ communityTitle: 1 });
 communitySchema.index({ communityContents: 1 });
-communitySchema.index({ authorNickname: 1 });
+communitySchema.index({ userNickname: 1 }); // Corrected from authorNickname
 communitySchema.index({ isDeleted: 1 });
-// ✅ 최근 일주일 필터링을 위한 인덱스 추가
-communitySchema.index({ createdAt: -1 }); // 날짜 정렬용
-communitySchema.index({ isDeleted: 1, createdAt: -1 }); // 복합 인덱스 (필터링과 정렬)
-communitySchema.index({ communityViews: -1, createdAt: -1 }); // 조회수와 날짜 복합 인덱스
+communitySchema.index({ createdAt: -1 });
+communitySchema.index({ isDeleted: 1, createdAt: -1 });
+communitySchema.index({ isDeleted: 1, communityCategory: 1, createdAt: -1 }); // Added
+communitySchema.index({ isDeleted: 1, userId: 1, createdAt: -1 }); // Added
+communitySchema.index({ isDeleted: 1, communityViews: -1 });
+communitySchema.index({ isDeleted: 1, recommended: -1 });
+communitySchema.index({ communityViews: -1, createdAt: -1 });
 communitySchema.index({ isDeleted: 1, createdAt: -1, communityViews: -1 });
 communitySchema.index({ isDeleted: 1, createdAt: -1, recommended: -1 });
 

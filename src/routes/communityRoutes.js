@@ -19,6 +19,9 @@ router.get('/top-commented', communityController.getTopCommented);
 // 단일 커뮤니티 상세 조회 (조회수 증가 포함)
 router.get('/:id', communityController.getCommunity);
 
+// 커뮤니티 편집 데이터 조회
+router.get('/:id/edit', communityController.getCommunityForEdit);
+
 // 커뮤니티 수정
 router.put('/:id', upload.array('communityImages', 5), communityController.updateCommunity);
 
@@ -61,11 +64,9 @@ router.post('/:id/polls', communityController.createPoll);
 // 투표하기
 router.post('/:id/polls/:pollId/vote', communityController.votePoll);
 
-// 투표 결과 조회
-router.get('/:id/polls/:pollId/results', communityController.getPollResults);
 
-// 사용자 투표 상태 확인
-router.get('/:id/polls/:pollId/status', communityController.getUserVoteStatus);
+
+
 
 // 투표 삭제
 router.delete('/:id/polls/:pollId', communityController.deletePoll);
