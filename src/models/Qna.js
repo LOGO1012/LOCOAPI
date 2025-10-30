@@ -42,10 +42,7 @@ const qnaSchema = new Schema({
         type: String,
         default: '',
     },
-    qnaRegdate: {
-        type: Date,
-        default: Date.now,  // 문의 등록 날짜, 기본값은 현재 날짜
-    },
+
     isAnonymous: {
         type: Boolean,
         default: false, // false면 실명 표시, true면 익명
@@ -56,6 +53,8 @@ const qnaSchema = new Schema({
     },
 }, { timestamps: true });  // 생성일과 수정일 자동으로 기록
 
+
+qnaSchema.index({ qnaStatus: 1, qnaRegdate: -1 }); // 목록 조회 최적화
 
 // 인덱스: qnaTitle, qnaContents, qnaAnswer, userId, answerUserId
 qnaSchema.index({ qnaTitle: "text", qnaContents: "text", qnaAnswer: "text", userId: "text", answerUserId: "text" });

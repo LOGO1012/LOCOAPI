@@ -665,7 +665,6 @@ export const votePoll = async (communityId, pollId, userId, optionIndex) => {
             );
         }
 
-        // 2. 새로운 선택지에 투표 추가
         const newOptionId = poll.options[optionIndex]._id;
         await Community.updateOne(
             { _id: communityId, "polls._id": pollId },
@@ -681,7 +680,26 @@ export const votePoll = async (communityId, pollId, userId, optionIndex) => {
 
         // 3. 최종 결과를 다시 조회하여 반환
         const finalCommunity = await Community.findById(communityId).lean();
+        
+        if (!finalCommunity) {
+            console.error(`DEBUG: finalCommunity is null for communityId: ${communityId}`);
+            throw new Error("투표 후 게시글을 찾을 수 없습니다.");
+        }
+        if (!finalCommunity.polls || finalCommunity.polls.length === 0) {
+            console.error(`DEBUG: finalCommunity.polls is empty for communityId: ${communityId}`);
+            throw new Error("투표 후 투표 목록을 찾을 수 없습니다.");
+        }
+
+        console.log(`DEBUG: Searching for pollId: ${pollId} in finalCommunity.polls:`, finalCommunity.polls.map(p => p._id));
         const finalPoll = finalCommunity.polls.find(p => p._id.equals(pollId));
+
+        if (!finalPoll) {
+            console.error(`DEBUG: finalPoll not found for pollId: ${pollId} in communityId: ${communityId}`);
+            throw new Error("투표 후 해당 투표를 찾을 수 없습니다.");
+        }
+
+        // 4. 캐시 무효화
+        await redisClient.del(`poll-results:${pollId}`);
 
         return {
             _id: finalPoll._id,
@@ -689,6 +707,7 @@ export const votePoll = async (communityId, pollId, userId, optionIndex) => {
             options: finalPoll.options.map(option => ({
                 text: option.text,
                 votes: option.votes,
+                votedUsers: option.votedUsers, // Include votedUsers
                 percentage: finalPoll.totalVotes > 0 ? Math.round((option.votes / finalPoll.totalVotes) * 100) : 0
             })),
             totalVotes: finalPoll.totalVotes,
@@ -836,6 +855,7 @@ export const cancelVoteFromPoll = async (communityId, pollId, userId) => {
             options: finalPoll.options.map(option => ({
                 text: option.text,
                 votes: option.votes,
+                votedUsers: option.votedUsers, // Include votedUsers
                 percentage: finalPoll.totalVotes > 0 ? Math.round((option.votes / finalPoll.totalVotes) * 100) : 0
             })),
             totalVotes: finalPoll.totalVotes,
@@ -849,19 +869,9 @@ export const cancelVoteFromPoll = async (communityId, pollId, userId) => {
     }
 };
 
-// 댓글 투표 생성
+// 댓글 투표 생성 (원자적 연산으로 리팩토링)
 export const createCommentPoll = async (commentId, pollData) => {
     try {
-        const comment = await Comment.findById(commentId);
-        if (!comment || comment.isDeleted) {
-            throw new Error("댓글을 찾을 수 없습니다.");
-        }
-
-        // 댓글에 이미 투표가 있는지 확인 (핵심 추가!)
-        if (comment.polls && comment.polls.length > 0) {
-            throw new Error("댓글당 투표는 하나만 생성할 수 있습니다.");
-        }
-
         // 투표 만료 시간 설정
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + (pollData.duration || 24));
@@ -879,80 +889,150 @@ export const createCommentPoll = async (commentId, pollData) => {
             isActive: true
         };
 
-        comment.polls.push(newPoll);
-        const savedComment = await comment.save();
+        const updatedComment = await Comment.findOneAndUpdate(
+            {
+                _id: commentId,
+                isDeleted: false,
+                'polls.0': { $exists: false } // polls 배열이 비어있는지 확인
+            },
+            { $push: { polls: newPoll } },
+            { new: true, select: 'polls' }
+        );
 
-        // 새로 생성된 투표만 반환
-        const createdPoll = savedComment.polls[savedComment.polls.length - 1];
-        return createdPoll;
+        if (!updatedComment) {
+            const comment = await Comment.findById(commentId).select('isDeleted polls');
+            if (!comment || comment.isDeleted) {
+                throw new Error("댓글을 찾을 수 없습니다.");
+            }
+            if (comment.polls && comment.polls.length > 0) {
+                throw new Error("댓글당 투표는 하나만 생성할 수 있습니다.");
+            }
+            throw new Error("알 수 없는 이유로 투표 생성에 실패했습니다.");
+        }
+
+        // 새로 생성된 투표만 DTO로 변환하여 반환
+        const newPollSubDoc = updatedComment.polls[updatedComment.polls.length - 1];
+        return {
+            _id: newPollSubDoc._id,
+            question: newPollSubDoc.question,
+            options: newPollSubDoc.options.map(o => ({ text: o.text, votes: o.votes })), // votedUsers 제외
+            totalVotes: newPollSubDoc.totalVotes,
+            expiresAt: newPollSubDoc.expiresAt,
+            isActive: newPollSubDoc.isActive,
+            createdBy: newPollSubDoc.createdBy,
+            createdAt: newPollSubDoc.createdAt
+        };
     } catch (error) {
         throw new Error(`댓글 투표 생성 실패: ${error.message}`);
     }
 };
 
-// 댓글 투표 참여
+// 댓글 투표 참여 (원자적 연산으로 리팩토링)
 export const voteCommentPoll = async (commentId, pollId, userId, optionIndex) => {
     try {
-        const comment = await Comment.findById(commentId);
-        if (!comment || comment.isDeleted) {
-            throw new Error("댓글을 찾을 수 없습니다.");
+        const comment = await Comment.findOne(
+            { _id: commentId, "polls._id": pollId, isDeleted: false },
+            { "polls.$": 1, isDeleted: 1 }
+        ).lean();
+
+        if (!comment || comment.isDeleted) throw new Error("댓글을 찾을 수 없습니다.");
+
+        const poll = comment.polls[0];
+        if (!poll) throw new Error("투표를 찾을 수 없습니다.");
+        if (new Date() > poll.expiresAt) throw new Error("투표가 마감되었습니다.");
+
+        const userVotedOption = poll.options.find(opt => opt.votedUsers.some(voterId => voterId.equals(userId)));
+
+        // 1. 사용자가 이미 투표했다면, 기존 투표를 먼저 제거 (원자적 연산)
+        if (userVotedOption) {
+            await Comment.updateOne(
+                { _id: commentId, "polls.options._id": userVotedOption._id },
+                {
+                    $pull: { "polls.$.options.$[opt].votedUsers": userId },
+                    $inc: {
+                        "polls.$.options.$[opt].votes": -1,
+                        "polls.$.totalVotes": -1
+                    }
+                },
+                { arrayFilters: [{ "opt._id": userVotedOption._id }] }
+            );
         }
 
-        const poll = comment.polls.id(pollId);
-        if (!poll) {
-            throw new Error("투표를 찾을 수 없습니다.");
-        }
-
-        // 투표 만료 확인
-        if (new Date() > poll.expiresAt) {
-            throw new Error("투표가 마감되었습니다.");
-        }
-
-        // 이미 투표했는지 확인
-        const hasVoted = poll.options.some(option =>
-            option.votedUsers.includes(userId)
+        // 2. 새로운 선택지에 투표 추가 (원자적 연산)
+        const newOptionId = poll.options[optionIndex]._id;
+        await Comment.updateOne(
+            { _id: commentId, "polls._id": pollId },
+            {
+                $push: { "polls.$.options.$[opt].votedUsers": userId },
+                $inc: {
+                    "polls.$.options.$[opt].votes": 1,
+                    "polls.$.totalVotes": 1
+                }
+            },
+            { arrayFilters: [{ "opt._id": newOptionId }] }
         );
 
-        if (hasVoted) {
-            // 기존 투표 취소
-            poll.options.forEach(option => {
-                const userIndex = option.votedUsers.indexOf(userId);
-                if (userIndex > -1) {
-                    option.votedUsers.splice(userIndex, 1);
-                    option.votes = Math.max(0, option.votes - 1);
-                    poll.totalVotes = Math.max(0, poll.totalVotes - 1);
-                }
-            });
+        // 3. 최종 결과를 다시 조회하여 반환
+        const finalCommunity = await Comment.findById(commentId).lean();
+        
+        if (!finalCommunity) {
+            console.error(`DEBUG: finalCommunity is null for communityId: ${commentId}`);
+            throw new Error("투표 후 게시글을 찾을 수 없습니다.");
+        }
+        if (!finalCommunity.polls || finalCommunity.polls.length === 0) {
+            console.error(`DEBUG: finalCommunity.polls is empty for communityId: ${commentId}`);
+            throw new Error("투표 후 투표 목록을 찾을 수 없습니다.");
         }
 
-        // 새로운 투표 추가
-        if (optionIndex >= 0 && optionIndex < poll.options.length) {
-            poll.options[optionIndex].votedUsers.push(userId);
-            poll.options[optionIndex].votes += 1;
-            poll.totalVotes += 1;
+        console.log(`DEBUG: Searching for pollId: ${pollId} in finalCommunity.polls:`, finalCommunity.polls.map(p => p._id));
+        const finalPoll = finalCommunity.polls.find(p => p._id.equals(pollId));
+
+        if (!finalPoll) {
+            console.error(`DEBUG: finalPoll not found for pollId: ${pollId} in communityId: ${commentId}`);
+            throw new Error("투표 후 해당 투표를 찾을 수 없습니다.");
         }
 
-        await comment.save();
-        return poll;
+        // 4. 캐시 무효화
+        await redisClient.del(`poll-results:${pollId}`);
+
+        return {
+            _id: finalPoll._id,
+            question: finalPoll.question,
+            options: finalPoll.options.map(option => ({
+                text: option.text,
+                votes: option.votes,
+                votedUsers: option.votedUsers, // Include votedUsers
+                percentage: finalPoll.totalVotes > 0 ? Math.round((option.votes / finalPoll.totalVotes) * 100) : 0
+            })),
+            totalVotes: finalPoll.totalVotes
+        };
+
     } catch (error) {
         throw new Error(`댓글 투표 실패: ${error.message}`);
     }
 };
 
-// 댓글 투표 결과 조회
+// 댓글 투표 결과 조회 (프로젝션 + 캐싱 최적화)
 export const getCommentPollResults = async (commentId, pollId) => {
     try {
-        const comment = await Comment.findById(commentId);
-        if (!comment) {
-            throw new Error("댓글을 찾을 수 없습니다.");
+        const cacheKey = `poll-results:${pollId}`;
+        const cachedResults = await redisClient.get(cacheKey);
+
+        if (cachedResults) {
+            return JSON.parse(cachedResults);
         }
 
-        const poll = comment.polls.id(pollId);
-        if (!poll) {
+        const comment = await Comment.findOne(
+            { _id: commentId, "polls._id": pollId },
+            { "polls.$": 1 }
+        ).lean();
+
+        if (!comment || !comment.polls || comment.polls.length === 0) {
             throw new Error("투표를 찾을 수 없습니다.");
         }
 
-        // 사용자 정보는 제외하고 결과만 반환
+        const poll = comment.polls[0];
+
         const results = {
             _id: poll._id,
             question: poll.question,
@@ -967,99 +1047,149 @@ export const getCommentPollResults = async (commentId, pollId) => {
             createdAt: poll.createdAt
         };
 
+        // 15초 동안 결과를 캐시
+        await redisClient.setEx(cacheKey, 15, JSON.stringify(results));
+
         return results;
     } catch (error) {
         throw new Error(`댓글 투표 결과 조회 실패: ${error.message}`);
     }
 };
 
-// 댓글 투표 상태 확인
+// 댓글 투표 상태 확인 (집계 파이프라인 최적화)
 export const getCommentUserVoteStatus = async (commentId, pollId, userId) => {
     try {
-        const comment = await Comment.findById(commentId);
-        if (!comment) return null;
+        const result = await Comment.aggregate([
+            // 1. 특정 댓글과 투표를 찾음
+            { $match: { 
+                _id: new mongoose.Types.ObjectId(commentId),
+                "polls._id": new mongoose.Types.ObjectId(pollId)
+            } },
+            // 2. polls 배열에서 해당 투표만 남김
+            { $project: {
+                poll: {
+                    $filter: {
+                        input: "$polls",
+                        as: "poll",
+                        cond: { $eq: ["$$poll._id", new mongoose.Types.ObjectId(pollId)] }
+                    }
+                }
+            } },
+            // 3. 배열을 객체로 변환
+            { $unwind: "$poll" },
+            // 4. 사용자가 투표한 옵션의 인덱스를 찾음
+            { $project: {
+                _id: 0,
+                votedOption: {
+                    $indexOfArray: ["$poll.options.votedUsers", new mongoose.Types.ObjectId(userId)]
+                }
+            } },
+            // 5. 최종 결과 포맷팅
+            { $project: {
+                hasVoted: { $gte: ["$votedOption", 0] },
+                votedOption: { $cond: { if: { $gte: ["$votedOption", 0] }, then: "$votedOption", else: null } }
+            } }
+        ]);
 
-        const poll = comment.polls.id(pollId);
-        if (!poll) return null;
-
-        // 사용자가 투표한 옵션 찾기
-        const votedOptionIndex = poll.options.findIndex(option =>
-            option.votedUsers.includes(userId)
-        );
-
-        return {
-            hasVoted: votedOptionIndex >= 0,
-            votedOption: votedOptionIndex >= 0 ? votedOptionIndex : null
-        };
+        return result[0] || { hasVoted: false, votedOption: null };
     } catch (error) {
-        return null;
+        console.error("Error getting user vote status:", error);
+        return { hasVoted: false, votedOption: null };
     }
 };
 
-// 댓글 투표 취소
+// 댓글 투표 취소 (원자적 연산으로 리팩토링)
 export const cancelCommentVoteFromPoll = async (commentId, pollId, userId) => {
     try {
-        const comment = await Comment.findById(commentId);
-        if (!comment) {
-            throw new Error("댓글을 찾을 수 없습니다.");
-        }
+        // 1. 사용자가 투표한 옵션을 찾기 위해 현재 투표 상태 조회
+        const comment = await Comment.findOne(
+            { _id: commentId, "polls._id": pollId, isDeleted: false },
+            { "polls.$": 1, isDeleted: 1 }
+        ).lean();
 
-        const poll = comment.polls.id(pollId);
-        if (!poll) {
-            throw new Error("투표를 찾을 수 없습니다.");
-        }
+        if (!comment || comment.isDeleted) throw new Error("댓글을 찾을 수 없습니다.");
 
-        // 사용자의 기존 투표 제거
-        let voteRemoved = false;
-        poll.options.forEach(option => {
-            const userIndex = option.votedUsers.indexOf(userId);
-            if (userIndex > -1) {
-                option.votedUsers.splice(userIndex, 1);
-                option.votes = Math.max(0, option.votes - 1);
-                poll.totalVotes = Math.max(0, poll.totalVotes - 1);
-                voteRemoved = true;
-            }
-        });
+        const poll = comment.polls[0];
+        if (!poll) throw new Error("투표를 찾을 수 없습니다.");
 
-        if (!voteRemoved) {
+        const userVotedOption = poll.options.find(opt => opt.votedUsers.some(voterId => voterId.equals(userId)));
+
+        if (!userVotedOption) {
             throw new Error("취소할 투표가 없습니다.");
         }
 
-        await comment.save();
-        return poll;
+        // 2. 기존 투표 제거 (원자적 연산)
+        await Comment.updateOne(
+            { _id: commentId, "polls.options._id": userVotedOption._id },
+            {
+                $pull: { "polls.$.options.$[opt].votedUsers": userId },
+                $inc: {
+                    "polls.$.options.$[opt].votes": -1,
+                    "polls.$.totalVotes": -1
+                }
+            },
+            { arrayFilters: [{ "opt._id": userVotedOption._id }] }
+        );
+
+        // 3. 업데이트된 결과를 다시 조회하여 DTO로 반환
+        const finalComment = await Comment.findById(commentId).select('polls').lean();
+        const finalPoll = finalComment.polls.find(p => p._id.equals(pollId));
+
+        // 4. 캐시 무효화
+        await redisClient.del(`poll-results:${pollId}`);
+
+        return {
+            _id: finalPoll._id,
+            question: finalPoll.question,
+            options: finalPoll.options.map(option => ({
+                text: option.text,
+                votes: option.votes,
+                votedUsers: option.votedUsers, // Include votedUsers
+                percentage: finalPoll.totalVotes > 0 ? Math.round((option.votes / finalPoll.totalVotes) * 100) : 0
+            })),
+            totalVotes: finalPoll.totalVotes
+        };
+
     } catch (error) {
         throw new Error(`댓글 투표 취소 실패: ${error.message}`);
     }
 };
 
-// 댓글 투표 삭제
-export const deleteCommentPoll = async (commentId, pollId, userId) => {
+// 댓글 투표 삭제 (원자적 연산으로 리팩토링)
+export const deleteCommentPoll = async (commentId, pollId, userId, isAdmin) => {
     try {
-        const comment = await Comment.findById(commentId);
-        if (!comment) {
-            throw new Error("댓글을 찾을 수 없습니다.");
+        const updateQuery = {
+            _id: commentId,
+            "polls._id": pollId
+        };
+
+        // 관리자가 아닐 경우, 작성자 또는 투표 생성자만 삭제 가능하도록 조건 추가
+        if (!isAdmin) {
+            updateQuery.$or = [
+                { userId: userId }, // 댓글 작성자
+                { "polls.createdBy": userId } // 투표 생성자
+            ];
         }
 
-        const poll = comment.polls.id(pollId);
-        if (!poll) {
-            throw new Error("투표를 찾을 수 없습니다.");
+        const result = await Comment.updateOne(
+            updateQuery,
+            { $pull: { polls: { _id: pollId } } }
+        );
+
+        if (result.matchedCount === 0) {
+            throw new Error("투표를 찾을 수 없거나 삭제할 권한이 없습니다.");
         }
 
-        // 권한 확인
-        const user = await User.findById(userId);
-        const isAdmin = user?.userLv >= 2;
-        const isCommentAuthor = comment.userId.toString() === userId;
-        const isPollCreator = poll.createdBy.toString() === userId;
-
-        if (!isAdmin && !isCommentAuthor && !isPollCreator) {
-            throw new Error("투표를 삭제할 권한이 없습니다.");
+        if (result.modifiedCount === 0) {
+            // matchedCount는 1인데 modifiedCount가 0인 경우, 이미 삭제되었을 수 있음
+            throw new Error("투표가 이미 삭제되었거나 삭제에 실패했습니다.");
         }
 
-        // 투표 삭제
-        comment.polls.pull(pollId);
-        await comment.save();
+        // 캐시 무효화
+        await redisClient.del(`poll-results:${pollId}`);
 
-        return {message: "댓글 투표가 삭제되었습니다."};
+        return { message: "댓글 투표가 삭제되었습니다." };
+
     } catch (error) {
         throw new Error(`댓글 투표 삭제 실패: ${error.message}`);
     }

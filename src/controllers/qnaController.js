@@ -33,8 +33,8 @@ const getQnaListPage = async (req, res) => {
  */
 const createQna = async (req, res) => {
     try {
-        const newQna = await QnaService.createQna(req.body);
-        return res.status(201).json(newQna);
+        const result = await QnaService.createQna(req.body);
+        return res.status(201).json(result);
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
@@ -73,7 +73,7 @@ const getQnaById = async (req, res) => {
         let serialized = {
             ...qna.toObject(),
             userNickname: qna.isAnonymous ? '익명' : qna.userNickname,
-            qnaRegdate: qna.qnaRegdate.toISOString(),
+            qnaRegdate: qna.createdAt.toISOString(),
             updatedAt: qna.updatedAt.toISOString()
         };
 

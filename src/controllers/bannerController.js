@@ -35,7 +35,7 @@ export const getActiveBanners = async (req, res) => {
     try {
         const banners = await Banner.find({ isActive: true })
             .sort({ order: 1, createdAt: -1 })
-            .select('title description image linkUrl order')
+            .select('title description image.path linkUrl')
             .lean();
 
         res.status(200).json({
@@ -60,8 +60,10 @@ export const getAllBanners = async (req, res) => {
         const skip = (pageNum - 1) * limitNum;
 
         const banners = await Banner.find()
-            .populate('author', 'nickname userLv')
             .sort({ order: 1, createdAt: -1 })
+            .select(
+                '_id title image.path isActive order description authorNickname createdAt views linkUrl'
+            )
             .skip(skip)
             .limit(limitNum)
             .lean();
@@ -96,7 +98,7 @@ export const getBannerDetail = async (req, res) => {
         const { id } = req.params;
 
         const banner = await Banner.findById(id)
-            .populate('author', 'nickname userLv');
+            .select('title description linkUrl order isActive image');
 
         if (!banner) {
             return res.status(404).json({
@@ -164,7 +166,6 @@ export const createBanner = async (req, res) => {
         res.status(201).json({
             success: true,
             message: '배너가 성공적으로 생성되었습니다.',
-            data: banner
         });
     } catch (error) {
         console.error('배너 생성 오류:', error);
@@ -227,16 +228,15 @@ export const updateBanner = async (req, res) => {
             };
         }
 
-        const updatedBanner = await Banner.findByIdAndUpdate(
+        await Banner.findByIdAndUpdate(
             id,
             updateData,
             { new: true }
-        ).populate('author', 'nickname userLv');
+        );
 
         res.status(200).json({
             success: true,
             message: '배너가 성공적으로 수정되었습니다.',
-            data: updatedBanner
         });
     } catch (error) {
         console.error('배너 수정 오류:', error);
