@@ -64,22 +64,28 @@ export const getUserRiotInfo = async (userId) => {
 
         // 2) DB 조회 - 2개 필드만
         const user = await User.findById(userId)
-            .select('riotGameName riotTagLine')
+            .select('lolNickname') // 실제 저장된 필드 조회
             .lean();
 
-        if (!user || !user.riotGameName || !user.riotTagLine) {
+        if (!user || !user.lolNickname) {
+            console.log(user?.riotGameName, user?.riotTagLine);
             throw new Error('Riot ID가 설정되지 않았습니다.');
         }
 
-        // 3) 캐시 저장 (1시간 - 자주 변경 안됨)
-        await IntelligentCache.setCache(cacheKey, user, 3600);  // ✅ set → setCache
+        // ✅ 가상 필드가 포함된 객체 생성
+        const result = {
+            riotGameName: user.riotGameName,
+            riotTagLine: user.riotTagLine
+        };
 
-        return user;
+        await IntelligentCache.setCache(cacheKey, result, 3600);
+        return result;
     } catch (error) {
         console.error(`❌ getUserRiotInfo 에러: ${userId}`, error.message);
         throw error;
     }
 };
+
 
 /**
  * 닉네임만 조회
