@@ -13,7 +13,7 @@ import IntelligentCache from "../utils/cache/intelligentCache.js";
 import { Community } from '../models/Community.js';
 import { Qna } from '../models/Qna.js';
 import {containsProfanity} from "../utils/profanityFilter.js";
-
+import { emitFriendAdded, emitFriendDeleted } from '../socket/socketIO.js';
 
 /**
  * 🎂 나이 정보 조회 (통합 버전)
@@ -880,13 +880,38 @@ export const getUserForAuth = async (userId) => {
 //닉네임 기반 사용자 검색
 export const getUserByNickname = async (nickname) => {
     try {
-        const user = await User.findOne({ nickname })
-            .select('_id nickname')  // ✅ 2개 필드만
+
+        // 1️⃣ 캐시 키 생성
+        const cacheKey = `user_nickname_${nickname}`;
+        const TTL = 1800; // 30분
+
+        // 2️⃣ 캐시 확인
+        let user = await IntelligentCache.getCache(cacheKey);
+
+        if (user) {
+            const cacheType = IntelligentCache.client ? 'Redis' : 'Memory';
+            console.log(`💾 [${cacheType} HIT] 닉네임 조회: ${nickname}`);
+            return user;
+        }
+
+        // 3️⃣ 캐시 미스 - DB 조회
+        const cacheType = IntelligentCache.client ? 'Redis' : 'Memory';
+        console.log(`🔍 [${cacheType} MISS] 닉네임 조회: ${nickname} → DB 조회`);
+
+
+
+        user = await User.findOne({ nickname })
+            .select('_id nickname')
             .lean();
 
         if (!user) {
             throw new Error('해당 닉네임을 가진 사용자를 찾을 수 없습니다.');
         }
+
+        // 4️⃣ 캐시 저장
+        await IntelligentCache.setCache(cacheKey, user, TTL);
+        console.log(`✅ 캐시 저장: ${cacheKey} (TTL: ${TTL}초)`);
+
         return user;
     } catch (error) {
         throw new Error(error.message);
@@ -909,12 +934,15 @@ export const rateUser = async (userId, rating) => {
     );
     if (!updatedUser) throw new Error("User not found.");
 
-    await IntelligentCache.invalidateUserCache(userId);
+    // ✅ 개선: star 필드만 선택적 무효화 + 새 값 캐싱
+    await IntelligentCache.invalidateUserField(userId, 'star');
+    await IntelligentCache.cacheUserStar(userId, updatedUser.star, 300); // 5분 TTL
+
     // ✅ 최소한의 정보만 반환
     return {
         success: true,
         star: updatedUser.star,
-        userId: updatedUser._id
+        // userId: updatedUser._id
     };
 };
 
@@ -980,7 +1008,8 @@ export const decrementChatCount = async (userId) => {
         );
 
         // 5️⃣ 캐시 무효화
-        await IntelligentCache.invalidateUserStaticInfo(userId);
+        await IntelligentCache.invalidateUserField(userId, 'numOfChat');
+        await IntelligentCache.cacheUserField(userId, 'numOfChat', newNumOfChat, 60);
         console.log(`   🗑️ 캐시 무효화 완료`);
 
         // 6️⃣ 다음 충전 시각 계산 (✅ REFILL_MS 사용 가능)
@@ -1070,14 +1099,15 @@ export const acceptFriendRequestService = async (requestId) => {
     console.log(`🤝 [친구수락] 시작: ${requestId}`);
 
     const friendRequest = await FriendRequest.findById(requestId)
-        .populate('sender', '_id nickname profilePhoto star gender lolNickname');
+        .populate('sender', '_id nickname profilePhoto star gender lolNickname')
+        .populate('receiver', '_id');
 
     if (!friendRequest) throw new Error("친구 요청을 찾을 수 없습니다.");
 
     if (friendRequest.status !== 'pending') throw new Error("이미 처리된 친구 요청입니다.");
 
     const senderId = friendRequest.sender._id.toString();
-    const receiverId = friendRequest.receiver.toString();
+    const receiverId = friendRequest.receiver._id.toString();
 
     console.log(`📝 [친구수락] 요청 정보:`, {
         sender: senderId,
@@ -1090,12 +1120,12 @@ export const acceptFriendRequestService = async (requestId) => {
     // 2️⃣ 양방향 친구 관계 생성 (병렬 처리)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     await Promise.all([
-        User.findByIdAndUpdate(
-            senderId,
-            { $addToSet: { friends: receiverId } }  // ✅ $addToSet: 중복 방지
+        User.updateOne(
+            { _id: senderId },
+            { $addToSet: { friends: receiverId } }
         ),
-        User.findByIdAndUpdate(
-            receiverId,
+        User.updateOne(
+            { _id: receiverId },
             { $addToSet: { friends: senderId } }
         )
     ]);
@@ -1112,21 +1142,8 @@ export const acceptFriendRequestService = async (requestId) => {
     await FriendRequest.findByIdAndDelete(requestId);
 
     await Promise.all([
-        // ✅ 인증 캐시 무효화
-        IntelligentCache.deleteCache(`auth_user_${senderId}`),
-        IntelligentCache.deleteCache(`auth_user_${receiverId}`),
-
-        // ✅ 친구 ID 캐시 무효화
-        IntelligentCache.deleteCache(`user_friends_ids_${senderId}`),
-        IntelligentCache.deleteCache(`user_friends_ids_${receiverId}`),
-
-        // ✅ 프로필 캐시 무효화
-        IntelligentCache.deleteCache(`user_profile_full_${senderId}`),
-        IntelligentCache.deleteCache(`user_profile_full_${receiverId}`),
-
-        // ✅ 기존 사용자 캐시 무효화
-        IntelligentCache.invalidateUserCache(senderId),
-        IntelligentCache.invalidateUserCache(receiverId)
+        IntelligentCache.invalidateUserFriends(senderId),
+        IntelligentCache.invalidateUserFriends(receiverId)
     ]);
 
     console.log(`🗑️ [친구수락] 캐시 무효화 완료`);
@@ -1134,7 +1151,7 @@ export const acceptFriendRequestService = async (requestId) => {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 5️⃣ 친구 정보 반환 (populate된 sender 정보)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const friendInfo = {
+    const senderInfo  = {
         _id: friendRequest.sender._id.toString(),
         nickname: friendRequest.sender.nickname,
         profilePhoto: friendRequest.sender.profilePhoto,
@@ -1143,14 +1160,41 @@ export const acceptFriendRequestService = async (requestId) => {
         lolNickname: friendRequest.sender.lolNickname
     };
 
+        // ✅ receiver 정보도 DB에서 조회
+        const receiverUser = await User.findById(receiverId)
+            .select('_id nickname profilePhoto star gender lolNickname')
+            .lean();
+
+        const receiverInfo = receiverUser ? {
+            _id: receiverUser._id.toString(),
+            nickname: receiverUser.nickname,
+            profilePhoto: receiverUser.profilePhoto,
+            star: receiverUser.star,
+            gender: receiverUser.gender,
+            lolNickname: receiverUser.lolNickname
+        } : null;
+
+    //  올바른 정보 전송: A에게는 B 정보, B에게는 A 정보
+        // 올바른 정보 전송:
+        // - sender에게는 receiver 정보
+        // - receiver에게는 sender 정보
+        if (receiverInfo) {
+            emitFriendAdded(senderId, receiverId, senderInfo, receiverInfo);
+            console.log(`📡 [친구수락] 소켓 이벤트 전송 완료`);
+        } else {
+            console.warn(`⚠️ [친구수락] receiver 정보 없음 - 소켓 알림 스킵`);
+        }
+    console.log(`📡 [친구수락] 소켓 이벤트 전송 완료`);
+
+
     console.log(`🎉 [친구수락] 완료:`, {
         sender: senderId,
         receiver: receiverId,
-        friendNickname: friendInfo.nickname
+        friendNickname: senderInfo.nickname
     });
     return {
         message: "친구 요청이 수락되었습니다.",
-        friend: friendInfo
+        friend: senderInfo
     };
     } catch (error) {
         console.error(`❌ [친구수락] 실패:`, error.message);
@@ -1209,7 +1253,7 @@ export const sendFriendRequest = async (senderId, receiverId) => {
         sender: senderId,
         receiver: receiverId,
         status: 'pending'
-    });
+    }).select('_id').lean();
 
     if (existingRequest) throw new Error("이미 친구 요청을 보냈습니다.");
 
@@ -1254,13 +1298,13 @@ export const declineFriendRequestService = async (requestId) => {
 
     // 상태를 declined로 업데이트 한 후 저장 (로깅등 필요할 경우 대비)
     // ✅ 선택: 로깅 (선택사항)
-    await FriendRequestLog.create({
-        requestId,
-        sender: friendRequest.sender,
-        receiver: friendRequest.receiver,
-        action: 'declined',
-        timestamp: new Date()
-    });
+    // await FriendRequestLog.create({
+    //     requestId,
+    //     sender: friendRequest.sender,
+    //     receiver: friendRequest.receiver,
+    //     action: 'declined',
+    //     timestamp: new Date()
+    // });
 
     // DB에서 해당 친구 요청 알림 삭제
     await FriendRequest.findByIdAndDelete(requestId);
@@ -1325,23 +1369,10 @@ export const deleteFriend = async (userId, friendId, io) => {
             { $set: { isActive: false } }
         );
 
-        // 소켓 이벤트 전송
-        if (io) {
-            io.to(userId).emit('friendDeleted', {
-                friendId: friendId,
-                roomId: chatRoom._id.toString()
-            });
-            io.to(friendId).emit('friendDeleted', {
-                friendId: userId,
-                roomId: chatRoom._id.toString()
-            });
-        }
-    } else {
-        if (io) {
-            io.to(userId).emit('friendDeleted', { friendId: friendId, roomId: null });
-            io.to(friendId).emit('friendDeleted', { friendId: userId, roomId: null });
-        }
     }
+
+    // 🆕 실시간 알림 전송 (헬퍼 함수 사용)
+    emitFriendDeleted(userId, friendId);
 
     await Promise.all([
         // ✅ 인증 캐시 무효화
@@ -1404,14 +1435,16 @@ export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online
     const friendsById = new Map(friends.map(f => [f._id.toString(), f]));
 
     // Add online status to the paginated friends
-    const onlineStatusMapForPage = onlineStatusService.getMultipleUserStatus(paginatedIds);
+    // const onlineStatusMapForPage = onlineStatusService.getMultipleUserStatus(paginatedIds);
 
     const orderedFriends = paginatedIds.map(id => {
         const friend = friendsById.get(id);
         if (!friend) return null;
         return {
-            ...friend,
-            isOnline: onlineStatusMapForPage[id] || false
+            _id: friend._id,           // ✅ 필수
+            nickname: friend.nickname, // ✅ 필수
+            profilePhoto: friend.profilePhoto  // ✅ 필수
+            // isOnline 제거! ✅
         };
     }).filter(Boolean);
 
@@ -1520,7 +1553,7 @@ export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online
 
 // 차단 목록 조회
 export const getBlockedUsersService = async (userId) => {
-    const user = await User.findById(userId).populate('blockedUsers', 'nickname name profilePhoto createdAt');
+    const user = await User.findById(userId).populate('blockedUsers', '_id nickname profilePhoto ');
     if (!user) throw new Error('사용자를 찾을 수 없습니다.');
     return user.blockedUsers;
 };
