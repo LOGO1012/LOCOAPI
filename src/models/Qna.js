@@ -42,10 +42,7 @@ const qnaSchema = new Schema({
         type: String,
         default: '',
     },
-    qnaRegdate: {
-        type: Date,
-        default: Date.now,  // 문의 등록 날짜, 기본값은 현재 날짜
-    },
+
     isAnonymous: {
         type: Boolean,
         default: false, // false면 실명 표시, true면 익명

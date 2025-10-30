@@ -53,9 +53,9 @@ const getQnaListPage = async (pageRequestDTO) => {
         // 쿼리 실행
         const dtoList = await Qna.find(filter)
             .select(
-                'qnaTitle qnaContents qnaStatus userNickname answerUserNickname qnaRegdate isAnonymous isAdminOnly userId'
+                'qnaTitle qnaContents qnaAnswer qnaStatus userNickname answerUserNickname isAnonymous isAdminOnly userId updatedAt createdAt'
             )
-            .sort({ qnaStatus: 1, qnaRegdate: -1 })
+            .sort({ qnaStatus: 1, createdAt: -1 })
             .skip(skip)
             .limit(size)
             .lean();
@@ -80,8 +80,6 @@ const createQna = async (qnaData) => {
         await Qna.create({
             ...qnaData,
             userNickname: author?.nickname || '',
-
-            qnaRegdate: new Date().toISOString()
         });
         return { success: true, message: 'QnA가 성공적으로 생성되었습니다.' };
     } catch (error) {

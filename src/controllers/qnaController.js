@@ -73,7 +73,7 @@ const getQnaById = async (req, res) => {
         let serialized = {
             ...qna.toObject(),
             userNickname: qna.isAnonymous ? '익명' : qna.userNickname,
-            qnaRegdate: qna.qnaRegdate.toISOString(),
+            qnaRegdate: qna.createdAt.toISOString(),
             updatedAt: qna.updatedAt.toISOString()
         };
 
