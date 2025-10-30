@@ -726,7 +726,186 @@ class IntelligentCache {
   }
 
 
+  /**
+   * 특정 필드만 선택적으로 무효화
+   * @param {string} userId - 사용자 ID
+   * @param {string} field - 무효화할 필드명 (예: 'star')
+   */
+  async invalidateUserField(userId, field) {
+    try {
+      const cacheKey = `user_${userId}_${field}`;
 
+      if (this.client && this.isConnected) {
+        // Redis: star 필드만 무효화
+        await this.client.del(cacheKey);
+        console.log(`🗑️ [Redis 선택적 무효화] ${cacheKey}`);
+      } else {
+        // Memory: star 필드만 삭제
+        this.memoryCache.delete(cacheKey);
+        console.log(`🗑️ [Memory 선택적 무효화] ${cacheKey}`);
+      }
+    } catch (error) {
+      console.error(`❌ 필드 무효화 실패 (${userId}.${field}):`, error);
+    }
+  }
+
+  /**
+   * star 값 캐싱 (5분 TTL)
+   * @param {string} userId - 사용자 ID
+   * @param {number} starValue - 별점 값
+   * @param {number} ttl - Time To Live (초 단위, 기본 300초=5분)
+   */
+  async cacheUserStar(userId, starValue, ttl = 300) {
+    const cacheKey = `user_${userId}_star`;
+
+    try {
+      if (this.client && this.isConnected) {
+        // Redis 캐싱
+        await this.client.setEx(
+            cacheKey,
+            ttl,
+            JSON.stringify({ star: starValue, cachedAt: new Date() })
+        );
+        console.log(`✅ [Redis 캐싱] ${cacheKey} = ${starValue} (TTL: ${ttl}초)`);
+      } else {
+        // Memory 캐싱
+        this.memoryCache.set(cacheKey, {
+          star: starValue,
+          cachedAt: new Date()
+        });
+
+        // TTL 후 자동 삭제
+        setTimeout(() => {
+          this.memoryCache.delete(cacheKey);
+          console.log(`⏰ [Memory TTL 만료] ${cacheKey}`);
+        }, ttl * 1000);
+
+        console.log(`✅ [Memory 캐싱] ${cacheKey} = ${starValue} (TTL: ${ttl}초)`);
+      }
+    } catch (error) {
+      console.error(`❌ star 캐싱 실패 (${userId}):`, error);
+    }
+  }
+
+  /**
+   * star 값 조회 (캐시에서)
+   * @param {string} userId - 사용자 ID
+   * @returns {Promise<number|null>} - 캐시된 star 값 또는 null
+   */
+  async getCachedUserStar(userId) {
+    const cacheKey = `user_${userId}_star`;
+
+    try {
+      if (this.client && this.isConnected) {
+        // Redis에서 조회
+        const cached = await this.client.get(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          console.log(`💾 [Redis HIT] ${cacheKey} = ${parsed.star}`);
+          return parsed.star;
+        }
+        console.log(`🔍 [Redis MISS] ${cacheKey}`);
+        return null;
+      } else {
+        // Memory에서 조회
+        const cached = this.memoryCache.get(cacheKey);
+        if (cached) {
+          console.log(`💾 [Memory HIT] ${cacheKey} = ${cached.star}`);
+          return cached.star;
+        }
+        console.log(`🔍 [Memory MISS] ${cacheKey}`);
+        return null;
+      }
+    } catch (error) {
+      console.error(`❌ star 조회 실패 (${userId}):`, error);
+      return null;
+    }
+  }
+
+  async invalidateUserFriends(userId) {
+    try {
+      await Promise.all([
+        this.deleteCache(`auth_user_${userId}`),
+        this.deleteCache(`user_friends_ids_${userId}`),
+        this.deleteCache(`user_profile_full_${userId}`)
+      ]);
+
+      const cacheType = this.client ? 'Redis' : 'Memory';
+      console.log(`✅ [${cacheType}] 선택적 무효화 - 친구 목록: ${userId}`);
+    } catch (error) {
+      console.error(`❌ 친구 캐시 무효화 실패 (${userId}):`, error);
+    }
+  }
+
+  /**
+   * 특정 사용자 필드 값 캐싱 (범용)
+   * @param {string} userId - 사용자 ID
+   * @param {string} field - 필드명 (예: 'numOfChat', 'star')
+   * @param {any} value - 캐싱할 값
+   * @param {number} ttl - Time To Live (초 단위, 기본 60초)
+   */
+  async cacheUserField(userId, field, value, ttl = 60) {
+    const cacheKey = `user_${userId}_${field}`;
+
+    try {
+      if (this.client && this.isConnected) {
+        // Redis 캐싱
+        await this.client.setEx(
+            cacheKey,
+            ttl,
+            JSON.stringify({ [field]: value, cachedAt: new Date() })
+        );
+        console.log(`✅ [Redis 캐싱] ${cacheKey} = ${value} (TTL: ${ttl}초)`);
+      } else {
+        // Memory 캐싱
+        this.memoryCache.set(cacheKey, {
+          value: JSON.stringify({ [field]: value, cachedAt: new Date() }),
+          expires: Date.now() + (ttl * 1000)
+        });
+
+        console.log(`✅ [Memory 캐싱] ${cacheKey} = ${value} (TTL: ${ttl}초)`);
+      }
+    } catch (error) {
+      console.error(`❌ ${field} 캐싱 실패 (${userId}):`, error);
+    }
+  }
+
+  /**
+   * 특정 사용자 필드 값 조회 (캐시에서)
+   * @param {string} userId - 사용자 ID
+   * @param {string} field - 필드명
+   * @returns {Promise<any|null>} - 캐시된 값 또는 null
+   */
+  async getCachedUserField(userId, field) {
+    const cacheKey = `user_${userId}_${field}`;
+
+    try {
+      if (this.client && this.isConnected) {
+        // Redis에서 조회
+        const cached = await this.client.get(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          console.log(`💾 [Redis HIT] ${cacheKey} = ${parsed[field]}`);
+          return parsed[field];
+        }
+        console.log(`🔍 [Redis MISS] ${cacheKey}`);
+        return null;
+      } else {
+        // Memory에서 조회
+        const cached = this.memoryCache.get(cacheKey);
+        if (cached && cached.expires > Date.now()) {
+          const parsed = JSON.parse(cached.value);
+          console.log(`💾 [Memory HIT] ${cacheKey} = ${parsed[field]}`);
+          return parsed[field];
+        }
+        console.log(`🔍 [Memory MISS] ${cacheKey}`);
+        return null;
+      }
+    } catch (error) {
+      console.error(`❌ ${field} 조회 실패 (${userId}):`, error);
+      return null;
+    }
+  }
 
 
 

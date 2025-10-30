@@ -22,7 +22,7 @@ import {
     deactivateUser,
     reactivateUser,
     archiveAndPrepareNewController,
-    updateWordFilter
+    updateWordFilter, getFriendRequestCountController
 } from "../controllers/userController.js";
 import { authenticate } from '../middlewares/authMiddleware.js';
 // ✅ 신규 추가
@@ -139,6 +139,9 @@ router.post("/:userId/friend-request", sendFriendRequestController);
 
 // 친구 요청 목록 조회 엔드포인트
 router.get("/:userId/friend-requests", getFriendRequestsController);
+
+//친구 신청 갯수
+router.get("/:userId/friend-requests/count", getFriendRequestCountController);
 
 // 친구 요청 거절
 router.post('/:userId/friend-request/decline', declineFriendRequestController);

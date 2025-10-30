@@ -82,8 +82,8 @@ const genderHistorySchema = new Schema({
 });
 
 // 복합 인덱스 (성능 최적화)
-nicknameHistorySchema.index({ userId: 1, createdAt: -1 });
-genderHistorySchema.index({ userId: 1, createdAt: -1 });
+nicknameHistorySchema.index({ userId: 1, changeReason: 1, createdAt: -1 });
+genderHistorySchema.index({ userId: 1, changeReason: 1, createdAt: -1 });
 
 // 모델 생성 및 내보내기
 export const NicknameHistory = model('NicknameHistory', nicknameHistorySchema);
