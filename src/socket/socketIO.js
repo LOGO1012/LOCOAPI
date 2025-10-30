@@ -218,3 +218,101 @@ export const initializeSocket = (server) => {
 
     return io;
 };
+
+
+// ============================================================================
+// 🆕 친구 관계 실시간 알림 헬퍼 함수
+// ============================================================================
+
+/**
+ * 친구 추가 알림 전송
+ * @param {string} userId - 친구 추가한 사용자 ID
+ * @param {string} friendId - 추가된 친구 ID
+ * @param userInfo
+ * @param {Object} friendData - 친구 정보 ({ _id, nickname, profilePhoto, ... })
+ */
+export const emitFriendAdded = (userId, friendId, userInfo, friendData) => {
+    if (!io) {
+        console.warn('⚠️ Socket.IO가 초기화되지 않았습니다.');
+        return;
+    }
+
+    // 친구 추가한 사람에게 알림
+    io.to(userId).emit('friendAdded', {
+        friend: friendData,
+        timestamp: new Date()
+    });
+
+    // 추가된 친구에게도 알림
+    io.to(friendId).emit('friendAdded', {
+        friend: userInfo, // userId는 반대편 정보
+        timestamp: new Date()
+    });
+
+    console.log(`👥 [Socket] 친구 추가 알림: ${userId} ↔ ${friendId}`);
+};
+
+/**
+ * 친구 삭제 알림 전송
+ * @param {string} userId - 친구 삭제한 사용자 ID
+ * @param {string} friendId - 삭제된 친구 ID
+ */
+export const emitFriendDeleted = (userId, friendId) => {
+    if (!io) {
+        console.warn('⚠️ Socket.IO가 초기화되지 않았습니다.');
+        return;
+    }
+
+    // 양쪽 모두에게 알림
+    io.to(userId).emit('friendDeleted', {
+        friendId: friendId,
+        timestamp: new Date()
+    });
+
+    io.to(friendId).emit('friendDeleted', {
+        friendId: userId,
+        timestamp: new Date()
+    });
+
+    console.log(`🗑️ [Socket] 친구 삭제 알림: ${userId} ↔ ${friendId}`);
+};
+
+/**
+ * 사용자 차단 알림 전송
+ * @param {string} blockerId - 차단한 사용자 ID
+ * @param {string} blockedId - 차단당한 사용자 ID
+ */
+export const emitFriendBlocked = (blockerId, blockedId) => {
+    if (!io) {
+        console.warn('⚠️ Socket.IO가 초기화되지 않았습니다.');
+        return;
+    }
+
+    // 차단당한 사람에게만 알림 (차단한 사람은 이미 UI에서 처리)
+    io.to(blockedId).emit('friendBlocked', {
+        blockerId: blockerId,
+        timestamp: new Date()
+    });
+
+    console.log(`🚫 [Socket] 차단 알림: ${blockerId} → ${blockedId}`);
+};
+
+/**
+ * 차단 해제 알림 전송
+ * @param {string} unblockerId - 차단 해제한 사용자 ID
+ * @param {string} unblockedId - 차단 해제된 사용자 ID
+ */
+export const emitFriendUnblocked = (unblockerId, unblockedId) => {
+    if (!io) {
+        console.warn('⚠️ Socket.IO가 초기화되지 않았습니다.');
+        return;
+    }
+
+    // 차단 해제된 사람에게 알림
+    io.to(unblockedId).emit('friendUnblocked', {
+        unblockerId: unblockerId,
+        timestamp: new Date()
+    });
+
+    console.log(`✅ [Socket] 차단 해제 알림: ${unblockerId} → ${unblockedId}`);
+};

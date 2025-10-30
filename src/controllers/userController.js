@@ -1,4 +1,5 @@
 // controllers/userController.js
+import mongoose from 'mongoose';
 import {
     acceptFriendRequestService,
     declineFriendRequestService,
@@ -169,9 +170,11 @@ export const updateUserProfile = async (req, res) => {
             userId,
             updateData,
             {
-            new: true,
-            runValidators: true
-        });
+                new: true,
+                runValidators: true,
+                select: '_id nickname info gender lolNickname suddenNickname battleNickname profilePhoto photo coinLeft star'
+            }
+        );
 
         // ✅ 경량 응답: 프론트에 필요한 필드만 선택
         const lightResponse = {
@@ -192,6 +195,34 @@ export const updateUserProfile = async (req, res) => {
         await IntelligentCache.invalidateUserStaticInfo(userId);
         await IntelligentCache.invalidateUserCache(userId);
         console.log(`✅ [캐시 무효화] 프로필 업데이트: ${userId}`);
+
+        // 🔥 추가: 프로필 편집용 캐시도 명시적으로 삭제
+        await IntelligentCache.deleteCache(`user_profile_edit_${userId}`);
+        await IntelligentCache.deleteCache(`user_minimal_${userId}`);
+        await IntelligentCache.deleteCache(`user_profile_full_${userId}`);
+
+        console.log(`✅ [캐시 무효화 완료] 프로필 업데이트: ${userId}`);
+
+        // ⭐ 닉네임 또는 성별 변경 시 캐시 무효화
+        // ⭐ 닉네임 또는 성별 변경 시 캐시 무효화
+        if (updateData.nickname && updateData.nickname !== currentUser.nickname) {
+            // 🆕 추가: 기존 닉네임 캐시 삭제
+            await IntelligentCache.deleteCache(`user_nickname_${currentUser.nickname}`);
+            console.log(`🗑️ [캐시 무효화] 이전 닉네임: ${currentUser.nickname}`);
+
+            // 🆕 추가: 혹시 모를 새 닉네임 캐시도 삭제 (예: 다른 사람이 검색했던 경우)
+            await IntelligentCache.deleteCache(`user_nickname_${updateData.nickname}`);
+            console.log(`🗑️ [캐시 무효화] 새 닉네임: ${updateData.nickname}`);
+
+            // 기존 코드
+            await IntelligentCache.deleteCache(`change_availability_${userId}`);
+            console.log(`🗑️ [캐시 무효화] 닉네임 변경 가능 여부: ${userId}`);
+        }
+
+        if (updateData.gender && updateData.gender !== currentUser.gender) {
+            await IntelligentCache.deleteCache(`change_availability_${userId}`);
+            console.log(`🗑️ [캐시 무효화] 성별 변경: ${userId}`);
+        }
 
         // 히스토리 저장
         if (updateData.nickname && updateData.nickname !== currentUser.nickname) {
@@ -219,7 +250,6 @@ export const updateUserProfile = async (req, res) => {
         }
 
         res.status(200).json({
-            message: '프로필이 성공적으로 업데이트되었습니다.',
             user: lightResponse
         });
 
@@ -292,20 +322,35 @@ export const decrementChatCountController = async (req, res) => {
 
 export const acceptFriendRequestController = async (req, res) => {
     const { requestId } = req.body; // 클라이언트에서 친구 요청 ID를 전달받음
+
+    // ✅ 1. requestId 존재 확인
+    if (!requestId) {
+        return res.status(400).json({ error: 'requestId는 필수입니다.' });
+    }
+
+    // ✅ 2. ObjectId 형식 검증
+    if (!mongoose.Types.ObjectId.isValid(requestId)) {
+        return res.status(400).json({ error: '잘못된 requestId 형식입니다.' });
+    }
+
+
+
     try {
         const result = await acceptFriendRequestService(requestId);
-        res.status(200).json({
-            success: true,
-            message: "친구 요청을 수락하였으며, 친구 목록에 추가되었습니다.",
-            data: {
-                friend: result.friend  // ✅ populate된 친구 정보
-            }
-        });
+        res.status(200).json(result.friend);
+        // res.status(200).json({
+        //     success: true,
+        //     message: "친구 요청을 수락하였으며, 친구 목록에 추가되었습니다.",
+        //     data: {
+        //         friend: result.friend  // ✅ populate된 친구 정보
+        //     }
+        // });
     } catch (error) {
-        res.status(400).json({
-            success: false,
-            message: error.message
-        });
+        res.status(400).json({ error: error.message });
+        // res.status(400).json({
+        //     success: false,
+        //     message: error.message
+        // });
     }
 };
 
@@ -320,6 +365,10 @@ export const sendFriendRequestController = async (req, res) => {
         // 보낸 유저의 정보를 가져와 닉네임을 조회
         // const senderUser = await getUserById(senderId);
 
+        // ✅ 추가: 캐시 무효화
+        await IntelligentCache.deleteCache(`friend_requests_${receiverId}`);
+        console.log(`🗑️ [캐시 무효화] 친구 요청 목록: ${receiverId}`);
+
         // 보낸 유저의 닉네임을 포함하여 알림 전송
         io.to(receiverId).emit('friendRequestNotification', {
             message: `${senderNickname}님이 친구 요청을 보냈습니다.`,
@@ -329,7 +378,7 @@ export const sendFriendRequestController = async (req, res) => {
         res.status(200).json({
             success: true,
             message: "친구 요청을 보냈습니다.",
-            data: request
+            // data: request
         });
     } catch (error) {
         res.status(400).json({
@@ -359,6 +408,37 @@ export const getFriendRequestsController = async (req, res) => {
 };
 
 
+// ✅✅✅ 여기에 새로운 함수 추가! ✅✅✅
+/**
+ * 친구 요청 개수만 조회 (최적화)
+ * GET /api/user/:userId/friend-requests/count
+ */
+export const getFriendRequestCountController = async (req, res) => {
+    const { userId } = req.params;
+    try {
+        console.log(`📊 [친구 요청 개수 조회] userId: ${userId}`);
+
+        // ✅ countDocuments - find()보다 10배 빠름!
+        const count = await FriendRequest.countDocuments({
+            receiver: userId,
+            status: 'pending'
+        });
+
+        console.log(`✅ [친구 요청 개수] ${count}개`);
+
+        res.status(200).json({
+            success: true,
+            count
+        });
+    } catch (error) {
+        console.error(`❌ [친구 요청 개수 조회 실패]`, error);
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 
 // 친구 요청 거절 컨트롤러 함수
 export const declineFriendRequestController = async (req, res) => {
@@ -383,7 +463,7 @@ export const declineFriendRequestController = async (req, res) => {
 export const deleteFriendController = async (req, res) => {
     const { userId, friendId } = req.params;
     try {
-        const result = await deleteFriend(userId, friendId, io);
+        const result = await deleteFriend(userId, friendId);
         res.status(200).json({
             success: true,
             message: result.message,
@@ -497,7 +577,7 @@ export const updateUserPrefsController = async (req, res) => {
         const updated = await User.findByIdAndUpdate(
             userId,
             updateData,
-            { new: true, select: 'friendReqEnabled chatPreviewEnabled wordFilterEnabled' } // ✅ 필드 추가
+            { new: false , select: 'friendReqEnabled chatPreviewEnabled wordFilterEnabled' } // ✅ 필드 추가
         );
 
         if (!updated) {
@@ -510,7 +590,7 @@ export const updateUserPrefsController = async (req, res) => {
         }
 
         // 3. 응답 반환
-        return res.status(200).json({ success: true, data: updated });
+        return res.status(200).json({ success: true});
 
     } catch (e) {
         return res.status(400).json({ success: false, message: e.message });
@@ -568,7 +648,9 @@ export const checkNicknameController = async (req, res) => {
         }
 
         // DB에서 중복 체크
-        const existingUser = await User.findOne({ nickname });
+        const existingUser = await User.findOne({ nickname })
+            .select('_id')  // ⭐ _id 필드만 선택
+            .lean();        // ⭐ Plain JavaScript Object 반환
 
         if (existingUser) {
             // 수정 시 자신의 닉네임인 경우는 사용 가능
@@ -640,6 +722,23 @@ export const getGenderHistoryController = async (req, res) => {
 export const checkChangeAvailabilityController = async (req, res) => {
     try {
         const { userId } = req.params;
+        const cacheKey = `change_availability_${userId}`;
+
+        // ⭐ 1️⃣ 캐시 확인
+        let cached = await IntelligentCache.getCache(cacheKey);
+        if (cached) {
+            const cacheType = IntelligentCache.client ? 'Redis' : 'Memory';
+            console.log(`💾 [${cacheType} HIT] 변경 가능 여부: ${userId}`);
+
+            return res.status(200).json({
+                message: '변경 가능 여부 조회 성공',
+                data: cached
+            });
+        }
+
+        // ⭐ 2️⃣ 캐시 MISS: DB 조회
+        const cacheType = IntelligentCache.client ? 'Redis' : 'Memory';
+        console.log(`🔍 [${cacheType} MISS] 변경 가능 여부: ${userId} → DB 조회`);
         
         const [
             todayNicknameCount,
@@ -660,23 +759,29 @@ export const checkChangeAvailabilityController = async (req, res) => {
             tomorrow.setHours(0, 0, 0, 0);
             return tomorrow;
         };
-        
+
+        const responseData = {
+            nickname: {
+                canChange: todayNicknameCount < 1,
+                // todayChangeCount: todayNicknameCount,
+                lastChangeTime: lastNicknameChangeTime,
+                // nextAvailableTime: todayNicknameCount >= 1 ? getNextDayStart() : null
+            },
+            gender: {
+                canChange: todayGenderCount < 1,
+                // todayChangeCount: todayGenderCount,
+                lastChangeTime: lastGenderChangeTime,
+                // nextAvailableTime: todayGenderCount >= 1 ? getNextDayStart() : null
+            }
+        };
+
+        // ⭐ 3️⃣ Redis 캐싱 (TTL 5분)
+        await IntelligentCache.setCache(cacheKey, responseData, 300);
+        console.log(`✅ 캐시 저장: ${cacheKey} (TTL: 5분)`);
+
         res.status(200).json({
             message: '변경 가능 여부 조회 성공',
-            data: {
-                nickname: {
-                    canChange: todayNicknameCount < 1,
-                    todayChangeCount: todayNicknameCount,
-                    lastChangeTime: lastNicknameChangeTime,
-                    nextAvailableTime: todayNicknameCount >= 1 ? getNextDayStart() : null
-                },
-                gender: {
-                    canChange: todayGenderCount < 1,
-                    todayChangeCount: todayGenderCount,
-                    lastChangeTime: lastGenderChangeTime,
-                    nextAvailableTime: todayGenderCount >= 1 ? getNextDayStart() : null
-                }
-            }
+            data: responseData
         });
     } catch (error) {
         console.error('변경 가능 여부 확인 실패:', error);

@@ -22,4 +22,7 @@ const friendRequestSchema = new Schema({
     timestamps: true,
 });
 
+// ✅ 복합 인덱스 추가
+friendRequestSchema.index({ sender: 1, receiver: 1, status: 1 });
+
 export const FriendRequest = model('FriendRequest', friendRequestSchema);

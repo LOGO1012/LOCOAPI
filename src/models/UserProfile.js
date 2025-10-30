@@ -20,7 +20,10 @@ const userSchema = new Schema({
         type: String,           // 닉네임: 사용자가 표시할 별명
         required: true,         // 필수 항목
         unique: true,           // 닉네임 유니크 설정(중복제거)
-        trim: true               // 공백 제거
+        index: true,
+        trim: true,              // 공백 제거
+        minlength: 2,
+        maxlength: 12
     },
     gender: {
         type: String,           // 성별: 사용자의 성별

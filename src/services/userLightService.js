@@ -5,6 +5,7 @@
 
 import { User } from '../models/UserProfile.js';
 import IntelligentCache from '../utils/cache/intelligentCache.js';
+import { emitFriendBlocked, emitFriendUnblocked } from '../socket/socketIO.js';
 
 /**
  * 기본 프로필 정보 조회
@@ -199,6 +200,8 @@ export const blockUserServiceMinimal = async (userId, targetId) => {
         await IntelligentCache.deleteCache(`user_blocks_${userId}`);
         await IntelligentCache.deleteCache(`users_blocked_me_${targetId}`);
 
+        emitFriendBlocked(userId, targetId);
+
         console.log(`✅ [차단 완료] ${userId} -> ${targetId}`);
 
         return true;
@@ -228,6 +231,8 @@ export const unblockUserServiceMinimal = async (userId, targetId) => {
         await IntelligentCache.invalidateUserCache(userId);
         await IntelligentCache.deleteCache(`user_blocks_${userId}`);
         await IntelligentCache.deleteCache(`users_blocked_me_${targetId}`);
+
+        emitFriendUnblocked(userId, targetId);
 
         console.log(`✅ [차단 해제] ${userId} -> ${targetId}`);
 
