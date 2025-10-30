@@ -370,7 +370,7 @@ export const createPoll = async (req, res) => {
         const { id } = req.params; // communityId
         const pollData = {
             ...req.body,
-            createdBy: req.body.userId // 실제로는 인증 미들웨어에서 가져와야 함
+            createdBy: req.user._id // 세션에서 사용자 ID 가져오기
         };
 
         const createdPoll = await communityService.createPoll(id, pollData);
@@ -387,12 +387,9 @@ export const createPoll = async (req, res) => {
 // 투표하기
 export const votePoll = async (req, res) => {
     try {
-        const { id, pollId } = req.params;
-        const { userId, optionIndex } = req.body;
-
-        if (!userId) {
-            return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
-        }
+        const { id, pollId } = req.params; // communityId
+        const { optionIndex } = req.body;
+        const userId = req.user._id; // 세션에서 사용자 ID 가져오기
 
         if (optionIndex === undefined || optionIndex < 0) {
             return res.status(400).json({ message: '유효한 선택지를 선택해주세요.' });
@@ -409,7 +406,7 @@ export const votePoll = async (req, res) => {
 export const deletePoll = async (req, res) => {
     try {
         const { id, pollId } = req.params;
-        const { userId } = req.body;
+        const userId = req.user._id;
 
         if (!userId) {
             return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
@@ -430,11 +427,7 @@ export const deletePoll = async (req, res) => {
 export const cancelVote = async (req, res) => {
     try {
         const { id, pollId } = req.params;
-        const { userId } = req.body;
-
-        if (!userId) {
-            return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
-        }
+        const userId = req.user._id; // 세션에서 사용자 ID 가져오기
 
         const result = await communityService.cancelVoteFromPoll(id, pollId, userId);
         res.status(200).json(result);
@@ -449,7 +442,7 @@ export const createCommentPoll = async (req, res) => {
         const { commentId } = req.params;
         const pollData = {
             ...req.body,
-            createdBy: req.body.userId
+            createdBy: req.user._id
         };
 
         const createdPoll = await communityService.createCommentPoll(commentId, pollData);
@@ -467,11 +460,8 @@ export const createCommentPoll = async (req, res) => {
 export const voteCommentPoll = async (req, res) => {
     try {
         const { commentId, pollId } = req.params;
-        const { userId, optionIndex } = req.body;
-
-        if (!userId) {
-            return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
-        }
+        const { optionIndex } = req.body;
+        const userId = req.user._id; // 세션에서 사용자 ID 가져오기
 
         if (optionIndex === undefined || optionIndex < 0) {
             return res.status(400).json({ message: '유효한 선택지를 선택해주세요.' });
@@ -499,7 +489,7 @@ export const getCommentPollResults = async (req, res) => {
 export const getCommentUserVoteStatus = async (req, res) => {
     try {
         const { commentId, pollId } = req.params;
-        const { userId } = req.query;
+        const userId = req.user._id; // Get userId from authenticated session (_id is correct)
 
         if (!userId) {
             return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
@@ -516,7 +506,7 @@ export const getCommentUserVoteStatus = async (req, res) => {
 export const cancelCommentVote = async (req, res) => {
     try {
         const { commentId, pollId } = req.params;
-        const { userId } = req.body;
+        const userId = req.user._id; // Get userId from authenticated session
 
         if (!userId) {
             return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
@@ -533,13 +523,14 @@ export const cancelCommentVote = async (req, res) => {
 export const deleteCommentPoll = async (req, res) => {
     try {
         const { commentId, pollId } = req.params;
-        const { userId } = req.body;
+        const userId = req.user._id; // 세션에서 사용자 ID 가져오기
+        const isAdmin = req.user.userLv >= 2; // 세션에서 관리자 여부 확인
 
         if (!userId) {
             return res.status(400).json({ message: '사용자 정보가 필요합니다.' });
         }
 
-        const result = await communityService.deleteCommentPoll(commentId, pollId, userId);
+        const result = await communityService.deleteCommentPoll(commentId, pollId, userId, isAdmin);
         res.status(200).json(result);
     } catch (error) {
         res.status(400).json({ message: error.message });

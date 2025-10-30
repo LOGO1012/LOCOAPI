@@ -2,6 +2,7 @@
 import express from 'express';
 import * as communityController from '../controllers/communityController.js';
 import upload from "../utils/upload.js";
+import { authenticate } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -59,36 +60,36 @@ router.delete('/:id/comments/:commentId/replies/:replyId', communityController.d
 router.delete('/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId', communityController.deleteSubReply);
 
 // 투표 생성
-router.post('/:id/polls', communityController.createPoll);
+router.post('/:id/polls', authenticate, communityController.createPoll);
 
 // 투표하기
-router.post('/:id/polls/:pollId/vote', communityController.votePoll);
+router.post('/:id/polls/:pollId/vote', authenticate, communityController.votePoll);
 
 
 
 
 
 // 투표 삭제
-router.delete('/:id/polls/:pollId', communityController.deletePoll);
+router.delete('/:id/polls/:pollId', authenticate, communityController.deletePoll);
 
-router.post('/:id/polls/:pollId/cancel-vote', communityController.cancelVote);
+router.post('/:id/polls/:pollId/cancel-vote', authenticate, communityController.cancelVote);
 
 // 댓글 투표 생성
-router.post('/comments/:commentId/polls', communityController.createCommentPoll);
+router.post('/comments/:commentId/polls', authenticate, communityController.createCommentPoll);
 
 // 댓글 투표 참여
-router.post('/comments/:commentId/polls/:pollId/vote', communityController.voteCommentPoll);
+router.post('/comments/:commentId/polls/:pollId/vote', authenticate, communityController.voteCommentPoll);
 
 // 댓글 투표 결과 조회
 router.get('/comments/:commentId/polls/:pollId/results', communityController.getCommentPollResults);
 
 // 댓글 투표 상태 확인
-router.get('/comments/:commentId/polls/:pollId/status', communityController.getCommentUserVoteStatus);
+router.get('/comments/:commentId/polls/:pollId/status', authenticate, communityController.getCommentUserVoteStatus);
 
 // 댓글 투표 취소
-router.post('/comments/:commentId/polls/:pollId/cancel-vote', communityController.cancelCommentVote);
+router.post('/comments/:commentId/polls/:pollId/cancel-vote', authenticate, communityController.cancelCommentVote);
 
 // 댓글 투표 삭제
-router.delete('/comments/:commentId/polls/:pollId', communityController.deleteCommentPoll);
+router.delete('/comments/:commentId/polls/:pollId', authenticate, communityController.deleteCommentPoll);
 
 export default router;
