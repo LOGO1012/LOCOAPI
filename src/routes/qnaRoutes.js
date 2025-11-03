@@ -10,9 +10,6 @@ router.post('/', QnaController.createQna);
 // GET / - 전체 QnA 목록 조회
 router.get('/', QnaController.getQnaListPage);
 
-// GET /:id - 특정 QnA 문서 조회
-router.get('/:id', QnaController.getQnaById);
-
 // PUT /:id - 특정 QnA 문서 업데이트 (답변 추가 등)
 router.put('/:id', QnaController.updateQna);
 
