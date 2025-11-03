@@ -88,39 +88,6 @@ const createQna = async (qnaData) => {
 };
 
 /**
- * 전체 QnA 문서 목록을 조회합니다.
- * 사용자 및 답변 작성자 정보를 populate 하여 반환합니다.
- * @returns {Promise<Array>} QnA 문서 목록
- */
-const getAllQnas = async () => {
-    try {
-        const qnas = await Qna.find()
-            .populate('userId')
-            .populate('answerUserId');
-        return qnas;
-    } catch (error) {
-        throw new Error(error);
-    }
-};
-
-/**
- * 주어진 ID에 해당하는 QnA 문서를 조회합니다.
- * 사용자 및 답변 작성자 정보를 populate 하여 반환합니다.
- * @param {String} id - QnA 문서의 ID
- * @returns {Promise<Object>} 조회된 QnA 문서
- */
-const getQnaById = async (id) => {
-    try {
-        const qna = await Qna.findById(id)
-            .populate('userId')
-            .populate('answerUserId');
-        return qna;
-    } catch (error) {
-        throw new Error(error);
-    }
-};
-
-/**
  * 주어진 ID의 QnA 문서를 업데이트합니다.
  * 답변이 추가되면 qnaStatus를 'Answered'로 변경합니다.
  * @param {String} id - 업데이트할 QnA 문서의 ID
@@ -165,8 +132,6 @@ const deleteQna = async (id) => {
 
 export default {
     createQna,
-    getAllQnas,
-    getQnaById,
     updateQna,
     deleteQna,
     getQnaListPage

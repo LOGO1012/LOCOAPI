@@ -12,7 +12,11 @@ const mapGenderKor = (g) => {
 // 상위 10명 (별점 기준 내림차순)
 export const getPRTopUsers = async (req, res, next) => {
     try {
-        const topUsersRaw = await User.find().sort({ star: -1 }).limit(10).lean();
+        const topUsersRaw = await User.find()
+            .sort({ star: -1 })
+            .limit(10)
+            .select('_id nickname profilePhoto star gender') // ◀◀◀ Select 절 추가
+            .lean();
         
         // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
         const userIds = topUsersRaw.map(u => u._id.toString());
@@ -55,6 +59,7 @@ export const getPRUserList = async (req, res, next) => {
             .sort(sortOption)
             .skip((page - 1) * limit)
             .limit(limit)
+            .select('_id nickname profilePhoto star gender') // ◀◀◀ Select 절 추가
             .lean();
 
         // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)

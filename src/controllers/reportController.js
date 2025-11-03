@@ -13,10 +13,10 @@ import {ChatRoomHistory} from "../models/chatRoomHistory.js";
  */
 export const createReport = async (req, res) => {
     try {
-        // 요청 본문(req.body)에서 데이터를 받아 서비스로 전달 후 생성된 신고 반환
-        const newReport = await reportService.createReport(req.body);
+        // 요청 본문(req.body)에서 데이터를 받아 서비스로 전달 후 생성된 신고 ID가 포함된 결과 반환
+        const result = await reportService.createReport(req.body);
         // 생성 성공 시 201 상태코드와 함께 결과 반환
-        res.status(201).json(newReport);
+        res.status(201).json(result);
     } catch (error) {
         // 에러 발생 시 500 상태코드와 에러 메시지 반환
         res.status(500).json({ error: error.message });
@@ -29,10 +29,8 @@ export const createReport = async (req, res) => {
  */
 export const getReport = async (req, res) => {
     try {
-        // URL에서 id 파라미터 추출하여 서비스 함수로 조회
-        const report = await Report.findById(req.params.id);
+        const report = await reportService.getReportById(req.params.id);
         if (!report) {
-            // 조회된 신고가 없으면 404 에러 반환
             return res.status(404).json({ message: 'Report not found' });
         }
         res.status(200).json(report);

@@ -326,8 +326,16 @@ export const getComments = async (req, res) => {
 export const getReplies = async (req, res) => {
     try {
         const { commentId } = req.params;
-        const replies = await communityService.getRepliesByComment(commentId);
-        res.status(200).json(replies);
+        const page = parseInt(req.query.page || '1', 10);
+        const size = parseInt(req.query.size || '5', 10);
+
+        const { replies, totalCount } = await communityService.getRepliesByComment(commentId, page, size);
+
+        res.status(200).json({
+            replies,
+            totalPages: Math.ceil(totalCount / size),
+            currentPage: page
+        });
     } catch (error) {
         res.status(500).json({ message: '대댓글 조회에 실패했습니다.', error });
     }
@@ -336,8 +344,16 @@ export const getReplies = async (req, res) => {
 export const getSubReplies = async (req, res) => {
     try {
         const { replyId } = req.params;
-        const subReplies = await communityService.getSubRepliesByReply(replyId);
-        res.status(200).json(subReplies);
+        const page = parseInt(req.query.page || '1', 10);
+        const size = parseInt(req.query.size || '5', 10);
+
+        const { subReplies, totalCount } = await communityService.getSubRepliesByReply(replyId, page, size);
+
+        res.status(200).json({
+            subReplies,
+            totalPages: Math.ceil(totalCount / size),
+            currentPage: page
+        });
     } catch (error) {
         res.status(500).json({ message: '대대댓글 조회에 실패했습니다.', error });
     }

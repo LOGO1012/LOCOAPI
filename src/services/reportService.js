@@ -11,8 +11,10 @@ import { createReportedMessageBackup } from './chatService.js'; // 추가
  */
 export const createReport = async (data) => {
     try {
-        const offender  = await User.findById(data.offenderId,  'nickname');
-        const reporter  = await User.findById(data.reportErId, 'nickname');
+        const [offender, reporter] = await Promise.all([
+            User.findById(data.offenderId, 'nickname'),
+            User.findById(data.reportErId, 'nickname')
+        ]);
 
         // 신고 문서 저장
         const report = await new Report({
@@ -77,7 +79,7 @@ export const createReport = async (data) => {
         );
         /* ────────────────────────────────────────────────────────── */
 
-        return report;
+        return { success: true, reportId: report._id }; // 전체 객체 대신 ID만 반환
     } catch (error) {
         throw error;
     }
@@ -91,8 +93,12 @@ export const createReport = async (data) => {
  */
 export const getReportById = async (id) => {
     try {
-        // Report 컬렉션에서 id에 해당하는 신고 찾기
-        return await Report.findById(id);
+        return await Report.findById(id)
+            .select('reportTitle reportArea reportCategory reportContants reportDate reportErId offenderId adminId stopDetail stopDate durUntil anchor reportAnswer reportStatus')
+            .populate('reportErId', 'nickname')
+            .populate('offenderId', 'nickname')
+            .populate('adminId', 'nickname')
+            .lean();
     } catch (error) {
         throw error;
     }
@@ -106,6 +112,7 @@ export const getReportsWithPagination = async (filters = {}, page = 1, size = 10
         const sortOrder = orderByDate === 'asc' ? 1 : -1;
 
         const reportsPromise = Report.find(filters)
+            .select('reportTitle reportArea reportContants reportDate reportStatus offenderNickname adminNickname') // ◀◀◀ 필드 선택
             .skip(skip)
             .limit(size)
             .sort({ reportDate: sortOrder }) // 동적 정렬 적용

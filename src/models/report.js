@@ -57,7 +57,8 @@ const reportSchema = new Schema({
     // 신고한 시간
     reportDate: {
         type: Date,                     // 신고가 접수된 시각
-        default: Date.now               // 기본값은 현재 시각
+        default: Date.now,               // 기본값은 현재 시각
+        index: true                      // ◀◀◀ 인덱스 추가
     },
     // 신고자 고유 ID
     reportErId: {
