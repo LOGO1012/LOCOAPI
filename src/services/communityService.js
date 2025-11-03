@@ -777,35 +777,61 @@ export const getCommentsByPost = async (postId, page = 1, size = 20) => {
         .lean();
 
     for (const comment of comments) {
-        // ✅ 삭제되지 않은 답글만 조회
-        const replies = await Reply.find({
-            commentId: comment._id,
-        }).lean();
+        const replyPage = 1;
+        const replySize = 5;
+        const replySkip = (replyPage - 1) * replySize;
+
+        const totalReplies = await Reply.countDocuments({ commentId: comment._id, isDeleted: false });
+        const replies = await Reply.find({ commentId: comment._id, isDeleted: false })
+            .sort({ createdAt: 1 })
+            .skip(replySkip)
+            .limit(replySize)
+            .lean();
 
         for (const reply of replies) {
-            // ✅ 삭제되지 않은 대댓글만 조회
-            const subReplies = await SubReply.find({
-                replyId: reply._id,
-            }).lean();
+            const subReplyPage = 1;
+            const subReplySize = 5;
+            const subReplySkip = (subReplyPage - 1) * subReplySize;
 
-            // ✅ subReplies를 배열로 확실히 설정
-            reply.subReplies = Array.isArray(subReplies) ? subReplies : [];
+            const totalSubReplies = await SubReply.countDocuments({ replyId: reply._id, isDeleted: false });
+            const subReplies = await SubReply.find({ replyId: reply._id, isDeleted: false })
+                .sort({ createdAt: 1 })
+                .skip(subReplySkip)
+                .limit(subReplySize)
+                .lean();
+
+            reply.subReplies = subReplies;
+            reply.totalSubReplies = totalSubReplies;
         }
 
-        // ✅ replies를 배열로 확실히 설정
-        comment.replies = Array.isArray(replies) ? replies : [];
+        comment.replies = replies;
+        comment.totalReplies = totalReplies;
     }
 
     return { comments, totalCount };
 };
 
 
-export const getRepliesByComment = async (commentId) => {
-    return Reply.find({ commentId, isDeleted: false });
+export const getRepliesByComment = async (commentId, page = 1, size = 5) => {
+    const skip = (page - 1) * size;
+    const totalCount = await Reply.countDocuments({ commentId, isDeleted: false });
+    const replies = await Reply.find({ commentId, isDeleted: false })
+        .sort({ createdAt: 1 })
+        .skip(skip)
+        .limit(size)
+        .lean();
+    return { replies, totalCount };
 };
 
-export const getSubRepliesByReply = async (replyId) => {
-    return SubReply.find({ replyId, isDeleted: false });
+export const getSubRepliesByReply = async (replyId, page = 1, size = 5) => {
+    const skip = (page - 1) * size;
+    const totalCount = await SubReply.countDocuments({ replyId, isDeleted: false });
+    const subReplies = await SubReply.find({ replyId, isDeleted: false })
+        .sort({ createdAt: 1 })
+        .skip(skip)
+        .limit(size)
+        .lean();
+    return { subReplies, totalCount };
 };
 
 // 투표 취소 (원자적 연산으로 리팩토링)
