@@ -94,7 +94,7 @@ export const createReport = async (data) => {
 export const getReportById = async (id) => {
     try {
         return await Report.findById(id)
-            .select('reportTitle reportArea reportCategory reportContants reportDate reportErId offenderId adminId stopDetail stopDate durUntil anchor reportAnswer reportStatus')
+            .select('reportTitle reportArea reportCategory reportContants reportErId offenderId adminId stopDetail stopDate durUntil anchor reportAnswer reportStatus')
             .populate('reportErId', 'nickname')
             .populate('offenderId', 'nickname')
             .populate('adminId', 'nickname')
@@ -112,10 +112,10 @@ export const getReportsWithPagination = async (filters = {}, page = 1, size = 10
         const sortOrder = orderByDate === 'asc' ? 1 : -1;
 
         const reportsPromise = Report.find(filters)
-            .select('reportTitle reportArea reportContants reportDate reportStatus offenderNickname adminNickname') // ◀◀◀ 필드 선택
+            .select('reportTitle reportArea reportContants reportStatus offenderNickname adminNickname createdAt') // ◀◀◀ 필드 선택
             .skip(skip)
             .limit(size)
-            .sort({ reportDate: sortOrder }) // 동적 정렬 적용
+            .sort({ createdAt: sortOrder }) // 동적 정렬 적용
             .populate('reportErId', 'nickname')
             .populate('offenderId', 'nickname')
             .populate('adminId', 'nickname');

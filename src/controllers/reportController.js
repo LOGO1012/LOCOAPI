@@ -204,7 +204,7 @@ export const getReportedMessagePlaintext = async (req, res) => {
 
         // 3. 최적화된 단일 쿼리로 모든 백업 메시지 조회
         const allBackups = await ReportedMessageBackup.find({ roomId })
-            .populate('reportedBy', 'nickname')
+            .select('originalMessageId sender plaintextContent messageCreatedAt reportedBy createdAt retentionUntil')
             .sort({ messageCreatedAt: 1 })
             .lean();
 
@@ -234,7 +234,7 @@ export const getReportedMessagePlaintext = async (req, res) => {
                     $push: {
                         accessLog: {
                             accessedBy: adminId,
-                            purpose: 'admin_review',
+                            purpose: 'admin_review_all', // 전체 보기용 로그
                             ipAddress: req.ip,
                             userAgent: req.headers['user-agent']
                         }
@@ -273,6 +273,70 @@ export const getReportedMessagePlaintext = async (req, res) => {
         });
     }
 };
+
+/**
+ * 🔒 단일 신고 메시지 백업 조회 (관리자용)
+ * ReportDetailModal에서 특정 신고 1건에 대한 내용만 볼 때 사용
+ */
+export const getSingleReportedMessageBackup = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+
+        // 1. 원본 메시지 ID로 백업 문서를 찾음
+        const backup = await ReportedMessageBackup.findOne({ originalMessageId: messageId })
+            .select('originalMessageId sender plaintextContent messageCreatedAt reportedBy createdAt retentionUntil roomId') // roomId도 select
+            .lean();
+
+        if (!backup) {
+            return res.status(404).json({ success: false, message: 'Backed up message not found' });
+        }
+
+        // 2. 해당 채팅방의 전체 신고 메시지 개수 조회
+        const totalReportedMessagesInRoom = await ReportedMessageBackup.countDocuments({ roomId: backup.roomId });
+
+        // 3. 접근 로그 기록
+        const adminId = req.user?._id;
+        if (adminId) {
+            await ReportedMessageBackup.findByIdAndUpdate(backup._id, {
+                $push: {
+                    accessLog: {
+                        accessedBy: adminId,
+                        purpose: 'admin_review_single', // 단일 보기용 로그
+                        ipAddress: req.ip,
+                        userAgent: req.headers['user-agent']
+                    }
+                }
+            });
+        }
+
+        // 4. 프론트엔드 형식에 맞게 데이터 가공
+        const responseData = {
+            messageId: backup.originalMessageId,
+            sender: backup.sender,
+            plaintextContent: backup.plaintextContent,
+            createdAt: backup.messageCreatedAt,
+            reportersCount: backup.reportedBy?.length || 0,
+            isCurrentReport: true, // 단일 조회이므로 항상 true
+            reportedAt: backup.createdAt,
+            retentionUntil: backup.retentionUntil,
+            totalReportedMessagesInRoom: totalReportedMessagesInRoom // 추가된 필드
+        };
+
+        res.status(200).json({
+            success: true,
+            reportedMessage: responseData
+        });
+
+    } catch (error) {
+        console.error('❌ [단일 평문조회] 실패:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch single plaintext message',
+            error: error.message
+        });
+    }
+};
+
 
 /**
  * 🚀 최적화된 신고 채팅 로그 조회 함수
