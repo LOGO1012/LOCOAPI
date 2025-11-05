@@ -94,7 +94,7 @@ export const createReport = async (data) => {
 export const getReportById = async (id) => {
     try {
         return await Report.findById(id)
-            .select('reportTitle reportArea reportCategory reportContants reportErId offenderId adminId stopDetail stopDate durUntil anchor reportAnswer reportStatus')
+            .select('reportTitle reportArea reportCategory reportContants reportErId offenderId adminId stopDetail stopDate durUntil anchor reportAnswer reportStatus createdAt')
             .populate('reportErId', 'nickname')
             .populate('offenderId', 'nickname')
             .populate('adminId', 'nickname')
