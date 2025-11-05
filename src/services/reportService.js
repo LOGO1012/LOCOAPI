@@ -162,7 +162,7 @@ export const deleteReport = async (id) => {
 /**
  * 신고에 답변 추가하기 (관리자 ID와 제재 내용을 함께 저장)
  */
-export const addReplyToReport = async (id, replyContent, adminId, suspensionDays, stopDetail) => {
+export const addReplyToReport = async (id, replyContent, adminUser, suspensionDays, stopDetail) => {
     try {
         const now = new Date();
         let durUntil = null;
@@ -179,17 +179,16 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
             reportStatus = "dismissed";
         }
 
-        const admin = await User.findById(adminId, 'nickname');
         const updatedReport = await Report.findByIdAndUpdate(
             id,
             {
                 reportAnswer: replyContent,
-                adminId: adminId,
+                adminId: adminUser._id, // adminUser 객체에서 ID 사용
                 reportStatus: reportStatus,
                 stopDetail: stopDetail ? stopDetail : (suspensionDays && parseInt(suspensionDays) > 0 ? '일시정지' : '활성'),
                 stopDate: suspensionDays && parseInt(suspensionDays) > 0 ? now : null,
                 durUntil: suspensionDays && parseInt(suspensionDays) > 0 ? durUntil : null,
-                adminNickname:  admin.nickname,
+                adminNickname:  adminUser.nickname, // adminUser 객체에서 nickname 사용
 
             },
             { new: true }

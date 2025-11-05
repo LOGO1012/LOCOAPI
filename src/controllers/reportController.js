@@ -6,6 +6,7 @@ import PageResponseDTO from "../dto/common/PageResponseDTO.js";
 import {User} from "../models/UserProfile.js";
 import {ChatMessage, ChatRoom} from "../models/chat.js";
 import {ChatRoomHistory} from "../models/chatRoomHistory.js";
+import ReportedMessageBackup from "../models/reportedMessageBackup.js";
 
 /**
  * 신고 생성 컨트롤러 함수
@@ -147,7 +148,7 @@ export const deleteReport = async (req, res) => {
             // 삭제된 신고가 없으면 404 에러 반환
             return res.status(404).json({ message: 'Report not found' });
         }
-        res.status(200).json({ message: 'Report deleted successfully' });
+        res.status(204).send();
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -156,11 +157,13 @@ export const deleteReport = async (req, res) => {
 // 신고에 대한 답변 추가 컨트롤러
 export const replyToReport = async (req, res) => {
     try {
-        const { reportAnswer, adminId, suspensionDays, stopDetail } = req.body;
+        const { reportAnswer, suspensionDays, stopDetail } = req.body;
+        const adminUser = req.user; // 인증 미들웨어에서 추가된 user 객체 사용
+
         const updatedReport = await reportService.addReplyToReport(
             req.params.id,
             reportAnswer,
-            adminId,
+            adminUser, // adminId 대신 user 객체 전체를 넘김
             suspensionDays,
             stopDetail
         );
@@ -186,118 +189,63 @@ export const getReportedMessagePlaintext = async (req, res) => {
     try {
         const { id: reportId } = req.params;
 
-        console.log(`🔍 [평문조회] 신고 ID: ${reportId}`);
-
-        // 1. 신고 조회
+        // 1. 신고 정보 조회 (필수)
         const report = await Report.findById(reportId).lean();
         if (!report) {
-            return res.status(404).json({
-                success: false,
-                message: 'Report not found'
-            });
+            return res.status(404).json({ success: false, message: 'Report not found' });
         }
 
-        // 2. 채팅 신고가 아니면 오류
-        if (report.anchor?.type !== 'chat' || !report.anchor?.targetId) {
-            return res.status(400).json({
-                success: false,
-                message: 'This report is not a message report'
-            });
+        // 2. 채팅 신고가 아니면 오류 처리
+        if (report.anchor?.type !== 'chat' || !report.anchor.roomId) {
+            return res.status(400).json({ success: false, message: 'This report is not a message report' });
         }
 
-        const messageId = report.anchor.targetId;
-        const roomId = report.anchor.roomId;
-        console.log(`📝 [평문조회] 메시지 ID: ${messageId}, 방 ID: ${roomId}`);
+        const { roomId, targetId: reportedMessageId } = report.anchor;
 
-        // 3. ReportedMessageBackup에서 평문 조회
-        const { default: ReportedMessageBackup } = await import('../models/reportedMessageBackup.js');
-
-        const backup = await ReportedMessageBackup.findOne({
-            originalMessageId: messageId
-        })
+        // 3. 최적화된 단일 쿼리로 모든 백업 메시지 조회
+        const allBackups = await ReportedMessageBackup.find({ roomId })
             .populate('reportedBy', 'nickname')
+            .sort({ messageCreatedAt: 1 })
             .lean();
 
-        if (!backup) {
-            console.log(`⚠️ [평문조회] 백업을 찾을 수 없음`);
-            return res.status(404).json({
-                success: false,
-                message: 'Backup not found for this message'
-            });
+        if (!allBackups || allBackups.length === 0) {
+            return res.status(404).json({ success: false, message: 'No backed up messages found for this room' });
         }
 
-        console.log(`✅ [평문조회] 백업 발견: ${backup._id}`);
+        // 4. 프론트엔드 형식에 맞게 데이터 가공
+        const messagesWithBackup = allBackups.map(backup => ({
+            messageId: backup.originalMessageId,
+            sender: backup.sender, // 비정규화된 데이터 사용
+            plaintextContent: backup.plaintextContent,
+            createdAt: backup.messageCreatedAt, // 비정규화된 데이터 사용
+            reportersCount: backup.reportedBy?.length || 0,
+            isCurrentReport: backup.originalMessageId.toString() === reportedMessageId.toString(),
+            // 프론트엔드에서 사용하는 추가 정보
+            reportedAt: backup.createdAt,
+            retentionUntil: backup.retentionUntil
+        }));
 
-        // ✅ 4. 동일 채팅방의 모든 신고된 메시지 조회
-        const allReportsInRoom = await Report.find({
-            'anchor.type': 'chat',
-            'anchor.roomId': roomId
-        }).lean();
-
-        console.log(`📊 [평문조회] 동일 방 신고 건수: ${allReportsInRoom.length}건`);
-
-        // 모든 신고된 메시지 ID 모으기
-        const reportedMessageIds = allReportsInRoom.map(r => r.anchor.targetId);
-
-        // 모든 백업 메시지 조회
-        const allBackups = await ReportedMessageBackup.find({
-            originalMessageId: { $in: reportedMessageIds }
-        })
-            .populate('reportedBy', 'nickname')
-            .lean();
-
-        // ChatMessage에서 시간 정보 가져오기
-        const messages = await ChatMessage.find({
-            _id: { $in: reportedMessageIds }
-        })
-            .select('_id createdAt sender')
-            .populate('sender', 'nickname')
-            .sort({ createdAt: 1 })
-            .lean();
-
-        // 메시지 매핑 (시간순)
-        const messagesWithBackup = messages.map(msg => {
-            const backupData = allBackups.find(b => b.originalMessageId.toString() === msg._id.toString());
-            return {
-                messageId: msg._id,
-                sender: msg.sender,
-                plaintextContent: backupData?.plaintextContent || '',
-                createdAt: msg.createdAt,
-                reportersCount: backupData?.reportedBy?.length || 0,
-                isCurrentReport: msg._id.toString() === messageId.toString()
-            };
-        });
-
-        console.log(`✅ [평문조회] 총 ${messagesWithBackup.length}개 메시지 조회 완료`);
-
-        // 5. 접근 로그 기록
-        const adminId = req.user?._id || req.body?.adminId;
-        if (adminId) {
-            await ReportedMessageBackup.findByIdAndUpdate(backup._id, {
-                $push: {
-                    accessLog: {
-                        accessedBy: adminId,
-                        purpose: 'admin_review',
-                        ipAddress: req.ip,
-                        userAgent: req.headers['user-agent']
+        // 5. 접근 로그 기록 (현재 신고 메시지 백업에만)
+        const currentBackup = allBackups.find(b => b.originalMessageId.toString() === reportedMessageId.toString());
+        if (currentBackup) {
+            const adminId = req.user?._id;
+            if (adminId) {
+                await ReportedMessageBackup.findByIdAndUpdate(currentBackup._id, {
+                    $push: {
+                        accessLog: {
+                            accessedBy: adminId,
+                            purpose: 'admin_review',
+                            ipAddress: req.ip,
+                            userAgent: req.headers['user-agent']
+                        }
                     }
-                }
-            });
-            console.log(`📝 [평문조회] 접근 로그 기록: ${adminId}`);
+                });
+            }
         }
 
-        // 6. 응답 데이터 구성
+        // 6. 최적화된 응답 데이터 구성
         const response = {
             success: true,
-            data: {
-                messageId: backup.originalMessageId,
-                plaintextContent: backup.plaintextContent,
-                reportReason: backup.reportReason,
-                reportedBy: backup.reportedBy,
-                reportedAt: backup.createdAt,
-                reportersCount: backup.reportedBy.length,
-                retentionUntil: backup.retentionUntil
-            },
             reportInfo: {
                 reportId: report._id,
                 reportTitle: report.reportTitle,
@@ -306,16 +254,14 @@ export const getReportedMessagePlaintext = async (req, res) => {
                 offenderNickname: report.offenderNickname,
                 reportErNickname: report.reportErNickname
             },
-            // ✅ 동일 채팅방의 모든 신고 메시지
-            allReportedMessages: messagesWithBackup,
+            allReportedMessages: messagesWithBackup, // 모든 정보가 여기에 통합됨
             roomInfo: {
                 roomId: roomId,
                 totalReportedMessages: messagesWithBackup.length,
-                roomType: report.reportArea // '친구채팅' 또는 '랜덤채팅'
+                roomType: report.reportArea
             }
         };
 
-        console.log(`✅ [평문조회] 조회 성공`);
         res.status(200).json(response);
 
     } catch (error) {

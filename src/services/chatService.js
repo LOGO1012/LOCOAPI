@@ -1395,6 +1395,12 @@ export const createReportedMessageBackup = async (messageId, reportData) => {
             
             backup = new ReportedMessageBackup({
                 originalMessageId: messageId,
+                roomId: originalMessage.chatRoom, // 비정규화
+                sender: { // 비정규화
+                    _id: originalMessage.sender._id,
+                    nickname: originalMessage.sender.nickname
+                },
+                messageCreatedAt: originalMessage.createdAt, // 비정규화
                 plaintextContent: plaintextContent,
                 reportedBy: [reportData.reportedBy],
                 reportReason: reportData.reason || 'other',  // ✅ enum 값
