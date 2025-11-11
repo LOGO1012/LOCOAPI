@@ -38,8 +38,11 @@ router.post('/reports/:id/reply', reportController.replyToReport);
 // (관리자 전용) 신고된 채팅방 메시지 가져오기
 router.get('/reports/:id/chat-log', reportController.getReportChatLog);
 
-// ✅ (관리자 전용) 신고된 메시지 평문 조회
-router.get('/reports/:id/plaintext', reportController.getReportedMessagePlaintext);
+// ✅ (관리자 전용) 특정 채팅방의 모든 신고 메시지 평문 조회
+router.get('/reports/:id/plaintext/all', reportController.getReportedMessagePlaintext);
+
+// ✅ (관리자 전용) 단일 신고 메시지 평문 조회
+router.get('/reports/message/:messageId/plaintext', reportController.getSingleReportedMessageBackup);
 
 // ============================================================================
 //   신고 관련 새로운 암호화 엔드포인트들 (레벨 2 이상)
