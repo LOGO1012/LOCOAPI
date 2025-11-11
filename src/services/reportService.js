@@ -3,6 +3,7 @@ import { Report } from '../models/report.js';
 import { User } from '../models/UserProfile.js';
 import {ReportNotification} from "../models/ReportNotification.js";
 import { createReportedMessageBackup } from './chatService.js'; // 추가
+import IntelligentCache from '../utils/cache/intelligentCache.js';
 
 /**
  * 신고 생성 함수
@@ -197,7 +198,7 @@ export const addReplyToReport = async (id, replyContent, adminUser, suspensionDa
             .populate('offenderId', 'nickname');
 
         // 신고당한(가해자) 사용자의 신고 횟수 증가 및 정지 상태 적용 (채팅 관련 필드는 업데이트하지 않음)
-        const offenderId = updatedReport.offenderId;
+        const offenderId = updatedReport.offenderId._id || updatedReport.offenderId;
         let updateFields = {};
 
         if (updatedReport.stopDetail === '일시정지' || updatedReport.stopDetail === '영구정지') {
@@ -229,7 +230,11 @@ export const addReplyToReport = async (id, replyContent, adminUser, suspensionDa
             content: `신고 제재: ${updatedReport.stopDetail}${(suspensionDays && parseInt(suspensionDays) > 0) ? ` (${suspensionDays}일 정지)` : ''}`,
             type: 'sanctionInfo'
         });
-        // --- 알림 생성 부분 끝 ---
+        
+        // --- 캐시 무효화 ---
+        await IntelligentCache.deleteCache(`notifications:${reporterId}`);
+        await IntelligentCache.deleteCache(`notifications:${offenderId}`);
+        // --- 캐시 무효화 끝 ---
 
         return updatedReport;
     } catch (error) {
