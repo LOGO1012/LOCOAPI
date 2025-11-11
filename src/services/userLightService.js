@@ -68,15 +68,23 @@ export const getUserRiotInfo = async (userId) => {
             .lean();
 
         if (!user || !user.lolNickname) {
-            console.log(user?.riotGameName, user?.riotTagLine);
             throw new Error('Riot ID가 설정되지 않았습니다.');
         }
 
-        // ✅ 가상 필드가 포함된 객체 생성
+        // lolNickname을 '#' 기준으로 분리하여 가상 필드 로직을 수동으로 구현
+        const parts = user.lolNickname.split('#');
+        const riotGameName = parts[0];
+        const riotTagLine = parts[1] || ''; // 태그라인이 없는 경우 기본값 처리
+
         const result = {
-            riotGameName: user.riotGameName,
-            riotTagLine: user.riotTagLine
+            riotGameName,
+            riotTagLine
         };
+
+        // riotGameName이 없는 경우(비정상적인 데이터) 에러 처리
+        if (!result.riotGameName) {
+            throw new Error('Riot ID 형식이 올바르지 않습니다.');
+        }
 
         await IntelligentCache.setCache(cacheKey, result, 3600);
         return result;
