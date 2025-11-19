@@ -26,4 +26,6 @@ const uploadSchema = new mongoose.Schema({
     }
 });
 
+uploadSchema.index({ user: 1 }); // user 필드에 인덱스 추가
+
 export default mongoose.model('Upload', uploadSchema);

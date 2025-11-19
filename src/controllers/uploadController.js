@@ -2,39 +2,55 @@
 // src/controllers/uploadController.js
 import path from 'path';
 import Upload from '../models/Upload.js';
+import sharp from 'sharp';
+import fs from 'fs';
 
 
 export const uploadFile = async (req, res) => {
     try {
-        // multer가 처리한 파일 정보
         if (!req.file) {
             return res.status(400).json({ success: false, message: "파일이 업로드되지 않았습니다." });
         }
 
-        // 업로드 출처 페이지 정보 (routes에서 설정)
         const sourcePage = req.sourcePage || null;
+        let fileUrl = '';
+        let finalFilename = req.file.filename;
 
-        // 접근 가능한 URL 생성
-        const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.user._id}/${req.file.filename}`;
+        // 이미지 파일인 경우 sharp로 최적화
+        if (req.file.mimetype.startsWith('image/')) {
+            const processedFilename = `processed-${req.file.filename}`;
+            const processedImagePath = path.join(req.file.destination, processedFilename);
+
+            await sharp(req.file.path)
+                .resize({ width: 1200, withoutEnlargement: true })
+                .toFormat('jpeg', { quality: 80 })
+                .toFile(processedImagePath);
+
+            // 원본 파일 삭제
+            fs.unlinkSync(req.file.path);
+
+            finalFilename = processedFilename;
+            fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.user._id}/${processedFilename}`;
+        } else {
+            // 이미지가 아닌 경우 원본 URL 사용
+            fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.user._id}/${req.file.filename}`;
+        }
 
         // DB에 저장
         const newUpload = await Upload.create({
-            user:       req.user._id,
-            filename:   req.file.filename,
-            url:        fileUrl,
-            sourcePage,                  // 저장한 페이지 정보
+            user: req.user._id,
+            filename: finalFilename,
+            url: fileUrl,
+            sourcePage,
         });
 
-        return res.status(201).json({
-            success: true,
-            upload: {
-                id:         newUpload._id,
-                filename:   newUpload.filename,
-                url:        newUpload.url,
-                uploadedAt: newUpload.createdAt,
-                sourcePage: newUpload.sourcePage
-            }
-        });
+                return res.status(201).json({
+
+                    success: true,
+
+                    url: newUpload.url
+
+                });
 
     } catch (error) {
         console.error("uploadFile error:", error);
@@ -50,17 +66,13 @@ export const getMyUploads = async (req, res) => {
     try {
         // 인증 미들웨어로부터 req.user._id가 들어온 상태
         const uploads = await Upload.find({ user: req.user._id })
-            .sort({ createdAt: -1 });            // 최신 순 정렬
+            .select('url createdAt sourcePage') // 필요한 필드만 선택
+            .sort({ createdAt: -1 })            // 최신 순 정렬
+            .lean();
 
         return res.status(200).json({
             success: true,
-            uploads: uploads.map(u => ({
-                id:         u._id,
-                filename:   u.filename,
-                url:        u.url,
-                uploadedAt: u.createdAt,
-                sourcePage: u.sourcePage
-            }))
+            uploads: uploads
         });
     } catch (error) {
         console.error("getMyUploads error:", error);
@@ -73,15 +85,12 @@ export const getUploadsByUser = async (req, res) => {
     try {
         const { userId } = req.params;
         const uploads = await Upload.find({ user: userId })
-            .sort({ createdAt: -1 });
+            .select('url createdAt sourcePage') // 필요한 필드만 선택
+            .sort({ createdAt: -1 })
+            .lean();
         return res.status(200).json({
             success: true,
-            uploads: uploads.map(u => ({
-                filename:   u.filename,
-                url:        u.url,
-                uploadedAt: u.createdAt,
-                sourcePage: u.sourcePage
-            }))
+            uploads: uploads
         });
     } catch (err) {
         console.error("getUploadsByUser error:", err);
