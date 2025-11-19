@@ -26,6 +26,9 @@ const newsSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    contentThumbnailUrl: {
+        type: String // content에서 추출한 첫 이미지 URL
+    },
     images: [{
         filename: String,
         originalName: String,
