@@ -59,7 +59,7 @@ export const getPRUserList = async (req, res, next) => {
             .sort(sortOption)
             .skip((page - 1) * limit)
             .limit(limit)
-            .select('_id nickname lolNickname profilePhoto star gender info') // ◀◀◀ Select 절 추가
+            .select('_id nickname lolNickname profilePhoto photo star gender info') // ◀◀◀ Select 절 추가
             .lean();
 
         // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
