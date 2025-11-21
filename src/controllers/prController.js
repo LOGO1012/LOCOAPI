@@ -46,8 +46,8 @@ export const getPRUserList = async (req, res, next) => {
         let sortOption = {};
 
         if (sort === "online") {
-            const tenMinutesAgo = moment().subtract(10, "minutes").toDate();
-            query.lastLogin = { $gte: tenMinutesAgo };
+            const onlineUserIds = onlineStatusService.getAllOnlineUsers();
+            query._id = { $in: onlineUserIds };
             sortOption = { star: -1 }; // 온라인 사용자들을 별점 높은순으로 정렬
         } else if (sort === "new") {
             sortOption = { createdAt: -1 };
