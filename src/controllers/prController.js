@@ -21,13 +21,13 @@ export const getPRTopUsers = async (req, res, next) => {
         // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
         const userIds = topUsersRaw.map(u => u._id.toString());
         const onlineStatusMap = onlineStatusService.getMultipleUserStatus(userIds);
-        
+
         const topUsers = topUsersRaw.map(u => ({
             ...u,
             gender: mapGenderKor(u.gender),
             isOnline: onlineStatusMap[u._id.toString()] || false
         }));
-        
+
         return res.status(200).json({ data: topUsers });
     } catch (err) {
         next(err);
@@ -48,9 +48,14 @@ export const getPRUserList = async (req, res, next) => {
         if (sort === "online") {
             const tenMinutesAgo = moment().subtract(10, "minutes").toDate();
             query.lastLogin = { $gte: tenMinutesAgo };
-        } else if (sort === "star|asc") {
+            sortOption = { star: -1 }; // 온라인 사용자들을 별점 높은순으로 정렬
+        } else if (sort === "new") {
+            sortOption = { createdAt: -1 };
+        } else if (sort === "rating") {
+            sortOption = { star: -1 };
+        } else if (sort === "lowRating") {
             sortOption = { star: 1 };
-        } else {
+        } else { // recommend (추천순) 또는 기본값
             sortOption = { star: -1 };
         }
 
