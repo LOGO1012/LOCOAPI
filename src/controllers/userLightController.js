@@ -126,15 +126,24 @@ export const getUserFriendProfileController = async (req, res) => {
 export const blockUserMinimalController = async (req, res) => {
     const { userId, targetUserId } = req.params;
 
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인만 차단할 수 있습니다.'
+        });
+    }
+
+
     try {
         // ✅ 수정: 반환값을 받아서 사용
-        const blockedUser = await blockUserServiceMinimal(userId, targetUserId);
+        const result  = await blockUserServiceMinimal(userId, targetUserId);
 
 
         res.status(200).json({
             success: true,
             message: "사용자를 차단했습니다.",
-            blockedUser: blockedUser
+            blockedUser: result._id
         });
 
     } catch (err) {
@@ -152,6 +161,14 @@ export const blockUserMinimalController = async (req, res) => {
  */
 export const unblockUserMinimalController = async (req, res) => {
     const { userId, targetUserId } = req.params;
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인만 차단 해제할 수 있습니다.'
+        });
+    }
 
     try {
         await unblockUserServiceMinimal(userId, targetUserId);

@@ -153,11 +153,23 @@ class IntelligentCache {
 
     try {
       const value = JSON.stringify(data);
-      
+
       if (this.client) {
-        await this.client.setEx(key, ttl, value);
+        // ✅ TTL이 0이거나 음수면 무제한 캐시 (SET 사용)
+        if (ttl <= 0) {
+          await this.client.set(key, value);
+          console.log(`💾 [무제한 캐시] ${key}`);
+        } else {
+          // TTL이 양수면 만료 시간 설정 (SETEX 사용)
+          await this.client.setEx(key, ttl, value);
+        }
       } else if (this.memoryCache) {
-        this.memoryCache.set(key, { value, expires: Date.now() + (ttl * 1000) });
+        // 메모리 캐시는 TTL 0이면 무제한으로 저장
+        if (ttl <= 0) {
+          this.memoryCache.set(key, { value, expires: Infinity });
+        } else {
+          this.memoryCache.set(key, { value, expires: Date.now() + (ttl * 1000) });
+        }
       }
       return true;
     } catch (error) {
@@ -336,6 +348,37 @@ class IntelligentCache {
     } catch (error) {
       console.error('캐시 삭제 실패:', error);
       return false;
+    }
+  }
+
+
+  async scanKeys(pattern) {
+    if (!this.isConnected) {
+      console.warn('[Cache] SCAN 불가능 (연결 안 됨)');
+      return [];
+    }
+
+    try {
+      if (this.client) {
+        // Redis에서 패턴 매칭 키 조회
+        const keys = await this.client.keys(pattern);
+        return keys;
+      } else if (this.memoryCache) {
+        // 메모리 캐시에서 패턴 매칭
+        const matchedKeys = [];
+        const regex = new RegExp('^' + pattern.replace('*', '.*') + '$');
+
+        for (const [key] of this.memoryCache) {
+          if (regex.test(key)) {
+            matchedKeys.push(key);
+          }
+        }
+        return matchedKeys;
+      }
+      return [];
+    } catch (error) {
+      console.error('[Cache] SCAN 실패:', error);
+      return [];
     }
   }
 
@@ -837,6 +880,28 @@ class IntelligentCache {
     }
   }
 
+  async invalidateFriendDeletion(userId1, userId2) {
+    try {
+      console.log(`🗑️ [친구 삭제 캐시] 무효화 시작: ${userId1} ↔ ${userId2}`);
+
+      await Promise.all([
+        // 사용자 1의 모든 관련 캐시
+        this.invalidateUserFriends(userId1),
+        this.invalidateUserCache(userId1),
+
+        // 사용자 2의 모든 관련 캐시
+        this.invalidateUserFriends(userId2),
+        this.invalidateUserCache(userId2)
+      ]);
+
+      const cacheType = this.client ? 'Redis' : 'Memory';
+      console.log(`✅ [${cacheType}] 친구 삭제 캐시 무효화 완료`);
+    } catch (error) {
+      console.error(`❌ 친구 삭제 캐시 무효화 실패:`, error);
+      throw error;
+    }
+  }
+
   /**
    * 특정 사용자 필드 값 캐싱 (범용)
    * @param {string} userId - 사용자 ID
@@ -907,6 +972,92 @@ class IntelligentCache {
     }
   }
 
+  /**
+   * 친구방 생성 시 캐시 무효화
+   */
+  async invalidateFriendRoomCache(userId, friendId) {
+    try {
+      const keys = [
+        `user_blocks_${userId}`,
+        `users_blocked_me_${userId}`,
+        `user_blocks_${friendId}`,
+        `users_blocked_me_${friendId}`
+      ];
+
+      for (const key of keys) {
+        await this.deleteCache(key);
+      }
+
+      console.log(`✅ 친구방 캐시 무효화: ${userId} ↔ ${friendId}`);
+    } catch (error) {
+      console.error(`❌ 캐시 무효화 실패:`, error);
+      // 실패해도 TTL로 자동 복구되므로 throw 안함
+    }
+  }
+
+  /**
+   * 친구방 ID 캐싱 조회
+   * @param {string} userId1 - 사용자 1 ID
+   * @param {string} userId2 - 사용자 2 ID
+   * @returns {Promise<string|null>} 캐시된 방 ID 또는 null
+   */
+  async getCachedFriendRoomId(userId1, userId2) {
+    try {
+      const sortedIds = [userId1, userId2].map(id => id.toString()).sort();
+      const key = `friend_room:${sortedIds[0]}:${sortedIds[1]}`;
+
+      const roomId = await this.getCache(key);
+
+      if (roomId) {
+        console.log(`✅ [캐시 HIT] 친구방 ID: ${roomId}`);
+        return roomId;
+      }
+
+      console.log(`❌ [캐시 MISS] 친구방: ${sortedIds[0]} ↔ ${sortedIds[1]}`);
+      return null;
+    } catch (error) {
+      console.error('❌ 친구방 ID 캐시 조회 실패:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 친구방 ID 저장 (영구 캐싱)
+   * @param {string} userId1 - 사용자 1 ID
+   * @param {string} userId2 - 사용자 2 ID
+   * @param {string} roomId - 방 ID
+   */
+  async cacheFriendRoomId(userId1, userId2, roomId) {
+    try {
+      const sortedIds = [userId1, userId2].map(id => id.toString()).sort();
+      const key = `friend_room:${sortedIds[0]}:${sortedIds[1]}`;
+
+      // TTL 0 = 무제한 (친구 삭제 전까지 유지)
+      await this.setCache(key, roomId, 0);
+
+      console.log(`💾 [캐싱] 친구방 ID: ${key} → ${roomId}`);
+    } catch (error) {
+      console.error('❌ 친구방 ID 캐싱 실패:', error);
+    }
+  }
+
+  /**
+   * 친구방 ID 캐시 무효화 (친구 삭제/차단 시)
+   * @param {string} userId1 - 사용자 1 ID
+   * @param {string} userId2 - 사용자 2 ID
+   */
+  async invalidateFriendRoomId(userId1, userId2) {
+    try {
+      const sortedIds = [userId1, userId2].map(id => id.toString()).sort();
+      const key = `friend_room:${sortedIds[0]}:${sortedIds[1]}`;
+
+      await this.deleteCache(key);
+
+      console.log(`🗑️ [무효화] 친구방 ID: ${key}`);
+    } catch (error) {
+      console.error('❌ 친구방 ID 캐시 무효화 실패:', error);
+    }
+  }
 
 
 

@@ -16,7 +16,7 @@ export const initializeSocket = (server) => {
 
         const registeredUsers = new Set();
 
-        socket.on('register', (userId) => {
+        socket.on('register', async (userId) => {
             if (!userId || typeof userId !== 'string' || userId.trim() === '') {
                 console.warn('유효하지 않은 userId:', userId);
                 socket.emit('registrationFailed', { error: '유효하지 않은 사용자 ID' });
@@ -27,7 +27,10 @@ export const initializeSocket = (server) => {
             registeredUsers.add(`${socket.id}-${userId}`);
             socket.join(userId);
 
-            onlineStatusService.setUserOnlineStatus(userId, socket.id, true);
+            socket.userId = userId;
+
+            await onlineStatusService.setUserOnlineStatus(userId, socket.id, true);
+
             io.emit('userStatusChanged', {
                 userId,
                 isOnline: true,
@@ -201,12 +204,15 @@ export const initializeSocket = (server) => {
             }
         });
 
-        socket.on('disconnect', () => {
+        socket.on('disconnect', async () => {
             console.log('❌ 클라이언트 연결 해제:', socket.id);
 
-            const userId = onlineStatusService.findUserBySocketId(socket.id);
+            const userId = socket.userId;
+
+
             if (userId) {
-                onlineStatusService.setUserOnlineStatus(userId, null, false);
+                await onlineStatusService.setUserOnlineStatus(userId, null, false);
+
                 io.emit('userStatusChanged', {
                     userId,
                     isOnline: false,

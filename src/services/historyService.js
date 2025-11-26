@@ -167,7 +167,10 @@ export const getLastNicknameChangeTime = async (userId) => {
         const lastChange = await NicknameHistory.findOne({
             userId,
             changeReason: 'user_change'
-        }).sort({ createdAt: -1 });
+        })
+            .sort({ createdAt: -1 })
+            .select('createdAt')  // ✅ 추가: 필요한 필드만 선택
+            .lean();  // ✅ 추가: Mongoose 오버헤드 제거
         
         return lastChange ? lastChange.createdAt : null;
     } catch (error) {
@@ -182,7 +185,10 @@ export const getLastGenderChangeTime = async (userId) => {
         const lastChange = await GenderHistory.findOne({
             userId,
             changeReason: 'user_change'
-        }).sort({ createdAt: -1 });
+        })
+            .sort({ createdAt: -1 })
+            .select('createdAt')  // ✅ 추가: 필요한 필드만 선택
+            .lean();  // ✅ 추가: Mongoose 오버헤드 제거
         
         return lastChange ? lastChange.createdAt : null;
     } catch (error) {

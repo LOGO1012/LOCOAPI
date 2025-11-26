@@ -15,7 +15,7 @@ export const getBulkOnlineStatus = async (req, res) => {
             });
         }
         
-        const statusMap = onlineStatusService.getMultipleUserStatus(userIds);
+        const statusMap = await onlineStatusService.getMultipleUserStatus(userIds);
         
         res.status(200).json({
             success: true,
@@ -38,7 +38,8 @@ export const getBulkOnlineStatus = async (req, res) => {
 export const getSingleOnlineStatus = async (req, res) => {
     try {
         const { userId } = req.params;
-        const isOnline = onlineStatusService.getUserOnlineStatus(userId);
+
+        const isOnline = await onlineStatusService.getUserOnlineStatus(userId);
         
         res.status(200).json({
             success: true,
@@ -64,8 +65,8 @@ export const getSingleOnlineStatus = async (req, res) => {
  */
 export const getOnlineStats = async (req, res) => {
     try {
-        const stats = onlineStatusService.getOnlineStats();
-        const onlineUsers = onlineStatusService.getAllOnlineUsers();
+        const stats = await onlineStatusService.getOnlineStats();
+        const onlineUsers = await onlineStatusService.getAllOnlineUsers();
         
         res.status(200).json({
             success: true,
