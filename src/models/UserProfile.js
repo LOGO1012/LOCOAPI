@@ -350,6 +350,8 @@ userSchema.index({ name_hash: 1 }); // 실명 검색
 userSchema.index({ gender: 1 }); // 성별 필터
 userSchema.index({ "social.kakao.providerId_hash": 1 }); // 카카오 로그인
 userSchema.index({ "social.naver.providerId_hash": 1 }); // 네이버 로그인
+userSchema.index({ friends: 1 }); // 친구 배열 인덱스
+userSchema.index({ blockedUsers: 1 }); // 차단 목록 인덱스
 
 // lolNickname을 분리해 gameName, tagLine 가상 필드로 노출
 userSchema.virtual('riotGameName').get(function () {
