@@ -6,6 +6,8 @@ import ComprehensiveEncryption from '../utils/encryption/comprehensiveEncryption
 import ReportedMessageBackup from '../models/reportedMessageBackup.js';
 import { filterProfanity } from '../utils/profanityFilter.js';
 import IntelligentCache from '../utils/cache/intelligentCache.js';
+import { getAgeInfoUnified } from './userService.js';
+import { CacheKeys, invalidateExitedRooms } from '../utils/cache/cacheKeys.js';
 /**
  * 새로운 채팅방 생성
  */
@@ -116,7 +118,22 @@ export const getAllChatRooms = async (filters) => {
         // ─────────────────────────────────────────────────────
 
         // 2. 퇴장한 방 목록 조회
-        const exited = await ChatRoomExit.distinct('chatRoom', { user: filters.userId });
+        const exitedCacheKey = CacheKeys.USER_EXITED_ROOMS(filters.userId);
+        let exited = await IntelligentCache.getCache(exitedCacheKey);
+
+        if (!exited) {
+            console.log(`🔍 [getAllChatRooms] 캐시 미스: 퇴장 목록 DB 조회`);
+            exited = await ChatRoomExit.distinct('chatRoom', { user: filters.userId });
+
+            // 10분 TTL로 캐싱
+            await IntelligentCache.setCache(exitedCacheKey, exited, 600);
+            console.log(`💾 [getAllChatRooms] 캐시 저장: 퇴장한 방 ${exited.length}개 (TTL: 10분)`);
+        } else {
+            console.log(`✅ [getAllChatRooms] 캐시 히트: 퇴장한 방 ${exited.length}개`);
+        }
+
+        await invalidateExitedRooms(IntelligentCache, userId);
+
         console.log(`🚪 [getAllChatRooms] 퇴장한 방: ${exited.length}개`);
 
         if (exited.length > 0) {
@@ -256,7 +273,7 @@ export const findAvailableRoom = async (
 
         // 1️⃣ 필요한 데이터 병렬 조회 (성능 최적화)
         const [user, blockedMeCacheResult, exitedRooms] = await Promise.all([
-            User.findById(userId).select('blockedUsers birthdate').lean(),
+            User.findById(userId).select('blockedUsers birthdate gender').lean(),
             IntelligentCache.getCache(`users_blocked_me_${userId}`),
             ChatRoomExit.distinct('chatRoom', { user: userId })
         ]);
@@ -302,39 +319,18 @@ export const findAvailableRoom = async (
                 throw err;
             }
 
-            // 암호화된 birthdate 복호화
-            let decryptedBirthdate;
-            try {
-                decryptedBirthdate = await ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
-            } catch (decryptError) {
-                console.error('❌ birthdate 복호화 실패:', decryptError);
-                const err = new Error('생년월일 정보 확인 불가');
-                err.status = 500;
-                err.code = 'DECRYPTION_FAILED';
-                throw err;
-            }
+            // ✅ getAgeInfoUnified 사용 (캐싱 자동 적용!)
+            const ageInfo = await getAgeInfoUnified(userId, user.birthdate);
 
-            if (!decryptedBirthdate) {
-                const err = new Error('생년월일 정보가 유효하지 않습니다.');
-                err.status = 403;
-                err.code = 'BIRTHDATE_INVALID';
-                throw err;
-            }
-
-            // 나이 계산
-            const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
-
-            if (age === null || isNaN(age)) {
+            if (!ageInfo) {
                 const err = new Error('나이 확인이 불가능하여 안전을 위해 입장을 제한합니다.');
                 err.status = 403;
                 err.code = 'AGE_VERIFICATION_FAILED';
                 throw err;
             }
 
-            const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
-            const userAgeGroup = isMinor ? 'minor' : 'adult';
-
-            if (userAgeGroup !== ageGroup) {
+            // ✅ 연령대 검증
+            if (ageInfo.ageGroup !== ageGroup) {
                 const err = new Error(
                     `${ageGroup === 'minor' ? '미성년자' : '성인'} 전용 방만 참가할 수 있습니다.`
                 );
@@ -343,14 +339,26 @@ export const findAvailableRoom = async (
                 throw err;
             }
 
-            console.log(`✅ [방찾기] 나이 검증 통과: ${age}세 (${userAgeGroup})`);
+            console.log(`✅ [방찾기] 나이 검증 통과: ${ageInfo.age}세 (${ageInfo.ageGroup})`);
+        }
+
+        // 성별 조건 설정
+        let genderQuery;
+        if (matchedGender === 'any') {
+            // 상관없음: 모든 방 검색
+            genderQuery = {};
+        } else {
+            // 특정 조건: 내 조건 + "상관없음" 방 검색
+            genderQuery = {
+                matchedGender: { $in: [matchedGender, 'any'] }
+            };
         }
 
         // 4️⃣ 후보 방 검색
         const query = {
             roomType: roomType,
             capacity: capacity,
-            matchedGender: matchedGender,
+            ...genderQuery,
             ageGroup: ageGroup,
             isActive: false,
             status: 'waiting',
@@ -360,7 +368,7 @@ export const findAvailableRoom = async (
         const candidateRooms = await ChatRoom.find(query)
             .populate({
                 path: 'chatUsers',
-                select: '_id blockedUsers',
+                select: '_id blockedUsers gender',
                 options: { lean: true }
             })
             .sort({ createdAt: 1 })  // 오래된 방부터
@@ -371,6 +379,7 @@ export const findAvailableRoom = async (
 
         // 5️⃣ 각 방마다 양방향 차단 체크
         let attemptedRooms = 0;
+        const joinerGender = user.gender;
 
         for (const room of candidateRooms) {
             attemptedRooms++;
@@ -389,6 +398,7 @@ export const findAvailableRoom = async (
 
             // 양방향 차단 관계 체크
             let hasBlockedRelation = false;
+            let hasGenderMismatch = false;
 
             for (const participant of room.chatUsers) {
                 const participantId = participant._id.toString();
@@ -406,10 +416,32 @@ export const findAvailableRoom = async (
                     console.log(`🔒 [방찾기] 차단 관계: ${room._id}`);
                     break;
                 }
+
+                // 추가 성별 매칭 체크 추가 (matchedGender가 'any'가 아닐 때만)
+                if (matchedGender !== 'any') {
+                    const participantGender = participant.gender;
+
+                    if (matchedGender === 'opposite') {
+                        // 입장자가 "이성" 선택: 같은 성별 있으면 안됨
+                        if (participantGender === joinerGender) {
+                            hasGenderMismatch = true;
+                            console.log(`⚠️ [방찾기] 성별 불일치 (이성 조건): ${room._id}`);
+                            break;
+                        }
+                    } else if (matchedGender === 'same') {
+                        // 입장자가 "동성" 선택: 다른 성별 있으면 안됨
+                        if (participantGender !== joinerGender) {
+                            hasGenderMismatch = true;
+                            console.log(`⚠️ [방찾기] 성별 불일치 (동성 조건): ${room._id}`);
+                            break;
+                        }
+                    }
+                }
+                // 입장자가 "상관없음"이면 성별 체크 건너뜀
             }
 
             // 차단 관계 없으면 이 방 선택!
-            if (!hasBlockedRelation) {
+            if (!hasBlockedRelation && !hasGenderMismatch) {
                 console.log(`✅ [방찾기] 발견: ${room._id} (시도: ${attemptedRooms}번)`);
 
                 return {
@@ -450,7 +482,7 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null, cache
 
         // 1) 방  현재 참가자들의 blockedUsers 정보 조회
         const room = await ChatRoom.findById(roomId)
-            .populate('chatUsers', 'blockedUsers')   // ← 추가
+            .populate('chatUsers', 'blockedUsers gender')   // ← 추가
             .exec();
         if (!room) {
             throw new Error('채팅방을 찾을 수 없습니다.');
@@ -468,7 +500,7 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null, cache
 
         // 2) 입장하려는 사용자 본인의 blockedUsers 가져오기
         const joiner = cachedUser || await User.findById(userId)
-            .select('blockedUsers birthdate');
+            .select('blockedUsers birthdate gender');
         if (!joiner) {
             throw new Error('사용자를 찾을 수 없습니다.');
         }
@@ -488,16 +520,70 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null, cache
             throw err;
         }
 
+        // 성별 매칭 검증
+        if (room.roomType === 'random' && room.matchedGender !== 'any') {
+            const joinerGender = joiner.gender;
+
+            // 성별 정보 확인
+            if (!joinerGender || joinerGender === 'select') {
+                const err = new Error('성별 정보가 필요합니다.');
+                err.status = 403;
+                throw err;
+            }
+
+            // 각 참가자와 성별 매칭 확인
+            for (const participant of room.chatUsers) {
+                const participantGender = participant.gender;
+
+                if (room.matchedGender === 'opposite') {
+                    // 이성만 허용
+                    if (participantGender === joinerGender) {
+                        const err = new Error('이 방은 이성만 참가할 수 있습니다.');
+                        err.status = 403;
+                        throw err;
+                    }
+                } else if (room.matchedGender === 'same') {
+                    // 동성만 허용
+                    if (participantGender !== joinerGender) {
+                        const err = new Error('이 방은 동성만 참가할 수 있습니다.');
+                        err.status = 403;
+                        throw err;
+                    }
+                }
+            }
+        }
+
+
         // 4) 기존 로직 유지 ― 실제로 방에 추가
         if (!room.chatUsers.includes(userId)) {
             room.chatUsers.push(userId);
 
             // 🔧 랜덤채팅에서 성별 선택 정보 저장
             if (room.roomType === 'random') {
-                // selectedGender가 없으면 방의 matchedGender를 기본값으로 사용
-                const genderToSave = selectedGender || room.matchedGender || 'any';
-                room.genderSelections.set(userId.toString(), genderToSave);
-                console.log(`성별 선택 저장: ${userId} → ${genderToSave}`);
+                const userGender = joiner.gender;  // 본인 성별
+                const userPreference = selectedGender || room.matchedGender;  // 선택한 매칭 조건
+
+                // 검증: 본인 성별
+                if (!userGender || !['male', 'female'].includes(userGender)) {
+                    const err = new Error('성별 정보가 필요합니다. 마이페이지에서 설정해주세요.');
+                    err.status = 403;
+                    throw err;
+                }
+
+                // 검증: 매칭 선택
+                if (!userPreference || !['opposite', 'same', 'any'].includes(userPreference)) {
+                    const err = new Error('매칭 조건이 올바르지 않습니다.');
+                    err.status = 400;
+                    throw err;
+                }
+
+                // 객체 형태로 저장
+                room.genderSelections.set(userId.toString(), {
+                    gender: userGender,
+                    preference: userPreference
+                });
+
+                console.log(`✅ 성별 정보 저장: ${userId} → gender: ${userGender}, preference: ${userPreference}`);
             }
 
             if (room.roomType === 'random' && room.chatUsers.length >= room.capacity) {
@@ -507,6 +593,11 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null, cache
             }
         }
         await room.save();
+        // ✅ 친구방인 경우 캐시 무효화
+        if (room.roomType === 'friend' && room.chatUsers.length === 2) {
+            const [user1, user2] = room.chatUsers.map(id => id.toString());
+            await IntelligentCache.invalidateFriendRoomCache(user1, user2);
+        }
         return room;
     } catch (error) {
         throw error;
@@ -785,44 +876,76 @@ export const recordRoomEntry = async (roomId, userId, entryTime = null) => {
     try {
         const timestamp = entryTime ? new Date(entryTime) : new Date();
 
-        // 기존 입장 기록이 있는지 확인
-        const existingEntry = await RoomEntry.findOne({
-            room: roomId,
-            user: userId
-        });
-
-        if (existingEntry) {
-            // 기존 기록 업데이트
-            existingEntry.entryTime = timestamp;
-            existingEntry.lastActiveTime = timestamp;
-            await existingEntry.save();
-
-            return {
-                success: true,
-                entryTime: existingEntry.entryTime,
-                isUpdate: true
-            };
-        } else {
-            // 새 입장 기록 생성
-            const newEntry = new RoomEntry({
+        // ✅ 쿼리 1개로 통합 (upsert)
+        const result = await RoomEntry.findOneAndUpdate(
+            {
                 room: roomId,
-                user: userId,
-                entryTime: timestamp,
-                lastActiveTime: timestamp
-            });
+                user: userId
+            },
+            {
+                $set: {
+                    entryTime: timestamp,
+                    lastActiveTime: timestamp
+                }
+            },
+            {
+                upsert: true,              // 없으면 생성
+                new: true,                 // 업데이트된 문서 반환
+                setDefaultsOnInsert: true  // 기본값 적용
+            }
+        );
 
-            await newEntry.save();
-
-            return {
-                success: true,
-                entryTime: newEntry.entryTime,
-                isUpdate: false
-            };
-        }
+        return {
+            success: true,
+            entryTime: result.entryTime,
+            isUpdate: !!result.updatedAt  // updatedAt 존재 = 업데이트
+        };
     } catch (error) {
         throw new Error(`채팅방 입장 시간 기록 실패: ${error.message}`);
     }
 };
+
+//     try {
+//         const timestamp = entryTime ? new Date(entryTime) : new Date();
+//
+//         // 기존 입장 기록이 있는지 확인
+//         const existingEntry = await RoomEntry.findOne({
+//             room: roomId,
+//             user: userId
+//         });
+//
+//         if (existingEntry) {
+//             // 기존 기록 업데이트
+//             existingEntry.entryTime = timestamp;
+//             existingEntry.lastActiveTime = timestamp;
+//             await existingEntry.save();
+//
+//             return {
+//                 success: true,
+//                 entryTime: existingEntry.entryTime,
+//                 isUpdate: true
+//             };
+//         } else {
+//             // 새 입장 기록 생성
+//             const newEntry = new RoomEntry({
+//                 room: roomId,
+//                 user: userId,
+//                 entryTime: timestamp,
+//                 lastActiveTime: timestamp
+//             });
+//
+//             await newEntry.save();
+//
+//             return {
+//                 success: true,
+//                 entryTime: newEntry.entryTime,
+//                 isUpdate: false
+//             };
+//         }
+//     } catch (error) {
+//         throw new Error(`채팅방 입장 시간 기록 실패: ${error.message}`);
+//     }
+// };
 
 /**
  * ⚠️ 기존 메시지 저장 함수 (deprecated - sender 타입 오류)
@@ -1056,6 +1179,10 @@ export const softDeleteMessage = async (messageId) => {
  */
 export const leaveChatRoomService = async (roomId, userId) => {
     try {
+        // ✅ 캐시 무효화 (가장 먼저 실행)
+        const exitedCacheKey = `user_exited_rooms_${userId}`;
+        await IntelligentCache.deleteCache(exitedCacheKey);
+        console.log(`🗑️ [leaveChatRoom] 캐시 무효화: ${exitedCacheKey}`);
         /* ① 방 조회 */
         const chatRoom = await ChatRoom.findById(roomId);
         if (!chatRoom) throw new Error('채팅방을 찾을 수 없습니다.');
@@ -1507,3 +1634,227 @@ export const decryptMessageForAdmin = async (messageId, adminId, purpose, ipAddr
     }
 };
 
+/**
+ * 친구방 찾기 또는 생성
+ *
+ * 기능:
+ * 1. 차단 관계 검증 (양방향)
+ * 2. friendPairId 생성
+ * 3. 방 찾기 또는 생성 (원자적 처리)
+ * 4. 입장 시간 기록
+ * 5. 캐시 무효화
+ *
+ * @param {string} userId - 현재 사용자 ID
+ * @param {string} friendId - 친구 ID
+ * @returns {Promise<{room: Object, created: boolean}>}
+ *
+ * @example
+ * const result = await findOrCreateFriendRoom('user123', 'friend456');
+ * // { room: { _id, chatUsers, isActive }, created: true }
+ */
+export const findOrCreateFriendRoom = async (userId, friendId) => {
+    try {
+        console.log(`🔍 [findOrCreate] 시작: ${userId} <-> ${friendId}`);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 🆕 0️⃣ 캐시에서 방 ID 조회
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const cachedRoomId = await IntelligentCache.getCachedFriendRoomId(userId, friendId);
+
+        if (cachedRoomId) {
+            // 캐시 히트 - 차단 관계만 빠르게 확인
+            const [user, friend] = await Promise.all([
+                User.findById(userId).select('blockedUsers').lean(),
+                User.findById(friendId).select('blockedUsers').lean()
+            ]);
+
+            if (!user || !friend) {
+                const err = new Error('사용자를 찾을 수 없습니다.');
+                err.status = 404;
+                err.code = 'USER_NOT_FOUND';
+                throw err;
+            }
+
+            // 차단 관계 체크
+            const isBlockedByMe = user.blockedUsers?.some(id => id.toString() === friendId);
+            const isBlockedByFriend = friend.blockedUsers?.some(id => id.toString() === userId);
+
+            if (isBlockedByMe || isBlockedByFriend) {
+                console.log(`🔒 [findOrCreate] 차단 관계 존재, 캐시 무효화`);
+
+                // 차단 발생 - 캐시 무효화
+                await IntelligentCache.invalidateFriendRoomId(userId, friendId);
+
+                const err = new Error('차단 관계가 있는 사용자와 채팅할 수 없습니다.');
+                err.status = 403;
+                err.code = 'BLOCKED_USER';
+                throw err;
+            }
+
+            // 입장 시간 기록
+            await Promise.all([
+                recordRoomEntry(cachedRoomId, userId),
+                recordRoomEntry(cachedRoomId, friendId)
+            ]);
+
+            console.log(`✅ [캐시 HIT] 방 ID: ${cachedRoomId}`);
+
+            return {
+                roomId: cachedRoomId,
+                created: false
+            };
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 1️⃣ 차단 관계 검증 (병렬 조회로 성능 최적화)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const [user, friend] = await Promise.all([
+            User.findById(userId).select('blockedUsers').lean(),
+            User.findById(friendId).select('blockedUsers').lean()
+        ]);
+
+        // 사용자 존재 여부 확인
+        if (!user || !friend) {
+            const err = new Error('사용자를 찾을 수 없습니다.');
+            err.status = 404;
+            err.code = 'USER_NOT_FOUND';
+            throw err;
+        }
+
+        // 양방향 차단 체크
+        const isBlockedByMe = user.blockedUsers?.some(
+            id => id.toString() === friendId
+        );
+        const isBlockedByFriend = friend.blockedUsers?.some(
+            id => id.toString() === userId
+        );
+
+        if (isBlockedByMe || isBlockedByFriend) {
+            console.log(`🔒 [findOrCreate] 차단 관계 존재`);
+            const err = new Error('차단 관계가 있는 사용자와 채팅할 수 없습니다.');
+            err.status = 403;
+            err.code = 'BLOCKED_USER';
+            throw err;
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 2️⃣ friendPairId 생성 (항상 정렬하여 일관성 보장)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const sortedIds = [userId, friendId]
+            .map(id => id.toString())
+            .sort();
+        const friendPairId = sortedIds.join('_');
+
+        console.log(`🔑 [findOrCreate] friendPairId: ${friendPairId}`);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 3️⃣ findOneAndUpdate with upsert (원자적 처리)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // findOneAndUpdate + upsert = race condition 해결
+        // 동시에 두 요청이 와도 MongoDB가 하나만 생성
+        const room = await ChatRoom.findOneAndUpdate(
+            {
+                // 찾기 조건: 이 friendPairId를 가진 방이 있는가?
+                friendPairId: friendPairId
+            },
+            {
+                // 없으면 생성할 때 사용할 값들
+                $setOnInsert: {
+                    roomType: 'friend',
+                    capacity: 2,
+                    chatUsers: sortedIds,
+                    friendPairId: friendPairId,  // Pre-save Hook이 재정렬
+                    isActive: true
+                }
+            },
+            {
+                upsert: true,              // 없으면 생성
+                new: true,                 // 업데이트된 문서 반환
+                setDefaultsOnInsert: true  // 기본값 적용
+            }
+        ).lean();  // 성능 최적화: Plain Object 반환
+
+
+
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 4️⃣ 생성 여부 판단 (타임스탬프 비교)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // createdAt이 1초 이내 = 방금 생성됨
+        const wasCreated = room.createdAt &&
+            (Date.now() - new Date(room.createdAt).getTime()) < 1000;
+
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //  3.5 방 ID 캐싱 (항상 실행)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        await IntelligentCache.cacheFriendRoomId(sortedIds[0], sortedIds[1], room._id.toString());
+
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 5️⃣ 캐시 무효화 (새로 생성된 경우만)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (wasCreated) {
+            await IntelligentCache.invalidateFriendRoomCache(sortedIds[0], sortedIds[1]);
+            console.log(`🆕 [findOrCreate] 새 방 생성: ${room._id}`);
+        } else {
+            console.log(`♻️ [findOrCreate] 기존 방 재사용: ${room._id}`);
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 6️⃣ 입장 시간 기록 (병렬 처리)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        await Promise.all([
+            recordRoomEntry(room._id, userId),
+            recordRoomEntry(room._id, friendId)
+        ]);
+
+        console.log(`✅ [findOrCreate] 성공: ${room._id}`);
+
+        return {
+            roomId: room._id.toString(),  // ✅ 방 ID만 문자열로 반환
+            created: wasCreated
+        };
+
+    } catch (error) {
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 7️⃣ 중복 키 에러 처리 (동시 요청 시 발생 가능)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // MongoDB 에러 코드 11000 = Duplicate Key Error
+        if (error.code === 11000) {
+            console.log('⚠️ [findOrCreate] 중복 키 에러, 재조회');
+
+            // friendPairId 재생성
+            const sortedIds = [userId, friendId]
+                .map(id => id.toString())
+                .sort();
+            const friendPairId = sortedIds.join('_');
+
+            // 방 재조회 (이미 존재하는 방)
+            const room = await ChatRoom.findOne({
+                friendPairId: friendPairId
+            }).lean();
+
+            if (!room) {
+                throw new Error('중복 키 에러 후 방을 찾을 수 없습니다.');
+            }
+
+            // 🆕 캐싱 추가
+            await IntelligentCache.cacheFriendRoomId(sortedIds[0], sortedIds[1], room._id.toString());
+
+            // 입장 시간 기록
+            await Promise.all([
+                recordRoomEntry(room._id, userId),
+                recordRoomEntry(room._id, friendId)
+            ]);
+
+            return {
+                roomId: room._id.toString(),
+                created: false
+            };
+        }
+
+        console.error('❌ [findOrCreate] 오류:', error);
+        throw error;
+    }
+};

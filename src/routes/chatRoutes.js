@@ -10,6 +10,9 @@ router.post('/rooms', chatController.createRoom);
 // 방 찾기 또는 생성
 router.post('/rooms/find-or-create', chatController.findOrCreateRoom);
 
+// 새로 추가: 친구방 찾기 또는 생성 (통합 API)
+router.post("/friend/rooms/find-or-create", chatController.findOrCreateFriendRoomController);
+
 //친구와 채팅방 생성
 router.post("/friend/rooms", chatController.createFriendRoom);
 
