@@ -54,11 +54,7 @@ const reportSchema = new Schema({
         type: String,                   // 신고 내용: 신고에 대한 상세 설명
         required: true
     },
-    // 신고한 시간
-    reportDate: {
-        type: Date,                     // 신고가 접수된 시각
-        default: Date.now               // 기본값은 현재 시각
-    },
+
     // 신고자 고유 ID
     reportErId: {
         type: Schema.Types.ObjectId,    // 신고자: 신고를 한 사용자의 고유 ID

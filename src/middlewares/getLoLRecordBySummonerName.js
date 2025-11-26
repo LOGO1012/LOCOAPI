@@ -88,9 +88,9 @@ export async function getLoLRecordByRiotId(riotId) {
         ? Math.round((totalWins / (totalWins + totalLosses)) * 10000) / 100
         : 0;
 
-    // 5) 최근 매치 ID 5개 조회
+    // 5) 최근 매치 ID 10개 조회
     const { data: matchIds } = await axios.get(
-        `${MATCH_API}/lol/match/v5/matches/by-puuid/${puuid}/ids?count=5`,
+        `${MATCH_API}/lol/match/v5/matches/by-puuid/${puuid}/ids?count=10`,
         riotHeaders()
     );
 

@@ -13,6 +13,18 @@ const ReportedMessageBackupSchema = new Schema({
         required: true,
         unique: true 
     },
+    roomId: { 
+        type: Schema.Types.ObjectId, 
+        ref: 'ChatRoom', 
+        index: true 
+    }, // 쿼리 최적화를 위한 비정규화 필드
+    sender: {
+        _id: { type: Schema.Types.ObjectId, ref: 'User' },
+        nickname: String
+    }, // 쿼리 최적화를 위한 비정규화 필드
+    messageCreatedAt: { 
+        type: Date 
+    }, // 쿼리 최적화를 위한 비정규화 필드
     plaintextContent: { 
         type: String, 
         required: true 

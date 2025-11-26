@@ -1,8 +1,12 @@
 import { News } from '../models/News.js';
 import { User } from '../models/UserProfile.js';
 import jwt from 'jsonwebtoken';
+import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
+
 
 // 사용자 인증 및 권한 확인 헬퍼 함수 (쿠키 기반)
 const authenticateAndAuthorize = async (req, requiredLevel = 0) => {
@@ -73,7 +77,7 @@ export const getNewsList = async (req, res) => {
 
         // 중요 공지사항을 먼저, 그 다음 최신순
         const news = await News.find(filter)
-            .populate('author', 'nickname profilePhoto userLv')
+            .select('_id title category authorNickname images.path contentThumbnailUrl isImportant isActive views createdAt')
             .sort({ isImportant: -1, createdAt: -1 })
             .skip(skip)
             .limit(limitNum)
@@ -92,7 +96,7 @@ export const getNewsList = async (req, res) => {
                     hasNextPage: pageNum < Math.ceil(total / limitNum),
                     hasPrevPage: pageNum > 1
                 },
-                isAdmin // 프론트엔드에서 관리자 UI 표시용
+                isAdmin
             }
         });
     } catch (error) {
@@ -111,11 +115,9 @@ export const getNewsDetail = async (req, res) => {
 
         // 현재 사용자 정보 확인
         const currentUser = await getCurrentUser(req);
-        const isAdmin = currentUser && currentUser.userLv >= 3;
-
-        const news = await News.findById(id)
-            .populate('author', 'nickname profilePhoto userLv');
-
+                    const isAdmin = currentUser && currentUser.userLv >= 3;
+        
+                    const news = await News.findById(id).select('-isDeleted');
         if (!news || news.isDeleted) {
             return res.status(404).json({
                 success: false,
@@ -176,13 +178,34 @@ export const createNews = async (req, res) => {
             });
         }
 
-        // 업로드된 이미지 처리
-        const images = req.files ? req.files.map(file => ({
-            filename: file.filename,
-            originalName: file.originalname,
-            path: file.path,
-            size: file.size
-        })) : [];
+        // 업로드된 이미지 처리 (sharp를 이용한 최적화)
+        const images = [];
+        if (req.files) {
+            for (const file of req.files) {
+                const processedFilename = `processed-${file.filename}`;
+                const processedImagePath = path.join('uploads', 'news', processedFilename);
+
+                await sharp(file.path)
+                    .resize({ width: 1200, withoutEnlargement: true })
+                    .toFormat('jpeg', { quality: 80 })
+                    .toFile(processedImagePath);
+
+                // 원본 파일 삭제
+                fs.unlinkSync(file.path);
+
+                images.push({
+                    filename: processedFilename,
+                    originalName: file.originalname,
+                    path: processedImagePath.replace(/\\/g, '/'), // 경로 구분자를 '/'로 통일
+                    size: fs.statSync(processedImagePath).size // 압축된 파일의 크기
+                });
+            }
+        }
+
+        // content에서 첫 이미지 URL 추출
+        const contentImgRegex = /<img[^>]+src="([^">]+)"/;
+        const contentMatch = formData.content.match(contentImgRegex);
+        const contentThumbnailUrl = contentMatch ? contentMatch[1] : null;
 
         const news = new News({
             title,
@@ -191,15 +214,15 @@ export const createNews = async (req, res) => {
             author: user._id,
             authorNickname: user.nickname,
             images,
-            isImportant: isImportant === 'true' || isImportant === true
+            isImportant: isImportant === 'true' || isImportant === true,
+            contentThumbnailUrl // 추출한 이미지 URL 저장
         });
 
         await news.save();
 
         res.status(201).json({
             success: true,
-            message: '게시글이 성공적으로 작성되었습니다.',
-            data: news
+            message: '게시글이 성공적으로 작성되었습니다.'
         });
     } catch (error) {
         console.error('뉴스 작성 오류:', error);
@@ -242,37 +265,56 @@ export const updateNews = async (req, res) => {
             });
         }
 
-        // 업데이트
         const updateData = {
             ...(title && { title }),
-            ...(content && { content }),
             ...(category && { category }),
             ...(typeof isImportant !== 'undefined' && { isImportant }),
             ...(typeof isActive !== 'undefined' && { isActive }),
             updatedAt: new Date()
         };
 
-        // 새 이미지가 업로드된 경우
+        // content가 업데이트될 경우, contentThumbnailUrl도 함께 업데이트
+        if (content) {
+            updateData.content = content;
+            const contentImgRegex = /<img[^>]+src="([^">]+)"/;
+            const contentMatch = content.match(contentImgRegex);
+            updateData.contentThumbnailUrl = contentMatch ? contentMatch[1] : null;
+        }
+
+        // 새 이미지가 업로드된 경우 (sharp 최적화)
         if (req.files && req.files.length > 0) {
-            const newImages = req.files.map(file => ({
-                filename: file.filename,
-                originalName: file.originalname,
-                path: file.path,
-                size: file.size
-            }));
+            const newImages = [];
+            for (const file of req.files) {
+                const processedFilename = `processed-${file.filename}`;
+                const processedImagePath = path.join('uploads', 'news', processedFilename);
+
+                await sharp(file.path)
+                    .resize({ width: 1200, withoutEnlargement: true })
+                    .toFormat('jpeg', { quality: 80 })
+                    .toFile(processedImagePath);
+
+                // 원본 파일 삭제
+                fs.unlinkSync(file.path);
+
+                newImages.push({
+                    filename: processedFilename,
+                    originalName: file.originalname,
+                    path: processedImagePath.replace(/\\/g, '/'),
+                    size: fs.statSync(processedImagePath).size
+                });
+            }
             updateData.images = [...news.images, ...newImages];
         }
 
-        const updatedNews = await News.findByIdAndUpdate(
+        await News.findByIdAndUpdate(
             id,
             updateData,
             { new: true }
-        ).populate('author', 'nickname profilePhoto userLv');
+        );
 
         res.status(200).json({
             success: true,
-            message: '게시글이 성공적으로 수정되었습니다.',
-            data: updatedNews
+            message: '게시글이 성공적으로 수정되었습니다.'
         });
     } catch (error) {
         console.error('뉴스 수정 오류:', error);

@@ -33,58 +33,8 @@ const getQnaListPage = async (req, res) => {
  */
 const createQna = async (req, res) => {
     try {
-        const newQna = await QnaService.createQna(req.body);
-        return res.status(201).json(newQna);
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-};
-
-/**
- * 전체 QnA 목록을 조회하여 클라이언트에 반환합니다.
- * @param {Object} req - 요청 객체
- * @param {Object} res - 응답 객체
- */
-const getAllQnas = async (req, res) => {
-    try {
-        const qnas = await QnaService.getAllQnas();
-        return res.status(200).json(qnas);
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-};
-
-/**
- * 특정 ID에 해당하는 QnA 문서를 조회하여 클라이언트에 반환합니다.
- * 문서가 없으면 404 상태를 반환합니다.
- * @param {Object} req - 요청 객체 (req.params.id에 QnA ID가 있음)
- * @param {Object} res - 응답 객체
- */
-// controllers/qnaController.js (예시: 단건 조회)
-const getQnaById = async (req, res) => {
-    try {
-        const qna = await QnaService.getQnaById(req.params.id);
-        if (!qna) return res.status(404).json({ message: 'QnA not found' });
-
-        const user = req.user;
-        const isAdmin = user && (user.role === 'admin' || user.userLv >= 2);
-        const isOwner = user && user._id.toString() === qna.userId.toString();
-
-        let serialized = {
-            ...qna.toObject(),
-            userNickname: qna.isAnonymous ? '익명' : qna.userNickname,
-            qnaRegdate: qna.qnaRegdate.toISOString(),
-            updatedAt: qna.updatedAt.toISOString()
-        };
-
-        // 관리자가 아니고, 본인이 아닌 경우에만 비공개 처리
-        if (qna.isAdminOnly && !isAdmin && !isOwner) {
-            serialized.qnaTitle = '비공개 게시글입니다.';
-            serialized.qnaContents = '비공개 게시글입니다. 관리자만 내용을 볼 수 있습니다.';
-            serialized.qnaAnswer = qna.qnaAnswer ? '비공개 답변입니다.' : null;
-        }
-
-        return res.status(200).json(serialized);
+        const result = await QnaService.createQna(req.body);
+        return res.status(201).json(result);
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
@@ -129,8 +79,6 @@ const deleteQna = async (req, res) => {
 
 export default {
     createQna,
-    getAllQnas,
-    getQnaById,
     updateQna,
     deleteQna,
     getQnaListPage

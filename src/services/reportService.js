@@ -3,6 +3,7 @@ import { Report } from '../models/report.js';
 import { User } from '../models/UserProfile.js';
 import {ReportNotification} from "../models/ReportNotification.js";
 import { createReportedMessageBackup } from './chatService.js'; // 추가
+import IntelligentCache from '../utils/cache/intelligentCache.js';
 
 /**
  * 신고 생성 함수
@@ -11,8 +12,10 @@ import { createReportedMessageBackup } from './chatService.js'; // 추가
  */
 export const createReport = async (data) => {
     try {
-        const offender  = await User.findById(data.offenderId,  'nickname');
-        const reporter  = await User.findById(data.reportErId, 'nickname');
+        const [offender, reporter] = await Promise.all([
+            User.findById(data.offenderId, 'nickname'),
+            User.findById(data.reportErId, 'nickname')
+        ]);
 
         // 신고 문서 저장
         const report = await new Report({
@@ -77,7 +80,7 @@ export const createReport = async (data) => {
         );
         /* ────────────────────────────────────────────────────────── */
 
-        return report;
+        return { success: true, reportId: report._id }; // 전체 객체 대신 ID만 반환
     } catch (error) {
         throw error;
     }
@@ -91,8 +94,12 @@ export const createReport = async (data) => {
  */
 export const getReportById = async (id) => {
     try {
-        // Report 컬렉션에서 id에 해당하는 신고 찾기
-        return await Report.findById(id);
+        return await Report.findById(id)
+            .select('reportTitle reportArea reportCategory reportContants reportErId offenderId adminId stopDetail stopDate durUntil anchor reportAnswer reportStatus createdAt')
+            .populate('reportErId', 'nickname')
+            .populate('offenderId', 'nickname')
+            .populate('adminId', 'nickname')
+            .lean();
     } catch (error) {
         throw error;
     }
@@ -106,9 +113,10 @@ export const getReportsWithPagination = async (filters = {}, page = 1, size = 10
         const sortOrder = orderByDate === 'asc' ? 1 : -1;
 
         const reportsPromise = Report.find(filters)
+            .select('reportTitle reportArea reportContants reportStatus offenderNickname adminNickname createdAt') // ◀◀◀ 필드 선택
             .skip(skip)
             .limit(size)
-            .sort({ reportDate: sortOrder }) // 동적 정렬 적용
+            .sort({ createdAt: sortOrder }) // 동적 정렬 적용
             .populate('reportErId', 'nickname')
             .populate('offenderId', 'nickname')
             .populate('adminId', 'nickname');
@@ -155,7 +163,7 @@ export const deleteReport = async (id) => {
 /**
  * 신고에 답변 추가하기 (관리자 ID와 제재 내용을 함께 저장)
  */
-export const addReplyToReport = async (id, replyContent, adminId, suspensionDays, stopDetail) => {
+export const addReplyToReport = async (id, replyContent, adminUser, suspensionDays, stopDetail) => {
     try {
         const now = new Date();
         let durUntil = null;
@@ -172,17 +180,16 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
             reportStatus = "dismissed";
         }
 
-        const admin = await User.findById(adminId, 'nickname');
         const updatedReport = await Report.findByIdAndUpdate(
             id,
             {
                 reportAnswer: replyContent,
-                adminId: adminId,
+                adminId: adminUser._id, // adminUser 객체에서 ID 사용
                 reportStatus: reportStatus,
                 stopDetail: stopDetail ? stopDetail : (suspensionDays && parseInt(suspensionDays) > 0 ? '일시정지' : '활성'),
                 stopDate: suspensionDays && parseInt(suspensionDays) > 0 ? now : null,
                 durUntil: suspensionDays && parseInt(suspensionDays) > 0 ? durUntil : null,
-                adminNickname:  admin.nickname,
+                adminNickname:  adminUser.nickname, // adminUser 객체에서 nickname 사용
 
             },
             { new: true }
@@ -191,7 +198,7 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
             .populate('offenderId', 'nickname');
 
         // 신고당한(가해자) 사용자의 신고 횟수 증가 및 정지 상태 적용 (채팅 관련 필드는 업데이트하지 않음)
-        const offenderId = updatedReport.offenderId;
+        const offenderId = updatedReport.offenderId._id || updatedReport.offenderId;
         let updateFields = {};
 
         if (updatedReport.stopDetail === '일시정지' || updatedReport.stopDetail === '영구정지') {
@@ -223,7 +230,11 @@ export const addReplyToReport = async (id, replyContent, adminId, suspensionDays
             content: `신고 제재: ${updatedReport.stopDetail}${(suspensionDays && parseInt(suspensionDays) > 0) ? ` (${suspensionDays}일 정지)` : ''}`,
             type: 'sanctionInfo'
         });
-        // --- 알림 생성 부분 끝 ---
+        
+        // --- 캐시 무효화 ---
+        await IntelligentCache.deleteCache(`notifications:${reporterId}`);
+        await IntelligentCache.deleteCache(`notifications:${offenderId}`);
+        // --- 캐시 무효화 끝 ---
 
         return updatedReport;
     } catch (error) {

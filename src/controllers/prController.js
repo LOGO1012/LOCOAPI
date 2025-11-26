@@ -12,18 +12,22 @@ const mapGenderKor = (g) => {
 // 상위 10명 (별점 기준 내림차순)
 export const getPRTopUsers = async (req, res, next) => {
     try {
-        const topUsersRaw = await User.find().sort({ star: -1 }).limit(10).lean();
+        const topUsersRaw = await User.find()
+            .sort({ star: -1 })
+            .limit(10)
+            .select('_id nickname profilePhoto star gender') // ◀◀◀ Select 절 추가
+            .lean();
         
         // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
         const userIds = topUsersRaw.map(u => u._id.toString());
         const onlineStatusMap = onlineStatusService.getMultipleUserStatus(userIds);
-        
+
         const topUsers = topUsersRaw.map(u => ({
             ...u,
             gender: mapGenderKor(u.gender),
             isOnline: onlineStatusMap[u._id.toString()] || false
         }));
-        
+
         return res.status(200).json({ data: topUsers });
     } catch (err) {
         next(err);
@@ -42,11 +46,16 @@ export const getPRUserList = async (req, res, next) => {
         let sortOption = {};
 
         if (sort === "online") {
-            const tenMinutesAgo = moment().subtract(10, "minutes").toDate();
-            query.lastLogin = { $gte: tenMinutesAgo };
-        } else if (sort === "star|asc") {
+            const onlineUserIds = onlineStatusService.getAllOnlineUsers();
+            query._id = { $in: onlineUserIds };
+            sortOption = { star: -1 }; // 온라인 사용자들을 별점 높은순으로 정렬
+        } else if (sort === "new") {
+            sortOption = { createdAt: -1 };
+        } else if (sort === "rating") {
+            sortOption = { star: -1 };
+        } else if (sort === "lowRating") {
             sortOption = { star: 1 };
-        } else {
+        } else { // recommend (추천순) 또는 기본값
             sortOption = { star: -1 };
         }
 
@@ -55,6 +64,7 @@ export const getPRUserList = async (req, res, next) => {
             .sort(sortOption)
             .skip((page - 1) * limit)
             .limit(limit)
+            .select('_id nickname lolNickname profilePhoto photo star gender info') // ◀◀◀ Select 절 추가
             .lean();
 
         // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)

@@ -176,7 +176,8 @@ const userSchema = new Schema({
     // 매너(별점) 관련 정보
     star: {
         type: Number,           // 별점 누적: 사용자가 받은 매너 별의 누적 점수 (한 번에 1씩 증가)
-        default: 0              // 기본값은 0
+        default: 0,              // 기본값은 0
+        index: true              // ◀◀◀ 인덱스 추가
     },
     // 유저 등급 및 권한 정보
     userLv: {
@@ -187,7 +188,8 @@ const userSchema = new Schema({
     // 접속 및 활동 기록
     lastLogin: {
         type: Date,             // 마지막 로그인 시간
-        default: null
+        default: null,
+        index: true              // ◀◀◀ 인덱스 추가
     },
     // 신고 누적 횟수
     numOfReport: {

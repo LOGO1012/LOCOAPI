@@ -63,5 +63,6 @@ const bannerSchema = new mongoose.Schema({
 // 인덱스 설정
 bannerSchema.index({ isActive: 1, order: 1 });
 bannerSchema.index({ createdAt: -1 });
+bannerSchema.index({ order: 1, createdAt: -1 }); // 정렬 최적화용 인덱스 추가
 
 export const Banner = mongoose.model('Banner', bannerSchema);

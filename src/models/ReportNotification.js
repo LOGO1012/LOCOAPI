@@ -27,4 +27,6 @@ const reportNotificationSchema = new Schema({
     }
 });
 
+reportNotificationSchema.index({ receiver: 1, isRead: 1, createdAt: -1 });
+
 export const ReportNotification = model('Notification', reportNotificationSchema);

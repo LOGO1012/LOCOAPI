@@ -52,11 +52,13 @@ const getQnaListPage = async (pageRequestDTO) => {
 
         // 쿼리 실행
         const dtoList = await Qna.find(filter)
-            .populate('userId')
-            .populate('answerUserId')
-            .sort({ qnaRegdate: -1 })
+            .select(
+                'qnaTitle qnaContents qnaAnswer qnaStatus userNickname answerUserNickname isAnonymous isAdminOnly userId updatedAt createdAt'
+            )
+            .sort({ qnaStatus: 1, createdAt: -1 })
             .skip(skip)
-            .limit(size);
+            .limit(size)
+            .lean();
 
         const totalCount = await Qna.countDocuments(filter);
 
@@ -75,46 +77,11 @@ const createQna = async (qnaData) => {
     try {
         // 작성자 닉네임 스냅샷
         const author = await User.findById(qnaData.userId, 'nickname');
-        const newQna = await Qna.create({
+        await Qna.create({
             ...qnaData,
             userNickname: author?.nickname || '',
-
-            qnaRegdate: new Date().toISOString()
         });
-        return newQna;
-    } catch (error) {
-        throw new Error(error);
-    }
-};
-
-/**
- * 전체 QnA 문서 목록을 조회합니다.
- * 사용자 및 답변 작성자 정보를 populate 하여 반환합니다.
- * @returns {Promise<Array>} QnA 문서 목록
- */
-const getAllQnas = async () => {
-    try {
-        const qnas = await Qna.find()
-            .populate('userId')
-            .populate('answerUserId');
-        return qnas;
-    } catch (error) {
-        throw new Error(error);
-    }
-};
-
-/**
- * 주어진 ID에 해당하는 QnA 문서를 조회합니다.
- * 사용자 및 답변 작성자 정보를 populate 하여 반환합니다.
- * @param {String} id - QnA 문서의 ID
- * @returns {Promise<Object>} 조회된 QnA 문서
- */
-const getQnaById = async (id) => {
-    try {
-        const qna = await Qna.findById(id)
-            .populate('userId')
-            .populate('answerUserId');
-        return qna;
+        return { success: true, message: 'QnA가 성공적으로 생성되었습니다.' };
     } catch (error) {
         throw new Error(error);
     }
@@ -139,7 +106,11 @@ const updateQna = async (id, updateData) => {
             }
         }
         const updatedQna = await Qna.findByIdAndUpdate(id, updateData, { new: true });
-        return updatedQna;
+        if (!updatedQna) return null;
+        return {
+            qnaAnswer: updatedQna.qnaAnswer,
+            qnaStatus: updatedQna.qnaStatus
+        };
     } catch (error) {
         throw new Error(error);
     }
@@ -161,8 +132,6 @@ const deleteQna = async (id) => {
 
 export default {
     createQna,
-    getAllQnas,
-    getQnaById,
     updateQna,
     deleteQna,
     getQnaListPage
