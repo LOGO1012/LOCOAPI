@@ -68,18 +68,43 @@ export const kakaoCallback = async (req, res, next) => {
 
         // DB에 사용자 정보가 없다면 회원가입이 필요하므로, 회원가입 페이지로 리다이렉트
         // 카카오 정보를 쿼리 파라미터로 전달하여 회원가입 페이지에서 표시할 수 있도록 함
-        if (result.status === 'noUser') {
-            console.log('사용자가 존재하지 않음, 회원가입 필요');
-            // 회원가입 페이지로 리다이렉트하면서 카카오 정보를 URL 쿼리 파라미터로 전달
-            req.session.kakaoUserData = kakaoUserData; //(추가함)
-            // return res.redirect(
-            //     `http://localhost:5173/signup`
-            // );
-            console.log("세션에 저장된 데이터:", req.session.kakaoUserData); // (추가) 세션 데이터 확인용 콘솔 로그
+        if (result.status === 'noUser' || result.status === 'new_registration_required') {
+            const statusMsg = result.status === 'noUser' ? '사용자가 존재하지 않음' : '보관된 사용자';
+            console.log(`${statusMsg}, 신규 회원가입 필요`);
+            
+            let sessionSocialData; // Declare a mutable variable
+
+            if (result.status === 'new_registration_required' && result.social) {
+                // Transform the nested social object from ArchivedUser into a flat structure
+                // that SignupForm.jsx expects (like kakaoUserData)
+                const archivedKakaoData = result.social.kakao;
+                if (archivedKakaoData) {
+                    sessionSocialData = {
+                        kakaoId: archivedKakaoData.providerId,
+                        name: archivedKakaoData.name,
+                        phoneNumber: archivedKakaoData.phoneNumber,
+                        birthday: archivedKakaoData.birthday,
+                        birthyear: archivedKakaoData.birthyear,
+                        gender: archivedKakaoData.gender
+                    };
+                } else {
+                    // Fallback if kakao data is somehow missing from archived social
+                    sessionSocialData = kakaoUserData;
+                }
+            } else {
+                // For 'noUser' case, use the original kakaoUserData
+                sessionSocialData = kakaoUserData;
+            }
+
+            req.session.kakaoUserData = sessionSocialData; // Save to session
+            if (result.deactivationCount) {
+                req.session.deactivationCount = result.deactivationCount;
+            }
+
             return res.status(200).json({
-                message: "회원가입 필요",
-                status: "noUser",
-                kakaoUserData
+                message: "신규 회원가입이 필요합니다.",
+                status: "new_registration_required",
+                socialData: sessionSocialData // Send the normalized data to frontend too
             });
         } else if (result.status === 'reactivation_possible') {
             console.log('탈퇴한 사용자, 재활성화 필요');

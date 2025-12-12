@@ -279,7 +279,7 @@ const userSchema = new Schema({
     },
     status: {
         type: String,
-        enum: ['active', 'deactivated'],
+        enum: ['active', 'deactivated', 'archived'],
         default: 'active'
     },
     deactivatedAt: {
