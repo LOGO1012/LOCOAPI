@@ -11,6 +11,10 @@ import * as onlineStatusService from "./onlineStatusService.js";
 import ComprehensiveEncryption from "../utils/encryption/comprehensiveEncryption.js";
 import IntelligentCache from "../utils/cache/intelligentCache.js";
 import { Community } from '../models/Community.js';
+import { Comment } from '../models/Comment.js';
+import { Reply } from '../models/Reply.js';
+import { SubReply } from '../models/SubReply.js';
+import { ArchivedUser } from '../models/ArchivedUser.js';
 import { Qna } from '../models/Qna.js';
 import {containsProfanity} from "../utils/profanityFilter.js";
 import { emitFriendAdded, emitFriendDeleted } from '../socket/socketIO.js';
@@ -114,186 +118,156 @@ export const getAgeInfoUnified = async (userId, birthdate = null) => {
 // ============================================================================
 
 
-// ✅ 개선된 카카오 로그인 - 복호화 없이 해시 기반으로만 처리
-// 역할:
-// 1. 카카오 ID 해시로 직접 검색 (복호화 없음)
-// 2. 전화번호 해시로 기존 계정 찾기 (복호화 없음)
-// 3. 기존 계정에 카카오 정보 연결
-// 4. 완전 신규면 회원가입 필요 알림
+// ✅ 개선된 카카오 로그인 - 보관된 사용자 확인 로직 추가
 export const findUserOrNoUser = async (kakaoUserData) => {
     try {
-        const normalizedPhone = normalizePhoneNumber(kakaoUserData.phoneNumber);
+        console.log("✅ [통합 카카오 로그인] 검색 시작");
+        const { kakaoId, phoneNumber, name, birthday, birthyear, gender } = kakaoUserData;
+        const normalizedPhone = normalizePhoneNumber(phoneNumber);
+        const providerIdHash = ComprehensiveEncryption.hashProviderId(kakaoId);
 
-        console.log("✅ [개선된 카카오 로그인] 해시 기반 검색 시작");
-        console.log(`카카오 ID: ${kakaoUserData.kakaoId}, 전화번호: ${normalizedPhone}`);
-
-        let existingUser = null;
-
-        // 1단계: 카카오 ID 해시로 직접 검색 (가장 효율적)
-        try {
-            existingUser = await ComprehensiveEncryption.findUserBySocialId(
-                User, 'kakao', kakaoUserData.kakaoId
-            );
-            if (existingUser) {
-                console.log("✅ 카카오 해시 기반 사용자 발견");
-            } else {
-                console.log("🔍 카카오 해시 검색 결과: 없음");
-            }
-        } catch (error) {
-            console.warn("⚠️ 카카오 해시 검색 실패:", error.message);
-        }
-
-        // 2단계: 구 방식 카카오 ID로 검색 (하위 호환성)
+        // --- Step 1: Find in primary 'users' collection ---
+        let existingUser = await User.findOne({ 'social.kakao.providerId_hash': providerIdHash });
         if (!existingUser) {
-            existingUser = await User.findOne({ 'social.kakao.providerId': kakaoUserData.kakaoId });
-            if (existingUser) {
-                console.log("✅ 구 방식 카카오 사용자 발견");
-            }
+            existingUser = await User.findOne({ 'social.kakao.providerId': kakaoId }); // Fallback for old data
         }
 
-        // 3단계: 전화번호 해시로 기존 계정 찾기 (복호화 없음)
-        if (!existingUser && normalizedPhone) {
-            console.log("🔍 전화번호 해시로 기존 계정 검색 중...");
+        if (existingUser) {
+            console.log("✅ 'users' 컬렉션에서 사용자 발견");
+            if (existingUser.status === 'deactivated') {
+                const sevenDays = 7 * 24 * 60 * 60 * 1000;
+                const thirtySevenDays = 37 * 24 * 60 * 60 * 1000;
+                const timeSinceDeactivation = new Date().getTime() - existingUser.deactivatedAt.getTime();
 
-            const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
-            existingUser = await User.findOne({ phone_hash: phoneHash });
-
-            if (existingUser && (!existingUser.social.kakao || !existingUser.social.kakao.providerId)) {
-                console.log("✅ 전화번호 매칭으로 기존 계정 발견, 카카오 정보 연결 중...");
-
-                // 기존 계정에 카카오 정보 추가 (암호화)
-                const kakaoData = {
-                    providerId: kakaoUserData.kakaoId,
-                    providerId_hash: ComprehensiveEncryption.hashProviderId(kakaoUserData.kakaoId),
-                    name: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.name),
-                    phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.phoneNumber),
-                    birthday: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.birthday.toString()),
-                    birthyear: await ComprehensiveEncryption.encryptPersonalInfo(kakaoUserData.birthyear.toString()),
-                    gender: kakaoUserData.gender,
-                };
-
-                existingUser.social.kakao = kakaoData;
-                existingUser.markModified('social');
-                await existingUser.save();
-                await IntelligentCache.invalidateUserCache(existingUser._id);
-                console.log("✅ 기존 계정에 카카오 정보 연결 완료");
+                if (timeSinceDeactivation < sevenDays) {
+                    const remainingDays = Math.ceil((sevenDays - timeSinceDeactivation) / (1000 * 60 * 60 * 24));
+                    throw new Error(`회원 탈퇴 후 7일 동안 재가입할 수 없습니다. ${remainingDays}일 남았습니다.`);
+                } else if (timeSinceDeactivation < thirtySevenDays) {
+                    return { status: 'reactivation_possible', user: { _id: existingUser._id, nickname: existingUser.nickname, email: existingUser.email } };
+                } else {
+                    console.log(`[로그인] 재가입 기간 만료된 사용자, 계정을 보관 처리합니다: ${existingUser._id}`);
+                    await archiveUserData(existingUser._id);
+                    // Fall through to Step 2, where the user will be found in the archived collection.
+                }
+            } else { // User is active
                 return await _attachCalculatedAge(existingUser);
             }
         }
 
-        if (!existingUser) {
-            console.log('등록된 사용자가 없습니다. 회원가입이 필요합니다.');
-            return { status: 'noUser', ...kakaoUserData };
+        // --- Step 2: If not in 'users' (or just archived), check 'archivedusers' collection ---
+        const archivedUser = await ArchivedUser.findOne({ 'social.kakao.providerId_hash': providerIdHash });
+        if (archivedUser) {
+            console.log("✅ 'archivedusers' 컬렉션에서 사용자 발견");
+            return { status: 'new_registration_required', social: archivedUser.social };
         }
 
-        if (existingUser.status === 'deactivated') {
-            const sevenDays = 7 * 24 * 60 * 60 * 1000;
-            if (existingUser.deactivatedAt && (new Date().getTime() - existingUser.deactivatedAt.getTime()) < sevenDays) {
-                const remainingTime = existingUser.deactivatedAt.getTime() + sevenDays - new Date().getTime();
-                const remainingDays = Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
-                throw new Error(`회원 탈퇴 후 7일 동안 재가입할 수 없습니다. ${remainingDays}일 남았습니다.`);
-            } else {
-                // 7 days have passed. Return a special status to frontend.
-                return { status: 'reactivation_possible', user: { _id: existingUser._id, nickname: existingUser.nickname, email: existingUser.email } };
+        // --- Step 3: Link account by phone number ---
+        if (normalizedPhone) {
+            const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
+            const userByPhone = await User.findOne({ phone_hash: phoneHash });
+
+            if (userByPhone && (!userByPhone.social.kakao || !userByPhone.social.kakao.providerId)) {
+                console.log("✅ 전화번호 매칭으로 기존 계정 발견, 카카오 정보 연결 중...");
+                userByPhone.social.kakao = {
+                    providerId: kakaoId,
+                    providerId_hash: providerIdHash,
+                    name: await ComprehensiveEncryption.encryptPersonalInfo(name),
+                    phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(phoneNumber),
+                    birthday: await ComprehensiveEncryption.encryptPersonalInfo(birthday.toString()),
+                    birthyear: await ComprehensiveEncryption.encryptPersonalInfo(birthyear.toString()),
+                    gender: gender,
+                };
+                userByPhone.markModified('social');
+                await userByPhone.save();
+                await IntelligentCache.invalidateUserCache(userByPhone._id);
+                console.log("✅ 기존 계정에 카카오 정보 연결 완료");
+                return await _attachCalculatedAge(userByPhone);
             }
         }
 
-        return await _attachCalculatedAge(existingUser);
+        // --- Step 4: Completely new user ---
+        console.log('등록된 사용자가 없습니다. 회원가입이 필요합니다.');
+        return { status: 'noUser', ...kakaoUserData };
+
     } catch (error) {
-        console.error('User service error:', error.message);
+        console.error('카카오 로그인 처리 중 오류 발생:', error);
         throw error;
     }
 };
-// ✅ 개선된 네이버 로그인 - 복호화 없이 해시 기반으로만 처리
-// 역할:
-// 1. 네이버 ID 해시로 직접 검색 (복호화 없음)
-// 2. 전화번호 해시로 기존 계정 찾기 (복호화 없음)
-// 3. 기존 계정에 네이버 정보 연결
-// 4. 완전 신규면 회원가입 필요 알림
+// ✅ 개선된 네이버 로그인 - 보관된 사용자 확인 로직 추가
 export const findUserByNaver = async (naverUserData) => {
     try {
-        const normalizedPhone = normalizePhoneNumber(naverUserData.phoneNumber);
+        console.log("✅ [통합 네이버 로그인] 검색 시작");
+        const { naverId, phoneNumber, name, birthday, birthyear, gender, accessToken } = naverUserData;
+        const normalizedPhone = normalizePhoneNumber(phoneNumber);
+        const providerIdHash = ComprehensiveEncryption.hashProviderId(naverId);
 
-        console.log("✅ [개선된 네이버 로그인] 해시 기반 검색 시작");
-        console.log(`네이버 ID: ${naverUserData.naverId}, 전화번호: ${normalizedPhone}`);
-
-        let existingUser = null;
-
-        // 1단계: 네이버 ID 해시로 직접 검색 (가장 효율적)
-        try {
-            existingUser = await ComprehensiveEncryption.findUserBySocialId(
-                User, 'naver', naverUserData.naverId
-            );
-            if (existingUser) {
-                console.log("✅ 네이버 해시 기반 사용자 발견");
-            } else {
-                console.log("🔍 네이버 해시 검색 결과: 없음");
-            }
-        } catch (error) {
-            console.warn("⚠️ 네이버 해시 검색 실패:", error.message);
-        }
-
-        // 2단계: 구 방식 네이버 ID로 검색 (하위 호환성)
+        // --- Step 1: Find in primary 'users' collection ---
+        let existingUser = await User.findOne({ 'social.naver.providerId_hash': providerIdHash });
         if (!existingUser) {
-            existingUser = await User.findOne({ 'social.naver.providerId': naverUserData.naverId });
-            if (existingUser) {
-                console.log("✅ 구 방식 네이버 사용자 발견");
+            existingUser = await User.findOne({ 'social.naver.providerId': naverId }); // Fallback
+        }
+
+        if (existingUser) {
+            console.log("✅ 'users' 컬렉션에서 사용자 발견");
+            if (existingUser.status === 'deactivated') {
+                const sevenDays = 7 * 24 * 60 * 60 * 1000;
+                const thirtySevenDays = 37 * 24 * 60 * 60 * 1000;
+                const timeSinceDeactivation = new Date().getTime() - existingUser.deactivatedAt.getTime();
+
+                if (timeSinceDeactivation < sevenDays) {
+                    const remainingDays = Math.ceil((sevenDays - timeSinceDeactivation) / (1000 * 60 * 60 * 24));
+                    throw new Error(`회원 탈퇴 후 7일 동안 재가입할 수 없습니다. ${remainingDays}일 남았습니다.`);
+                } else if (timeSinceDeactivation < thirtySevenDays) {
+                    return { status: 'reactivation_possible', user: { _id: existingUser._id, nickname: existingUser.nickname, email: existingUser.email } };
+                } else {
+                    console.log(`[로그인] 재가입 기간 만료된 사용자, 계정을 보관 처리합니다: ${existingUser._id}`);
+                    await archiveUserData(existingUser._id);
+                    // Fall through to Step 2, where the user will be found in the archived collection.
+                }
+            } else { // User is active
+                return await _attachCalculatedAge(existingUser);
             }
         }
 
-        // 3단계: 전화번호 해시로 기존 계정 찾기 (복호화 없음)
-        if (!existingUser && normalizedPhone) {
-            console.log("🔍 전화번호 해시로 기존 계정 검색 중...");
+        // --- Step 2: Check 'archivedusers' collection ---
+        const archivedUser = await ArchivedUser.findOne({ 'social.naver.providerId_hash': providerIdHash });
+        if (archivedUser) {
+            console.log("✅ 'archivedusers' 컬렉션에서 사용자 발견");
+            return { status: 'new_registration_required', social: archivedUser.social };
+        }
 
+        // --- Step 3: Link account by phone number ---
+        if (normalizedPhone) {
             const phoneHash = ComprehensiveEncryption.createPhoneHash(normalizedPhone);
-            existingUser = await User.findOne({ phone_hash: phoneHash });
+            const userByPhone = await User.findOne({ phone_hash: phoneHash });
 
-            if (existingUser && (!existingUser.social.naver || !existingUser.social.naver.providerId)) {
+            if (userByPhone && (!userByPhone.social.naver || !userByPhone.social.naver.providerId)) {
                 console.log("✅ 전화번호 매칭으로 기존 계정 발견, 네이버 정보 연결 중...");
-
-                // 기존 계정에 네이버 정보 추가 (암호화)
-                const naverData = {
-                    providerId: naverUserData.naverId,
-                    providerId_hash: ComprehensiveEncryption.hashProviderId(naverUserData.naverId),
-                    name: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.name),
-                    phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.phoneNumber),
-                    birthday: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.birthday),
-                    birthyear: await ComprehensiveEncryption.encryptPersonalInfo(naverUserData.birthyear.toString()),
-                    gender: naverUserData.gender,
-                    accessToken: naverUserData.accessToken || '',
+                userByPhone.social.naver = {
+                    providerId: naverId,
+                    providerId_hash: providerIdHash,
+                    name: await ComprehensiveEncryption.encryptPersonalInfo(name),
+                    phoneNumber: await ComprehensiveEncryption.encryptPersonalInfo(phoneNumber),
+                    birthday: await ComprehensiveEncryption.encryptPersonalInfo(birthday),
+                    birthyear: await ComprehensiveEncryption.encryptPersonalInfo(birthyear.toString()),
+                    gender: gender,
+                    accessToken: accessToken || '',
                 };
-
-                existingUser.social.naver = naverData;
-                existingUser.markModified('social');
-                await existingUser.save();
-                await IntelligentCache.invalidateUserCache(existingUser._id);
+                userByPhone.markModified('social');
+                await userByPhone.save();
+                await IntelligentCache.invalidateUserCache(userByPhone._id);
                 console.log("✅ 기존 계정에 네이버 정보 연결 완료");
-                return existingUser;
+                return await _attachCalculatedAge(userByPhone);
             }
         }
 
-        // 4단계: 신규 사용자 처리
-        if (!existingUser) {
-            console.log('✅ 등록된 네이버 사용자가 없습니다. 회원가입이 필요합니다.');
-            return { status: 'noUser', ...naverUserData };
-        }
+        // --- Step 4: Completely new user ---
+        console.log('등록된 네이버 사용자가 없습니다. 회원가입이 필요합니다.');
+        return { status: 'noUser', ...naverUserData };
 
-        // 5단계: 비활성화 계정 처리
-        if (existingUser.status === 'deactivated') {
-            const sevenDays = 7 * 24 * 60 * 60 * 1000;
-            if (existingUser.deactivatedAt && (new Date().getTime() - existingUser.deactivatedAt.getTime()) < sevenDays) {
-                const remainingTime = existingUser.deactivatedAt.getTime() + sevenDays - new Date().getTime();
-                const remainingDays = Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
-                throw new Error(`회원 탈퇴 후 7일 동안 재가입할 수 없습니다. ${remainingDays}일 남았습니다.`);
-            } else {
-                return { status: 'reactivation_possible', user: { _id: existingUser._id, nickname: existingUser.nickname, email: existingUser.email } };
-            }
-        }
-
-        console.log("✅ 네이버 로그인 처리 완료");
-        return await _attachCalculatedAge(existingUser);
     } catch (error) {
-        console.error('네이버 로그인 처리 실패:', error.message);
+        console.error('네이버 로그인 처리 중 오류 발생:', error);
         throw error;
     }
 };
@@ -1580,7 +1554,8 @@ export const createUser = async (userData) => {
             hasPhone: !!restUserData.phone,
             hasBirthdate: !!restUserData.birthdate,
             gender: restUserData.gender,
-            deactivationCount
+            deactivationCount,
+            socialData: restUserData.social // ADDED THIS LOG
         });
 
         // 🔧 필수 필드 검증 (서비스 레벨에서도 한 번 더)
@@ -1596,7 +1571,7 @@ export const createUser = async (userData) => {
             try {
                 console.log('🔐 KMS 암호화 시작...');
                 encryptedUserData = await ComprehensiveEncryption.encryptUserData(restUserData);
-                console.log('✅ KMS 암호화 완료');
+                console.log('✅ KMS 암호화 완료 - socialData in encryptedUserData:', encryptedUserData.social); // ADDED THIS LOG
             } catch (encryptionError) {
                 console.error('❌ KMS 암호화 실패:', encryptionError.message);
                 console.log('🔄 암호화 비활성화로 폴백...');
@@ -1613,7 +1588,8 @@ export const createUser = async (userData) => {
             nickname: encryptedUserData.nickname,
             hasGender: !!encryptedUserData.gender,
             gender: encryptedUserData.gender,
-            dataKeys: Object.keys(encryptedUserData)
+            dataKeys: Object.keys(encryptedUserData),
+            socialData: encryptedUserData.social // ADDED THIS LOG
         });
 
         // 🔧 필수 필드 강제 설정 (문제 해결)
@@ -1630,7 +1606,7 @@ export const createUser = async (userData) => {
             deactivationCount // 이관받은 탈퇴 횟수 설정
         });
 
-        console.log('🔧 User 인스턴스 생성 완료, KMS 암호화 데이터로 저장 시도 중...');
+        console.log('🔧 User 인스턴스 생성 완료, KMS 암호화 데이터로 저장 시도 중... socialData:', user.social); // ADDED THIS LOG
 
         const savedUser = await user.save();
         console.log('✅ DB 저장 성공 (KMS 암호화):', {
@@ -1639,7 +1615,8 @@ export const createUser = async (userData) => {
             gender: savedUser.gender,
             hasEncryptedName: !!savedUser.name,
             hasEncryptedPhone: !!savedUser.phone,
-            hasEncryptedBirthdate: !!savedUser.birthdate
+            hasEncryptedBirthdate: !!savedUser.birthdate,
+            socialData: savedUser.social // ADDED THIS LOG
         });
 
         // 🔧 나이 정보 캐싱 (에러가 발생해도 사용자 생성은 성공)
@@ -2031,28 +2008,11 @@ export const deactivateUserService = async (userId) => {
 
     // 5. 다른 사람 글에 남긴 댓글/답글/대대댓글 소프트 딜리트
     const now = new Date();
-    const userIdObj = new mongoose.Types.ObjectId(userId);
 
-    // 댓글 소프트 딜리트
-    await Community.updateMany(
-        { "comments.userId": userIdObj },
-        { $set: { "comments.$[elem].isDeleted": true, "comments.$[elem].deletedAt": now } },
-        { arrayFilters: [{ "elem.userId": userIdObj }] }
-    );
-
-    // 대댓글 소프트 딜리트
-    await Community.updateMany(
-        { "comments.replies.userId": userIdObj },
-        { $set: { "comments.$[].replies.$[elem].isDeleted": true, "comments.$[].replies.$[elem].deletedAt": now } },
-        { arrayFilters: [{ "elem.userId": userIdObj }] }
-    );
-
-    // 대대댓글 소프트 딜리트
-    await Community.updateMany(
-        { "comments.replies.subReplies.userId": userIdObj },
-        { $set: { "comments.$[].replies.$[].subReplies.$[elem].isDeleted": true, "comments.$[].replies.$[].subReplies.$[elem].deletedAt": now } },
-        { arrayFilters: [{ "elem.userId": userIdObj }] }
-    );
+    // Soft-delete comments, replies, and sub-replies made by the user
+    await Comment.updateMany({ userId: userId }, { $set: { isDeleted: true, deletedAt: now } });
+    await Reply.updateMany({ userId: userId }, { $set: { isDeleted: true, deletedAt: now } });
+    await SubReply.updateMany({ userId: userId }, { $set: { isDeleted: true, deletedAt: now } });
 
     // 6. QnA 게시글 하드 딜리트
     await Qna.deleteMany({ userId: userId });
@@ -2075,6 +2035,39 @@ export const deactivateUserService = async (userId) => {
         status: user.status,
         deactivatedAt: user.deactivatedAt,
     };
+};
+
+export const archiveUserData = async (userId) => {
+    try {
+        console.log(`🗄️ [사용자 보관] 시작: ${userId}`);
+
+        const userToArchive = await User.findById(userId).select('social').lean();
+        if (!userToArchive) {
+            console.log(`⚠️ [사용자 보관] 보관할 사용자를 찾을 수 없음: ${userId}`);
+            return;
+        }
+
+        // 1. Create a new document in the 'archivedusers' collection.
+        const newArchivedUser = new ArchivedUser({
+            originalUserId: userToArchive._id,
+            social: userToArchive.social,
+        });
+        await newArchivedUser.save();
+        console.log(`✅ [사용자 보관] 보관 문서 생성 완료: ${userToArchive._id}`);
+
+        // 2. Delete the original user from the 'users' collection.
+        await User.findByIdAndDelete(userId);
+        console.log(`🗑️ [사용자 보관] 원본 사용자 문서 삭제 완료: ${userId}`);
+
+        // 3. Invalidate caches for the original user ID.
+        await IntelligentCache.invalidateUserCache(userId);
+
+        console.log(`✅ [사용자 보관] 전체 프로세스 완료: ${userId}`);
+
+    } catch (error) {
+        console.error(`❌ [사용자 보관] 실패: ${userId}`, error);
+        // Do not rethrow; the scheduler will attempt again on its next run.
+    }
 };
 
 export const archiveAndPrepareNew = async (userId) => {

@@ -48,14 +48,43 @@ export const naverCallback = async (req, res, next) => {
 
         // DB에서 네이버 사용자를 조회
         const result = await findUserByNaver(naverUserData);
-        if (result.status === 'noUser') {
-            console.log('네이버 사용자가 존재하지 않음, 회원가입 필요');
-            req.session.naverUserData = naverUserData;
-            console.log("세션에 저장된 네이버 데이터:", req.session.naverUserData);
+        if (result.status === 'noUser' || result.status === 'new_registration_required') {
+            const statusMsg = result.status === 'noUser' ? '네이버 사용자가 존재하지 않음' : '보관된 사용자';
+            console.log(`${statusMsg}, 신규 회원가입 필요`);
+
+            let sessionSocialData; // Declare a mutable variable
+
+            if (result.status === 'new_registration_required' && result.social) {
+                // Transform the nested social object from ArchivedUser into a flat structure
+                const archivedNaverData = result.social.naver;
+                if (archivedNaverData) {
+                    sessionSocialData = {
+                        naverId: archivedNaverData.providerId,
+                        name: archivedNaverData.name,
+                        phoneNumber: archivedNaverData.phoneNumber,
+                        birthday: archivedNaverData.birthday,
+                        birthyear: archivedNaverData.birthyear,
+                        gender: archivedNaverData.gender,
+                        accessToken: archivedNaverData.accessToken // Include accessToken if needed
+                    };
+                } else {
+                    // Fallback if Naver data is somehow missing from archived social
+                    sessionSocialData = naverUserData;
+                }
+            } else {
+                // For 'noUser' case, use the original naverUserData
+                sessionSocialData = naverUserData;
+            }
+
+            req.session.naverUserData = sessionSocialData; // Save to session
+            if (result.deactivationCount) {
+                req.session.deactivationCount = result.deactivationCount;
+            }
+            
             return res.status(200).json({
-                message: "회원가입 필요",
-                status: "noUser",
-                naverUserData
+                message: "신규 회원가입이 필요합니다.",
+                status: "new_registration_required",
+                socialData: sessionSocialData // Send the normalized data to frontend too
             });
         } else if (result.status === 'reactivation_possible') {
             console.log('탈퇴한 사용자, 재활성화 필요');

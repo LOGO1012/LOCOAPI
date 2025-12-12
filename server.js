@@ -33,6 +33,7 @@ import bannerRoutes from './src/routes/bannerRoutes.js';
 import profanityRoutes from './src/routes/profanityRoutes.js'; // 비속어 관리 라우트 추가
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
+import {startUserArchiveScheduler} from "./src/scheduler/userArchiveScheduler.js";
 
 // 환경변수 로딩 확인
 console.log('🔧 환경변수 로딩 상태:');
@@ -269,6 +270,7 @@ const startServer = async () => {
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         console.log('📅 5단계: 스케줄러 시작 중...');
         startResetStarScheduler();
+        startUserArchiveScheduler();
         console.log('✅ 스케줄러 시작 완료\n');
 
     } catch (error) {
