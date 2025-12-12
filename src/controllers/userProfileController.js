@@ -3,6 +3,8 @@ import { User } from '../models/UserProfile.js';
 import { normalizePhoneNumber } from '../utils/normalizePhoneNumber.js';
 import { saveNicknameHistory, saveGenderHistory } from '../services/historyService.js';
 import { createUser } from '../services/userService.js';
+import IntelligentCache from '../utils/cache/intelligentCache.js';
+import { invalidateNicknameCaches } from '../utils/cache/cacheKeys.js';
 
 /**
  * registerUserProfile - KMS 암호화를 사용하는 회원가입 함수
@@ -276,7 +278,10 @@ export const registerUserProfile = async (req, res, next) => {
                 savedUser._id,  // 자신이 생성
                 req
             );
-            
+
+            await invalidateNicknameCaches(IntelligentCache, savedUser.nickname);
+            console.log(`✅ [회원가입] 캐시 무효화: ${savedUser.nickname}`);
+
             console.log('✅ 회원가입 및 히스토리 저장 완료 (KMS 암호화 적용)');
         } catch (historyError) {
             console.warn('⚠️ 히스토리 저장 실패 (사용자 등록은 성공):', historyError.message);

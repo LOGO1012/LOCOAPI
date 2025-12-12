@@ -54,14 +54,91 @@ const chatRoomSchema = new Schema({
     // 사용자별 성별 선택 정보 (Map 구조로 효율적 저장)
     genderSelections: {
         type: Map,
-        of: String,  // userId -> selectedGender (opposite/any/same)
+        of: {
+            gender: {
+                type: String,
+                enum: ['male', 'female'],
+                required: true
+            },
+            preference: {
+                type: String,
+                enum: ['opposite', 'same', 'any'],
+                required: true
+            }
+        },
         default: new Map()
+    },
+    friendPairId: {
+        type: String,
+        sparse: true,      // friend 방만 값을 가짐 (random 방은 null)
+        unique: true,      // 중복 방지 (핵심!)
+        index: true        // 조회 성능 향상
     },
     createdAt: {
         type: Date,
         default: Date.now
     }
 }, { timestamps: true });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Pre-save Hook
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+chatRoomSchema.pre('save', function(next) {
+    // 친구방이고 참가자가 2명일 때만
+    if (this.roomType === 'friend' && this.chatUsers.length === 2) {
+        // 1. chatUsers를 문자열로 변환
+        // 2. 알파벳순 정렬 (항상 같은 순서 보장)
+        // 3. 언더스코어로 연결
+        const sortedIds = this.chatUsers
+            .map(id => id.toString())
+            .sort();
+        this.friendPairId = sortedIds.join('_');
+        console.log(`[Pre-save] friendPairId 생성: ${this.friendPairId}`);
+    }
+    next();
+});
+
+// 1. friendPairId unique 인덱스 (가장 중요!)
+chatRoomSchema.index(
+    { friendPairId: 1 },
+    {
+        unique: true,  // 중복 방지
+        sparse: true   // friend 방만 (random 방은 null)
+    }
+);
+
+// 2. 친구방 조회 최적화 인덱스
+chatRoomSchema.index({
+    roomType: 1,
+    chatUsers: 1,
+    isActive: 1
+}, {
+    name: 'friend_room_active_lookup',
+    partialFilterExpression: { roomType: 'friend' }
+});
+
+// ✅ 3. chatUsers 단독 인덱스 (기존 코드와 호환성)
+chatRoomSchema.index({ roomType: 1, chatUsers: 1 }); // 복합 인덱스 추가
+chatRoomSchema.index({ chatUsers: 1 });
+
+// 4. 방 타입별 조회 최적화 (getAllChatRooms 필터링)
+chatRoomSchema.index(
+    { roomType: 1, isActive: 1 },
+    {
+        name: 'idx_roomType_isActive',
+        background: true  // ✅ 서비스 중단 없이 생성
+    }
+);
+
+// 5. 최신 방 정렬 최적화 (createdAt 정렬 시 사용)
+chatRoomSchema.index(
+    { createdAt: -1 },  // -1 = 내림차순
+    {
+        name: 'idx_createdAt_desc',
+        background: true
+    }
+);
+
 
 /**
  * ChatMessage 스키마 - 암호화 지원
@@ -162,6 +239,8 @@ chatMessageSchema.index({ 'readBy.user': 1 });
 chatMessageSchema.index({ isReported: 1, reportedAt: -1 });     // 신고 메시지 조회용
 chatMessageSchema.index({ isEncrypted: 1, createdAt: -1 });     // 암호화 메시지 분류용
 
+
+
 // === Virtual 필드 ===
 // 실제 표시용 텍스트 (암호화 상태에 따라)
 chatMessageSchema.virtual('displayText').get(function() {
@@ -237,6 +316,26 @@ const chatRoomExitSchema = new Schema({
         required: true
     }
 }, { timestamps: true });
+
+// 1. 사용자별 퇴장 목록 조회 (핵심 인덱스!)
+// 사용처: getAllChatRooms에서 매번 호출
+chatRoomExitSchema.index(
+    { user: 1 },
+    {
+        name: 'idx_user',
+        background: true
+    }
+);
+
+// 2. 방+사용자 퇴장 기록 조회
+// 사용처: leaveChatRoomService에서 중복 퇴장 방지
+chatRoomExitSchema.index(
+    { chatRoom: 1, user: 1 },
+    {
+        name: 'idx_chatRoom_user',
+        background: true
+    }
+);
 
 // 모델 Export
 export const RoomEntry = model('RoomEntry', roomEntrySchema);

@@ -26,7 +26,7 @@ export const createRoom = async (req, res) => {
         }
 
         const room = await chatService.createChatRoom(roomType, capacity, matchedGender, normalizedAgeGroup);
-        res.status(201).json(room);
+        res.status(201).json({ _id: room._id });  // ✅ _id만 반환
     } catch (error) {
         console.error('[chatController.createRoom] error:', error);
         res.status(500).json({ error: error.message });
@@ -37,11 +37,41 @@ export const createRoom = async (req, res) => {
 export const createFriendRoom = async (req, res) => {
     try {
         const { roomType, capacity } = req.body;
+
+        // ✅ 입력 검증
+        if (!roomType || !capacity) {
+            return res.status(400).json({
+                error: '채팅방 타입과 인원수가 필요합니다.',
+                errorCode: 'MISSING_PARAMS'
+            });
+        }
+
+        if (roomType !== 'friend' || capacity !== 2) {
+            return res.status(400).json({
+                error: '친구 채팅방은 2명만 가능합니다.',
+                errorCode: 'INVALID_PARAMS'
+            });
+        }
+
         const room = await chatService.createFriendRoom(roomType, capacity);
-        res.status(201).json(room);
+        res.status(201).json({ _id: room._id });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('[createFriendRoom] 오류:', error);
+
+        // ✅ 에러 타입별 응답
+        if (error.code === 11000) {
+            return res.status(409).json({
+                error: '이미 존재하는 채팅방입니다.',
+                errorCode: 'DUPLICATE_ROOM'
+            });
+        }
+
+        res.status(500).json({
+            error: error.message || '채팅방 생성에 실패했습니다.',
+            errorCode: 'INTERNAL_ERROR'
+        });
     }
+
 }
 
 /**
@@ -82,25 +112,10 @@ export const getAllRooms = async (req, res) => {
         // req.query를 그대로 전달하여 서버측 필터링 및 페이징을 적용
         const rooms = await chatService.getAllChatRooms(req.query);
 
-        // 🔧 성별 선택 정보가 포함된 참가자 데이터 추가
-        const roomsWithGenderInfo = rooms.map(room => {
-            //const roomObj = room.toObject();
-
-            // 참가자에 성별 선택 정보 추가
-            const chatUsersWithGender = room.chatUsers.map(user => ({
-                ...user,
-                selectedGender: room.genderSelections?.[user._id.toString()] || null
-            }));
-
-            return {
-                ...room,
-                chatUsersWithGender
-            };
-        });
-
-        res.status(200).json(roomsWithGenderInfo);
+        // ✅ 중복 없이 그대로 반환
+        res.status(200).json(rooms);
     } catch (error) {
-        console.error('[getAllRooms] 에러:', error);  // ✅ 로그 추가
+        console.error('[getAllRooms] 에러:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -579,11 +594,11 @@ export const findOrCreateRoom = async (req, res) => {
             capacity,
             matchedGender,
             ageGroup,
-            selectedGender
+            selectedPreference
         } = req.body;
 
         console.log('🔍 [방찾기/생성] 요청:', {
-            userId, roomType, capacity, matchedGender, ageGroup
+            userId, roomType, capacity, matchedGender, ageGroup, selectedPreference
         });
 
         // 1️⃣ 입력 검증
@@ -611,16 +626,15 @@ export const findOrCreateRoom = async (req, res) => {
                 const joinedRoom = await chatService.addUserToRoom(
                     findResult.room._id,
                     userId,
-                    selectedGender,
+                    selectedPreference,
                     findResult.user  // 캐시된 사용자 정보 재사용
                 );
 
                 return res.status(200).json({
                     success: true,
                     action: 'joined',
-                    room: joinedRoom,
-                    message: '기존 방에 참가했습니다.',
-                    attemptedRooms: findResult.attemptedRooms
+                    room: { _id: joinedRoom._id },
+                    attemptedRooms: findResult.attemptedRooms //로깅용이니 이 줄 지우기
                 });
             } catch (joinError) {
                 // 참가 실패 (동시 참가 등) → 새로 생성으로 폴백
@@ -641,16 +655,15 @@ export const findOrCreateRoom = async (req, res) => {
         const joinedNewRoom = await chatService.addUserToRoom(
             newRoom._id,
             userId,
-            selectedGender,
+            selectedPreference,
             findResult.user  // 캐시된 사용자 정보 재사용
         );
 
         return res.status(201).json({
             success: true,
             action: 'created',
-            room: joinedNewRoom,
-            message: '새로운 방을 생성했습니다.',
-            attemptedRooms: findResult.attemptedRooms || 0
+            room: { _id: joinedNewRoom._id },
+            attemptedRooms: findResult.attemptedRooms || 0 //로깅용이니 이 줄 지우기
         });
 
     } catch (error) {
@@ -660,6 +673,97 @@ export const findOrCreateRoom = async (req, res) => {
             success: false,
             error: error.message,
             code: error.code
+        });
+    }
+};
+
+/**
+ * 친구방 찾기 또는 생성
+ *
+ * Route: POST /api/chat/friend/rooms/find-or-create
+ *
+ * Request Body:
+ * {
+ *   userId: string,    // 현재 사용자 ID (필수)
+ *   friendId: string   // 친구 ID (필수)
+ * }
+ *
+ * Response (성공):
+ * {
+ *   success: true,
+ *   action: 'created' | 'joined',  // 새로 생성 or 기존 방 입장
+ *   room: {
+ *     _id: string,
+ *     chatUsers: string[],
+ *     isActive: boolean
+ *   }
+ * }
+ *
+ * Response (실패):
+ * {
+ *   success: false,
+ *   error: string,
+ *   errorCode: 'USER_NOT_FOUND' | 'BLOCKED_USER' | 'MISSING_PARAMS' | 'INVALID_PARAMS'
+ * }
+ */
+export const findOrCreateFriendRoomController = async (req, res) => {
+    try {
+        const { userId, friendId } = req.body;
+
+        console.log('🎯 [Controller] findOrCreateFriendRoom 요청:', { userId, friendId });
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ 입력 검증
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        // 필수 파라미터 체크
+        if (!userId || !friendId) {
+            return res.status(400).json({
+                success: false,
+                error: '사용자 ID와 친구 ID가 필요합니다.',
+                errorCode: 'MISSING_PARAMS'
+            });
+        }
+
+        // 자기 자신과 채팅 방지
+        if (userId === friendId) {
+            return res.status(400).json({
+                success: false,
+                error: '자기 자신과는 채팅할 수 없습니다.',
+                errorCode: 'INVALID_PARAMS'
+            });
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ 서비스 호출
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const result = await chatService.findOrCreateFriendRoom(userId, friendId);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ 성공 응답
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 상태 코드: 201 (생성) or 200 (기존 방 사용)
+        const statusCode = result.created ? 201 : 200;
+
+        return res.status(statusCode).json({
+            success: true,
+            action: result.created ? 'created' : 'joined',
+            roomId: result.roomId
+        });
+
+    } catch (error) {
+        console.error('❌ [Controller] findOrCreateFriendRoom 오류:', error);
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ 에러 응답 (에러 타입별 상태 코드)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const status = error.status || 500;
+        const code = error.code || 'INTERNAL_ERROR';
+
+        return res.status(status).json({
+            success: false,
+            error: error.message,
+            errorCode: code
         });
     }
 };

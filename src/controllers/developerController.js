@@ -943,3 +943,152 @@ export const testNamePseudonymization = async (req, res) => {
         });
     }
 };
+
+// ============================================================================
+// 차단 관리 (관리자 전용)
+// ============================================================================
+
+/**
+ * 관리자용 차단 목록 조회
+ * GET /api/developer/users/:userId/blocked
+ * @description 관리자가 특정 사용자의 차단 목록을 조회합니다.
+ */
+export const getDeveloperBlockedUsers = async (req, res) => {
+    const { userId } = req.params;
+
+    try {
+        // 📝 감사 로그 - 누가, 언제, 누구의 차단 목록을 조회했는지 기록
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`[ADMIN ACCESS] 차단 목록 조회`);
+        console.log(`  관리자: ${req.user.nickname} (${req.user._id})`);
+        console.log(`  대상 사용자: ${userId}`);
+        console.log(`  시간: ${new Date().toISOString()}`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+        // userLightService의 getBlockedUsersService 재사용
+        const { getBlockedUsersService } = await import('../services/userLightService.js');
+        const blocked = await getBlockedUsersService(userId);
+
+        console.log(`✅ [ADMIN ACCESS] 차단 목록 조회 성공: ${blocked.length}명`);
+
+        res.status(200).json({
+            success: true,
+            blockedUsers: blocked,
+            // 📊 메타데이터 추가
+            metadata: {
+                accessedBy: req.user.nickname,
+                accessedById: req.user._id,
+                targetUserId: userId,
+                accessedAt: new Date().toISOString(),
+                totalBlocked: blocked.length
+            }
+        });
+    } catch (err) {
+        console.error(`❌ [ADMIN ERROR] 차단 목록 조회 실패:`, err);
+        res.status(400).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
+
+/**
+ * 관리자용 사용자 차단
+ * POST /api/developer/users/:userId/block/:targetUserId
+ * @description 관리자가 특정 사용자를 대신하여 다른 사용자를 차단합니다.
+ */
+export const developerBlockUser = async (req, res) => {
+    const { userId, targetUserId } = req.params;
+
+    try {
+        // 📝 감사 로그 - 중요한 관리자 액션이므로 상세 기록
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`[ADMIN ACTION] 사용자 차단`);
+        console.log(`  관리자: ${req.user.nickname} (${req.user._id})`);
+        console.log(`  차단 주체: ${userId}`);
+        console.log(`  차단 대상: ${targetUserId}`);
+        console.log(`  시간: ${new Date().toISOString()}`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+        // 🔍 자기 자신 차단 방지
+        if (userId === targetUserId) {
+            return res.status(400).json({
+                success: false,
+                message: '자기 자신은 차단할 수 없습니다.'
+            });
+        }
+
+        // userLightService의 blockUserServiceMinimal 재사용
+        const { blockUserServiceMinimal } = await import('../services/userLightService.js');
+        const result = await blockUserServiceMinimal(userId, targetUserId);
+
+        console.log(`✅ [ADMIN ACTION] 차단 성공: ${userId} → ${targetUserId}`);
+
+        res.status(200).json({
+            success: true,
+            message: "관리자 권한으로 사용자를 차단했습니다.",
+            blockedUser: result._id,
+            // 📊 메타데이터 추가
+            metadata: {
+                actionBy: req.user.nickname,
+                actionById: req.user._id,
+                actionType: 'BLOCK',
+                subjectUserId: userId,
+                targetUserId: targetUserId,
+                actionAt: new Date().toISOString()
+            }
+        });
+    } catch (err) {
+        console.error(`❌ [ADMIN ERROR] 차단 실패:`, err);
+        res.status(400).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
+
+/**
+ * 관리자용 차단 해제
+ * DELETE /api/developer/users/:userId/block/:targetUserId
+ * @description 관리자가 특정 사용자의 차단을 해제합니다.
+ */
+export const developerUnblockUser = async (req, res) => {
+    const { userId, targetUserId } = req.params;
+
+    try {
+        // 📝 감사 로그 - 중요한 관리자 액션이므로 상세 기록
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`[ADMIN ACTION] 차단 해제`);
+        console.log(`  관리자: ${req.user.nickname} (${req.user._id})`);
+        console.log(`  차단 해제 주체: ${userId}`);
+        console.log(`  차단 해제 대상: ${targetUserId}`);
+        console.log(`  시간: ${new Date().toISOString()}`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+        // userLightService의 unblockUserServiceMinimal 재사용
+        const { unblockUserServiceMinimal } = await import('../services/userLightService.js');
+        await unblockUserServiceMinimal(userId, targetUserId);
+
+        console.log(`✅ [ADMIN ACTION] 차단 해제 성공: ${userId} → ${targetUserId}`);
+
+        res.status(200).json({
+            success: true,
+            message: "관리자 권한으로 차단을 해제했습니다.",
+            // 📊 메타데이터 추가
+            metadata: {
+                actionBy: req.user.nickname,
+                actionById: req.user._id,
+                actionType: 'UNBLOCK',
+                subjectUserId: userId,
+                targetUserId: targetUserId,
+                actionAt: new Date().toISOString()
+            }
+        });
+    } catch (err) {
+        console.error(`❌ [ADMIN ERROR] 차단 해제 실패:`, err);
+        res.status(400).json({
+            success: false,
+            message: err.message
+        });
+    }
+};

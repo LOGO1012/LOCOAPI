@@ -176,7 +176,7 @@ export const getUserFriendProfile = async (userId) => {
 
 /**
  * 사용자 차단 (최소 응답 버전)
- * @returns {Promise<boolean>} 성공 여부만 반환
+ * @returns {Promise<{_id}>} 성공 여부만 반환
  */
 export const blockUserServiceMinimal = async (userId, targetId) => {
     try {
@@ -198,27 +198,42 @@ export const blockUserServiceMinimal = async (userId, targetId) => {
             { $pull: { friends: userId } }  // ⭐ 이 줄 추가!
         );
 
-        // 🆕 차단된 사용자 정보 조회 (필요한 필드만!)
-        const blockedUser = await User.findById(targetId)
-            .select('_id nickname profilePhoto name createdAt')
-            .lean();
+        // // 🆕 차단된 사용자 정보 조회 (필요한 필드만!)
+        // const blockedUser = await User.findById(targetId)
+        //     .select('_id nickname profilePhoto name createdAt')
+        //     .lean();
+        //
+        // if (!blockedUser) {
+        //     throw new Error('차단할 사용자를 찾을 수 없습니다.');
+        // }
 
-        if (!blockedUser) {
-            throw new Error('차단할 사용자를 찾을 수 없습니다.');
-        }
 
+        // // 캐시 무효화
+        // await IntelligentCache.invalidateUserCache(userId);
+        // await IntelligentCache.invalidateUserCache(targetId);
+        // await IntelligentCache.deleteCache(`user_blocks_${userId}`);
+        // await IntelligentCache.deleteCache(`users_blocked_me_${targetId}`);
 
-        // 캐시 무효화
-        await IntelligentCache.invalidateUserCache(userId);
-        await IntelligentCache.invalidateUserCache(targetId);
-        await IntelligentCache.deleteCache(`user_blocks_${userId}`);
-        await IntelligentCache.deleteCache(`users_blocked_me_${targetId}`);
+        // ✅ 필요한 캐시만 선택적 무효화
+        await Promise.all([
+            // userId의 캐시 (차단한 사람)
+            IntelligentCache.deleteCache(`user:basic:${userId}`),
+            IntelligentCache.deleteCache(`user:friend:${userId}`),
+            IntelligentCache.deleteCache(`user_blocks_${userId}`),
+            IntelligentCache.deleteCache(`user_profile_full_${userId}`),
+
+            // targetId의 캐시 (차단당한 사람)
+            IntelligentCache.deleteCache(`user:basic:${targetId}`),
+            IntelligentCache.deleteCache(`user:friend:${targetId}`),
+            IntelligentCache.deleteCache(`users_blocked_me_${targetId}`),
+            IntelligentCache.deleteCache(`user_profile_full_${targetId}`)
+        ]);
 
         emitFriendBlocked(userId, targetId);
 
         console.log(`✅ [차단 완료] ${userId} -> ${targetId}`);
 
-        return true;
+        return { _id: targetId };
     } catch (error) {
         console.error('❌ [차단 실패]:', error);
         throw error;

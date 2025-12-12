@@ -30,6 +30,7 @@ import {
 } from '../services/historyService.js';
 import { containsProfanity } from '../utils/profanityFilter.js';
 import IntelligentCache from '../utils/cache/intelligentCache.js';
+import {CacheKeys, invalidateFriendRequestCaches, invalidateNicknameCaches} from '../utils/cache/cacheKeys.js';
 
 // 총 유저 수 함수
 export const getUserCountController = async (req, res) => {
@@ -118,9 +119,19 @@ export const getUserInfo = async (req, res) => {
 // 사용자 프로필 업데이트 컨트롤러 (PATCH 요청)
 // 로코 코인(coinLeft)과 생년월일(birthdate)은 수정할 수 없도록 업데이트에서 제거합니다.
 export const updateUserProfile = async (req, res) => {
+    const { userId } = req.params;
+    const updateData = req.body;
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 프로필만 수정할 수 있습니다.'
+        });
+    }
+
     try {
-        const { userId } = req.params;
-        const updateData = req.body;
+
 
         if (updateData.info && containsProfanity(updateData.info)) {
             return res.status(400).json({ message: '자기소개에 비속어를 사용할 수 없습니다.' });
@@ -217,6 +228,13 @@ export const updateUserProfile = async (req, res) => {
             // 기존 코드
             await IntelligentCache.deleteCache(`change_availability_${userId}`);
             console.log(`🗑️ [캐시 무효화] 닉네임 변경 가능 여부: ${userId}`);
+
+            await invalidateNicknameCaches(
+                IntelligentCache,
+                currentUser.nickname,
+                updateData.nickname
+            );
+
         }
 
         if (updateData.gender && updateData.gender !== currentUser.gender) {
@@ -263,16 +281,30 @@ export const updateUserProfile = async (req, res) => {
 
 
 export const rateUserController = async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const { rating } = req.body;
-        const updatedUser = await rateUser(userId, rating);
-        res.status(200).json({
-            success: true,
-            message: "User rated successfully.",
-            user: updatedUser
+    const { userId } = req.params;
+    const { rating } = req.body;
+    const evaluatorId = req.user._id.toString();
+
+    console.log(`📊 [매너평가] ${evaluatorId} → ${userId} (점수: ${rating})`);
+
+    // ✅ 특수 케이스: 다른 사람을 평가하는 것이므로
+    // 평가하는 사람(req.user)과 평가받는 사람(userId)이 다를 수 있음
+    // 하지만 자기 자신을 평가하는 것은 막아야 함
+    if (evaluatorId === userId) {
+        console.warn(`⚠️ [매너평가] 자기 평가 시도: ${evaluatorId}`);
+        return res.status(403).json({
+            success: false,
+            message: '자기 자신은 평가할 수 없습니다.'
         });
+    }
+
+    try {
+
+        await rateUser(userId, rating);
+        console.log(`✅ [매너평가 성공] ${userId}`);
+        res.status(204).send();  // ✅ No Content (응답 본문 없음)
     } catch (error) {
+        console.error(`❌ [매너평가 실패] ${userId}:`, error.message);
         res.status(400).json({
             success: false,
             message: error.message
@@ -303,8 +335,17 @@ export const getUserByNicknameController = async (req, res) => {
 
 
 export const decrementChatCountController = async (req, res) => {
+    const { userId } = req.params;
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 채팅 횟수만 감소할 수 있습니다.'
+        });
+    }
+
     try {
-        const { userId } = req.params;
+
         const result  = await decrementChatCount(userId);
 
         res.status(200).json(result);
@@ -323,6 +364,9 @@ export const decrementChatCountController = async (req, res) => {
 export const acceptFriendRequestController = async (req, res) => {
     const { requestId } = req.body; // 클라이언트에서 친구 요청 ID를 전달받음
 
+    // ✅ 권한 체크는 서비스 레이어에서 수행
+    // (요청을 받은 사람인지 확인 필요 - requestId로 조회 후 확인)
+
     // ✅ 1. requestId 존재 확인
     if (!requestId) {
         return res.status(400).json({ error: 'requestId는 필수입니다.' });
@@ -336,6 +380,21 @@ export const acceptFriendRequestController = async (req, res) => {
 
 
     try {
+
+        // FriendRequest 조회로 receiver 확인
+        const friendRequest = await FriendRequest.findById(requestId);
+
+        if (!friendRequest) {
+            return res.status(404).json({ error: '친구 요청을 찾을 수 없습니다.' });
+        }
+
+        // receiver인지 확인
+        if (friendRequest.receiver.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                error: '본인에게 온 친구 요청만 수락할 수 있습니다.'
+            });
+        }
+
         const result = await acceptFriendRequestService(requestId);
         res.status(200).json(result.friend);
         // res.status(200).json({
@@ -359,20 +418,44 @@ export const acceptFriendRequestController = async (req, res) => {
 // 친구 요청 보내기 컨트롤러
 export const sendFriendRequestController = async (req, res) => {
     const { senderId, receiverId } = req.body;
+
+    // ✅ 권한 체크: 본인만 친구 요청을 보낼 수 있음
+    if (req.user._id.toString() !== senderId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인만 친구 요청을 보낼 수 있습니다.'
+        });
+    }
+
     try {
         // 친구 요청 생성
         const { request, senderNickname } = await sendFriendRequest(senderId, receiverId);
         // 보낸 유저의 정보를 가져와 닉네임을 조회
         // const senderUser = await getUserById(senderId);
 
-        // ✅ 추가: 캐시 무효화
-        await IntelligentCache.deleteCache(`friend_requests_${receiverId}`);
-        console.log(`🗑️ [캐시 무효화] 친구 요청 목록: ${receiverId}`);
+
+        // await invalidateFriendRequestCaches(IntelligentCache, receiverId);//(서비스에서 사용중)
 
         // 보낸 유저의 닉네임을 포함하여 알림 전송
         io.to(receiverId).emit('friendRequestNotification', {
+
+            type: 'FRIEND_REQUEST',
+            requestId: request._id.toString(),
+            senderId: senderId,
+            senderNickname: senderNickname,
             message: `${senderNickname}님이 친구 요청을 보냈습니다.`,
             friendRequest: request,
+            sender: {
+                _id: senderId,
+                nickname: senderNickname
+            }
+        });
+
+        console.log('📡 [Socket] 친구 요청 알림 전송:', {
+            receiverId,
+            requestId: request._id,
+            senderNickname,
+            timestamp: new Date().toISOString()
         });
 
         res.status(200).json({
@@ -393,13 +476,53 @@ export const sendFriendRequestController = async (req, res) => {
 // 친구 요청 목록 조회 컨트롤러 (수신한 요청 목록)
 export const getFriendRequestsController = async (req, res) => {
     const { userId } = req.params; // 수신자(현재 로그인 사용자) ID
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 친구 요청만 조회할 수 있습니다.'
+        });
+    }
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📋 [Controller] 친구 요청 목록 조회 시작:', {
+        userId,
+        timestamp: new Date().toISOString()
+    });
+
     try {
         const requests = await getFriendRequests(userId);
+
+        console.log('✅ [Controller] 서비스 응답:', {
+            타입: typeof requests,
+            isArray: Array.isArray(requests),
+            길이: requests?.length,
+            내용: requests?.map(r => ({
+                id: r._id,
+                senderNickname: r.sender?.nickname
+            })),
+            timestamp: new Date().toISOString()
+        });
+
+        console.log('📤 [Controller] 클라이언트에 전송:', {
+            success: true,
+            dataLength: requests?.length
+        });
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
         res.status(200).json({
             success: true,
             data: requests
         });
     } catch (error) {
+        console.error('❌ [Controller] 실패:', {
+            에러: error.message,
+            스택: error.stack,
+            timestamp: new Date().toISOString()
+        });
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
         res.status(400).json({
             success: false,
             message: error.message
@@ -415,6 +538,21 @@ export const getFriendRequestsController = async (req, res) => {
  */
 export const getFriendRequestCountController = async (req, res) => {
     const { userId } = req.params;
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 정보만 조회할 수 있습니다.'
+        });
+    }
+
+    console.log('📊 [Controller-개수] 조회 시작:', {
+        userId,
+        timestamp: new Date().toISOString()
+    });
+
+
     try {
         console.log(`📊 [친구 요청 개수 조회] userId: ${userId}`);
 
@@ -424,7 +562,10 @@ export const getFriendRequestCountController = async (req, res) => {
             status: 'pending'
         });
 
-        console.log(`✅ [친구 요청 개수] ${count}개`);
+        console.log('✅ [Controller-개수] DB 응답:', {
+            count,
+            timestamp: new Date().toISOString()
+        });
 
         res.status(200).json({
             success: true,
@@ -443,7 +584,26 @@ export const getFriendRequestCountController = async (req, res) => {
 // 친구 요청 거절 컨트롤러 함수
 export const declineFriendRequestController = async (req, res) => {
     const { requestId } = req.body;   // 클라이언트에서 전송된 친구 요청 ID
+
     try {
+
+        const friendRequest = await FriendRequest.findById(requestId);
+
+        if (!friendRequest) {
+            return res.status(404).json({
+                success: false,
+                message: '친구 요청을 찾을 수 없습니다.'
+            });
+        }
+
+        // ⭐ 2. receiver인지 확인
+        if (friendRequest.receiver.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: '본인에게 온 친구 요청만 거절할 수 있습니다.'
+            });
+        }
+
         const result = await declineFriendRequestService(requestId);
         res.status(200).json({
             success: true,
@@ -462,6 +622,15 @@ export const declineFriendRequestController = async (req, res) => {
 // 친구 삭제 컨트롤러
 export const deleteFriendController = async (req, res) => {
     const { userId, friendId } = req.params;
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 친구만 삭제할 수 있습니다.'
+        });
+    }
+
     try {
         const result = await deleteFriend(userId, friendId);
         res.status(200).json({
@@ -517,6 +686,22 @@ export const deleteFriendController = async (req, res) => {
  */
 export const getBlockedUsersController = async (req, res) => {
     const { userId } = req.params;
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 차단 목록만 조회할 수 있습니다.'
+        });
+    }
+
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 차단 목록만 조회할 수 있습니다.'
+        });
+    }
+
     try {
         const blocked = await getBlockedUsersService(userId);
         res.status(200).json({ success: true, blockedUsers: blocked });
@@ -547,6 +732,14 @@ export const getPaginatedFriendsController = async (req, res) => {
     const limit  = Number(req.query.limit  ?? 20);
     const online = req.query.online; // Add this line
 
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 친구 목록만 조회할 수 있습니다.'
+        });
+    }
+
     try {
         const data = await getPaginatedFriends(userId, offset, limit, online); // Pass it to the service
         res.status(200).json({ success: true, ...data });
@@ -559,6 +752,14 @@ export const getPaginatedFriendsController = async (req, res) => {
 export const updateUserPrefsController = async (req, res) => {
     const { userId } = req.params;
     const { friendReqEnabled, chatPreviewEnabled, wordFilterEnabled } = req.body; // ✅ wordFilterEnabled 추가
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 설정만 변경할 수 있습니다.'
+        });
+    }
 
     try {
         // ✅ 업데이트할 데이터 객체 생성
@@ -647,11 +848,34 @@ export const checkNicknameController = async (req, res) => {
             });
         }
 
+
+        // 캐시 확인 (⭐ 새로 추가된 부분!)
+
+
+        const cacheKey = CacheKeys.NICKNAME_AVAILABLE(nickname);
+        const cached = await IntelligentCache.getCache(cacheKey);
+
+        if (cached !== null) {
+            // 캐시 HIT: DB 조회 생략!
+            const cacheType = IntelligentCache.client ? 'Redis' : 'Memory';
+            console.log(`💾 [${cacheType} HIT] 닉네임 캐시: "${nickname}"`);
+
+            return res.json({
+                available: cached.available,
+                message: cached.message
+            });
+        }
+
+
         // DB에서 중복 체크
+        const cacheType = IntelligentCache.client ? 'Redis' : 'Memory';
+        console.log(`🔍 [${cacheType} MISS] 닉네임: "${nickname}" → DB 조회`);
+
         const existingUser = await User.findOne({ nickname })
             .select('_id')  // ⭐ _id 필드만 선택
             .lean();        // ⭐ Plain JavaScript Object 반환
 
+        //  결과 처리 및 캐싱
         if (existingUser) {
             // 수정 시 자신의 닉네임인 경우는 사용 가능
             if (userId && existingUser._id.toString() === userId) {
@@ -668,10 +892,16 @@ export const checkNicknameController = async (req, res) => {
             });
         }
 
-        return res.json({
+        // 사용 가능한 닉네임 - 30분간 캐싱!
+        const response = {
             available: true,
             message: '사용 가능한 닉네임입니다.'
-        });
+        };
+
+        await IntelligentCache.setCache(cacheKey, response, 1800); // 30분 TTL
+        console.log(`✅ 캐시 저장: ${cacheKey} (TTL: 30분)`);
+
+        return res.json(response);
 
     } catch (error) {
         console.error('닉네임 중복 체크 에러:', error);
@@ -687,6 +917,14 @@ export const getNicknameHistoryController = async (req, res) => {
     try {
         const { userId } = req.params;
         const { limit = 50 } = req.query;
+
+        // ✅ 권한 체크
+        if (req.user._id.toString() !== userId) {
+            return res.status(403).json({
+                success: false,
+                message: '본인의 히스토리만 조회할 수 있습니다.'
+            });
+        }
 
         const history = await getNicknameHistory(userId, parseInt(limit));
 
@@ -720,8 +958,18 @@ export const getGenderHistoryController = async (req, res) => {
 
 // 변경 가능 여부 확인 컨트롤러
 export const checkChangeAvailabilityController = async (req, res) => {
+    const { userId } = req.params;
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 정보만 조회할 수 있습니다.'
+        });
+    }
+
     try {
-        const { userId } = req.params;
+
         const cacheKey = `change_availability_${userId}`;
 
         // ⭐ 1️⃣ 캐시 확인
@@ -776,8 +1024,8 @@ export const checkChangeAvailabilityController = async (req, res) => {
         };
 
         // ⭐ 3️⃣ Redis 캐싱 (TTL 5분)
-        await IntelligentCache.setCache(cacheKey, responseData, 300);
-        console.log(`✅ 캐시 저장: ${cacheKey} (TTL: 5분)`);
+        await IntelligentCache.setCache(cacheKey, responseData, 21600);
+        console.log(`✅ 캐시 저장: ${cacheKey} (TTL: 6시간)`);
 
         res.status(200).json({
             message: '변경 가능 여부 조회 성공',

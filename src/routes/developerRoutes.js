@@ -2,7 +2,14 @@
 import express from 'express';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
-import { getDeveloperUsers, updateDeveloperUser, getDeveloperUserDetail, getCacheStatus, testNamePseudonymization } from '../controllers/developerController.js';
+import { getDeveloperUsers,
+    updateDeveloperUser,
+    getDeveloperUserDetail,
+    getCacheStatus,
+    testNamePseudonymization,
+    getDeveloperBlockedUsers,
+    developerBlockUser,
+    developerUnblockUser } from '../controllers/developerController.js';
 import { testChatEncryption, createReportedMessageBackup } from '../services/chatService.js';
 import ChatEncryption from '../utils/encryption/chatEncryption.js';
 import ComprehensiveEncryption from '../utils/encryption/comprehensiveEncryption.js';
@@ -20,6 +27,10 @@ router.get('/cache-status', getCacheStatus);
 router.post('/test-pseudonym', testNamePseudonymization);
 router.get('/users/:userId', getDeveloperUserDetail);
 router.patch('/users/:userId', updateDeveloperUser);
+
+router.get('/users/:userId/blocked', getDeveloperBlockedUsers);
+router.post('/users/:userId/block/:targetUserId', developerBlockUser);
+router.delete('/users/:userId/block/:targetUserId', developerUnblockUser);
 
 // === 개인정보 복호화 API (관리자 전용 - 온디맨드 복호화) ===
 router.post('/decrypt-user-data', async (req, res) => {

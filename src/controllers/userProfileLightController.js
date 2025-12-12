@@ -47,6 +47,15 @@ export const getUserFullProfileController = async (req, res) => {
  */
 export const getUserChatStatusController = async (req, res) => {
     const { userId } = req.params;
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 채팅 상태만 조회할 수 있습니다.'
+        });
+    }
+
     try {
         const data = await getUserChatStatus(userId);
         res.status(200).json({ success: true, data });
@@ -61,6 +70,15 @@ export const getUserChatStatusController = async (req, res) => {
  */
 export const getUserForEditController = async (req, res) => {
     const { userId } = req.params;
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 프로필만 편집할 수 있습니다.'
+        });
+    }
+
     try {
         const data = await getUserForEdit(userId);
         res.status(200).json({ success: true, data });
@@ -77,6 +95,14 @@ export const getUserForEditController = async (req, res) => {
  */
 export const getUserFriendIdsController = async (req, res) => {
     const { userId } = req.params;
+
+    // ✅ 권한 체크
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({
+            success: false,
+            message: '본인의 친구 목록만 조회할 수 있습니다.'
+        });
+    }
 
     try {
         const result = await getUserFriendIds(userId);

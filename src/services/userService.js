@@ -18,6 +18,7 @@ import { ArchivedUser } from '../models/ArchivedUser.js';
 import { Qna } from '../models/Qna.js';
 import {containsProfanity} from "../utils/profanityFilter.js";
 import { emitFriendAdded, emitFriendDeleted } from '../socket/socketIO.js';
+import {CacheKeys, invalidateFriendRequestCaches} from '../utils/cache/cacheKeys.js';
 
 /**
  * 🎂 나이 정보 조회 (통합 버전)
@@ -858,14 +859,21 @@ export const getUserByNickname = async (nickname) => {
         // 1️⃣ 캐시 키 생성
         const cacheKey = `user_nickname_${nickname}`;
         const TTL = 1800; // 30분
+        const ERROR_TTL = 300;  // 5분 (에러 응답) ✅ 추가
 
-        // 2️⃣ 캐시 확인
-        let user = await IntelligentCache.getCache(cacheKey);
+        let cached = await IntelligentCache.getCache(cacheKey);
 
-        if (user) {
+        if (cached) {
+            // ✅ 캐시된 에러인지 확인
+            if (cached.error) {
+                const cacheType = IntelligentCache.client ? 'Redis' : 'Memory';
+                console.log(`💾 [${cacheType} HIT - ERROR] 닉네임: ${nickname}`);
+                throw new Error(cached.message);
+            }
+
             const cacheType = IntelligentCache.client ? 'Redis' : 'Memory';
             console.log(`💾 [${cacheType} HIT] 닉네임 조회: ${nickname}`);
-            return user;
+            return cached;
         }
 
         // 3️⃣ 캐시 미스 - DB 조회
@@ -874,12 +882,21 @@ export const getUserByNickname = async (nickname) => {
 
 
 
-        user = await User.findOne({ nickname })
+        const user = await User.findOne({ nickname })
             .select('_id nickname')
             .lean();
 
         if (!user) {
-            throw new Error('해당 닉네임을 가진 사용자를 찾을 수 없습니다.');
+            // ✅ 에러도 캐싱 (5분)
+            const errorData = {
+                error: true,
+                message: '해당 닉네임을 가진 사용자를 찾을 수 없습니다.'
+            };
+
+            await IntelligentCache.setCache(cacheKey, errorData, ERROR_TTL);
+            console.log(`⚠️ [에러 캐싱] ${cacheKey} (TTL: ${ERROR_TTL}초)`);
+
+            throw new Error(errorData.message);
         }
 
         // 4️⃣ 캐시 저장
@@ -888,7 +905,7 @@ export const getUserByNickname = async (nickname) => {
 
         return user;
     } catch (error) {
-        throw new Error(error.message);
+        throw error;
     }
 };
 
@@ -903,7 +920,7 @@ export const rateUser = async (userId, rating) => {
         { $inc: { star: rating } },
         {
             new: true,
-            select: '_id star'  // ✅ 응답에 필요한 필드만
+            select: 'star'  // ✅ 응답에 필요한 필드만
         }
     );
     if (!updatedUser) throw new Error("User not found.");
@@ -912,12 +929,16 @@ export const rateUser = async (userId, rating) => {
     await IntelligentCache.invalidateUserField(userId, 'star');
     await IntelligentCache.cacheUserStar(userId, updatedUser.star, 300); // 5분 TTL
 
+    // ✅ 추가 캐시 무효화: 프로필 조회 시 최신 star 값 반영
+    await IntelligentCache.deleteCache(`user_profile_${userId}`);
+    await IntelligentCache.deleteCache(`chat_user_info_${userId}`);
+
     // ✅ 최소한의 정보만 반환
-    return {
-        success: true,
-        star: updatedUser.star,
-        // userId: updatedUser._id
-    };
+    // return {
+    //     success: true,
+    //     star: updatedUser.star,
+    //     // userId: updatedUser._id
+    // };
 };
 
 // // 사용자 별점 평가
@@ -1072,7 +1093,7 @@ export const acceptFriendRequestService = async (requestId) => {
     // 해당 친구요청 조회
     console.log(`🤝 [친구수락] 시작: ${requestId}`);
 
-    const friendRequest = await FriendRequest.findById(requestId)
+    const friendRequest = await FriendRequest.findByIdAndDelete(requestId)
         .populate('sender', '_id nickname profilePhoto star gender lolNickname')
         .populate('receiver', '_id');
 
@@ -1113,7 +1134,7 @@ export const acceptFriendRequestService = async (requestId) => {
     //     $push: { friends: friendRequest.sender._id } });
 
     // 친구 요청 문서를 DB에서 삭제
-    await FriendRequest.findByIdAndDelete(requestId);
+    //await FriendRequest.findByIdAndDelete(requestId);
 
     await Promise.all([
         IntelligentCache.invalidateUserFriends(senderId),
@@ -1166,6 +1187,21 @@ export const acceptFriendRequestService = async (requestId) => {
         receiver: receiverId,
         friendNickname: senderInfo.nickname
     });
+
+        // ✅ 개선: 헬퍼 함수 사용
+        await Promise.all([
+            invalidateFriendRequestCaches(IntelligentCache, senderId),   // 보낸 사람
+            invalidateFriendRequestCaches(IntelligentCache, receiverId)  // 받은 사람
+        ]);
+
+        // 🆕 추가: 친구 목록 캐시 무효화
+        await Promise.all([
+            invalidateFriendCache(senderId),
+            invalidateFriendCache(receiverId)
+        ]);
+
+        console.log(`🗑️ [친구수락] 캐시 무효화 완료: ${receiverId}`);
+
     return {
         message: "친구 요청이 수락되었습니다.",
         friend: senderInfo
@@ -1237,6 +1273,9 @@ export const sendFriendRequest = async (senderId, receiverId) => {
         receiver: receiverId
     });
     await newRequest.save();
+
+    await invalidateFriendRequestCaches(IntelligentCache, receiverId); //(컨트롤러에서 사용중)
+
     // ✅ 9. 발신자 닉네임을 포함하여 반환 (컨트롤러에서 추가 조회 불필요!)
     return {
         request: newRequest,
@@ -1247,45 +1286,103 @@ export const sendFriendRequest = async (senderId, receiverId) => {
 // 받은 친구 요청 목록
 // 내가 받은 대기 중인 친구 요청 조회
 export const getFriendRequests = async (receiverId) => {
-    const requests = await FriendRequest.find({
-        receiver: receiverId,
-        status: 'pending' })
-        .populate('sender', '_id nickname profilePhoto')
-        .select('_id sender createdAt')  // ✅ receiver, status, updatedAt 제외
-        .lean();  // ✅ Mongoose 오버헤드 제거
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📋 [Service] getFriendRequests 시작:', {
+        receiverId,
+        timestamp: new Date().toISOString()
+    });
+
+    const cacheKey = CacheKeys.FRIEND_REQUESTS(receiverId);
+
+    // 1️⃣ 캐시 확인
+    let cached  = await IntelligentCache.getCache(cacheKey);
+
+    if (cached) {
+        console.log('💾 [Service] 캐시 HIT:', {
+            길이: cached.length,
+            timestamp: new Date().toISOString()
+        });
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        return cached;
+    }
+
+    console.log(`🔍 [캐시 MISS] ${cacheKey} → DB 조회`);
+
+    try {
+        const requests = await FriendRequest.find({
+            receiver: receiverId,
+            status: 'pending'
+        })
+            .populate('sender', '_id nickname profilePhoto')  // ✅ 자동으로 올바른 컬렉션 찾음
+            .select('_id sender')
+            .lean();
+
+        // ✅ sender가 없는 요청 필터링 (삭제된 유저 등)
+        const validRequests = requests
+            .filter(req => req.sender && req.sender._id)
+            .map(req => ({
+                _id: req._id,
+                sender: {
+                    _id: req.sender._id.toString(),
+                    nickname: req.sender.nickname,
+                    profilePhoto: req.sender.profilePhoto
+                }
+            }));
+
+    console.log('✅ [Service] DB 조회 완료:', {
+        타입: typeof requests,
+        isArray: Array.isArray(requests),
+        길이: requests.length,
+        내용: requests.map(r => ({
+            id: r._id,
+            senderNickname: r.sender?.nickname
+        })),
+        timestamp: new Date().toISOString()
+    });
+
+    // 3️⃣ 캐시 저장 (TTL: 60초)
+    await IntelligentCache.setCache(cacheKey, requests, 60);
+    console.log(`✅ [캐싱 완료] 친구 요청 목록: ${cacheKey}`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     return requests;
+} catch (error) {
+        console.error('❌ [Service] DB 조회 실패:', {
+            에러: error.message,
+            스택: error.stack,
+            timestamp: new Date().toISOString()
+        });
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        throw error;
+    }
 };
 
 // 친구 요청 거절 요청 상태를 DECLINED로 업데이트 한 후 DB에서 삭제
 export const declineFriendRequestService = async (requestId) => {
-
-    // 해당 친구 요청 조회
-    const friendRequest = await FriendRequest.findById(requestId)
-        .select('status')
+    try {
+    // ✅ 조회와 삭제를 한 번에
+    const friendRequest = await FriendRequest.findOneAndDelete({
+        _id: requestId,
+        status: 'pending'
+    })
+        .select('receiver')
         .lean();
 
-    if (!friendRequest) throw new Error("친구 요청을 찾을 수 없습니다.");
+    if (!friendRequest ) throw new Error("친구 요청을 찾을 수 없습니다.");
 
     // 이미 처리된 요청이면 에러 발생
     if (friendRequest.status !== 'pending') throw new Error("이미 처리된 친구 요청입니다.");
 
-    // 상태를 declined로 업데이트 한 후 저장 (로깅등 필요할 경우 대비)
-    // ✅ 선택: 로깅 (선택사항)
-    // await FriendRequestLog.create({
-    //     requestId,
-    //     sender: friendRequest.sender,
-    //     receiver: friendRequest.receiver,
-    //     action: 'declined',
-    //     timestamp: new Date()
-    // });
+    await IntelligentCache.deleteCache(`friend_requests_${friendRequest.receiver}`);
+    console.log(`🗑️ [캐시 무효화] 친구 요청 거절: ${friendRequest.receiver}`);
 
-    // DB에서 해당 친구 요청 알림 삭제
-    await FriendRequest.findByIdAndDelete(requestId);
+    return { message: "친구 요청이 거절되어 삭제되었습니다." };
 
-    return { message: "친구 요청이 거절되어 삭제되었습니다.", friendRequest };
+    } catch (error) {
+        console.error('친구 요청 거절 실패:', error);
+        throw error;
+    }
 };
-
 // 친구 삭제
 export const deleteFriend = async (userId, friendId, io) => {
     try {
@@ -1349,22 +1446,15 @@ export const deleteFriend = async (userId, friendId, io) => {
     emitFriendDeleted(userId, friendId);
 
     await Promise.all([
-        // ✅ 인증 캐시 무효화
-        IntelligentCache.deleteCache(`auth_user_${userId}`),
-        IntelligentCache.deleteCache(`auth_user_${friendId}`),
+        // 1️⃣ 기존 캐시 무효화 (auth_user, user_friends_ids 등)
+        IntelligentCache.invalidateFriendDeletion(userId, friendId),
 
-        // ✅ 친구 ID 캐시 무효화 (가장 중요!)
-        IntelligentCache.deleteCache(`user_friends_ids_${userId}`),
-        IntelligentCache.deleteCache(`user_friends_ids_${friendId}`),
-
-        // ✅ 프로필 캐시 무효화
-        IntelligentCache.deleteCache(`user_profile_full_${userId}`),
-        IntelligentCache.deleteCache(`user_profile_full_${friendId}`),
-
-        // ✅ 기존 사용자 캐시 무효화
-        IntelligentCache.invalidateUserCache(userId),
-        IntelligentCache.invalidateUserCache(friendId)
+        // 2️⃣ 새로운 친구 페이지 캐시 무효화
+        invalidateFriendCache(userId),
+        invalidateFriendCache(friendId)
     ]);
+
+    console.log(`✅ [친구삭제] 완료`);
 
     return {
         message: "친구가 삭제되었습니다."
@@ -1381,7 +1471,33 @@ export const deleteFriend = async (userId, friendId, io) => {
 // 온라인 상태 정보 포함
 // 성능 최적화 (필요한 만큼만 로딩)
 export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online) => {
-    const user = await User.findById(userId).select('friends').lean();
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🆕 1️⃣ 캐시 확인
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const cacheKey = `friends_page:${userId}:${online}:${offset}:${limit}`;
+    const cached = await IntelligentCache.getCache(cacheKey);
+
+    if (cached) {
+        console.log(`💾 [캐시 HIT] ${cacheKey}`);
+
+        // ⚠️ 온라인 상태는 실시간 조회
+        const friendIds = cached.friends.map(f => f._id);
+        const onlineStatusMap = await onlineStatusService.getMultipleUserStatus(friendIds);
+
+        // 실시간 온라인 상태 병합
+        cached.friends.forEach(friend => {
+            friend.isOnline = onlineStatusMap[friend._id] || false;
+        });
+
+        return cached;
+    }
+
+    console.log(`🔍 [캐시 MISS] ${cacheKey} → DB 조회`);
+    const user = await User.findById(userId)
+        .select('friends')
+        .lean();
+
     if (!user) throw new Error('User not found');
 
     const allFriendIds = user.friends.map(id => id.toString());
@@ -1408,8 +1524,8 @@ export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online
 
     const friendsById = new Map(friends.map(f => [f._id.toString(), f]));
 
-    // Add online status to the paginated friends
-    // const onlineStatusMapForPage = onlineStatusService.getMultipleUserStatus(paginatedIds);
+    // ✅ Redis에서 온라인 상태 조회 (async)
+    const onlineStatusMapForPage = await onlineStatusService.getMultipleUserStatus(paginatedIds);
 
     const orderedFriends = paginatedIds.map(id => {
         const friend = friendsById.get(id);
@@ -1417,13 +1533,45 @@ export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online
         return {
             _id: friend._id,           // ✅ 필수
             nickname: friend.nickname, // ✅ 필수
-            profilePhoto: friend.profilePhoto  // ✅ 필수
-            // isOnline 제거! ✅
+            profilePhoto: friend.profilePhoto,  // ✅ 필수
+            isOnline: onlineStatusMapForPage[id] || false
         };
     }).filter(Boolean);
 
-    return { total, friends: orderedFriends };
+    const result = { total, friends: orderedFriends };
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🆕 3️⃣ 캐시 저장 (TTL: 5분)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    await IntelligentCache.setCache(cacheKey, result, 300);
+    console.log(`✅ [캐시 저장] ${cacheKey}`);
+
+
+    return result;
 };
+
+/**
+ * 친구 목록 캐시 무효화 헬퍼 함수
+ * @param {string} userId - 사용자 ID
+ */
+async function invalidateFriendCache(userId) {
+    try {
+        // friends_page:userId:* 패턴의 모든 키 검색
+        const keys = await IntelligentCache.scanKeys(`friends_page:${userId}:*`);
+
+        // 모든 관련 캐시 삭제
+        for (const key of keys) {
+            await IntelligentCache.deleteCache(key);
+        }
+
+        console.log(`🗑️ [캐시 무효화] ${userId}: ${keys.length}개 키 삭제`);
+        return keys.length;
+    } catch (error) {
+        console.error(`❌ [캐시 무효화 실패] ${userId}:`, error.message);
+        return 0;
+    }
+}
+
 
 // ============================================================================
 //    차단 관리 함수
@@ -1527,8 +1675,23 @@ export const getPaginatedFriends = async (userId, offset = 0, limit = 20, online
 
 // 차단 목록 조회
 export const getBlockedUsersService = async (userId) => {
-    const user = await User.findById(userId).populate('blockedUsers', '_id nickname profilePhoto ');
+    const cacheKey = `user_blocks_${userId}`;
+    const cached = await IntelligentCache.getCache(cacheKey);
+
+    if (cached) {
+        console.log(`💾 [캐시 HIT] 차단 목록: ${userId}`);
+        return cached;
+    }
+    console.log(`🔍 [캐시 MISS] 차단 목록: ${userId} → DB 조회`);
+
+    const user = await User.findById(userId)
+        .populate('blockedUsers', '_id nickname profilePhoto ')
+        .lean();
     if (!user) throw new Error('사용자를 찾을 수 없습니다.');
+
+    await IntelligentCache.setCache(cacheKey, user.blockedUsers, 300);
+    console.log(`✅ 캐시 저장: ${cacheKey} (TTL: 300초)`);
+
     return user.blockedUsers;
 };
 

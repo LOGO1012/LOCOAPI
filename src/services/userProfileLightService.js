@@ -100,7 +100,7 @@ export const getUserChatStatus = async (userId) => {
 
         // ✅ 채팅 상태에 필요한 필드만 선택
         const user = await User.findById(userId)
-            .select('star numOfChat chatTimer plan birthdate reportStatus reportTimer')
+            .select('star numOfChat chatTimer plan birthdate reportStatus reportTimer gender')
             .lean();
 
         if (!user) throw new Error('사용자를 찾을 수 없습니다.');
@@ -120,7 +120,8 @@ export const getUserChatStatus = async (userId) => {
             birthdate: user.birthdate,
             ageGroup: ageInfo?.ageGroup,
             reportStatus: user.reportStatus,
-            reportTimer: user.reportTimer
+            reportTimer: user.reportTimer,
+            gender: user.gender
         };
 
         // ✅ 짧은 TTL (5분) - 채팅 횟수는 자주 변경됨
