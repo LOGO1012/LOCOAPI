@@ -935,6 +935,106 @@ class IntelligentCache {
     }
   }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 🎯 사용자 닉네임 캐싱 (채팅 최적화용)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /**
+   * 사용자 닉네임 조회 (캐시 우선)
+   *
+   * 사용처:
+   * - socketIO.js의 sendMessage 이벤트
+   * - 메시지 전송 시 sender 닉네임 표시
+   *
+   * @param {string} userId - 사용자 ID
+   * @returns {Promise<string|null>} 캐시된 닉네임 또는 null
+   */
+  async getUserNickname(userId) {
+    const key = `user:nickname:${userId}`;
+
+    try {
+      if (this.client && this.isConnected) {
+        // Redis에서 조회
+        const cached = await this.client.get(key);
+        if (cached) {
+          console.log(`💾 [Redis HIT] 닉네임: ${userId} → "${cached}"`);
+          return cached; // 문자열 그대로 반환 (JSON 파싱 불필요)
+        }
+        console.log(`🔍 [Redis MISS] 닉네임: ${userId}`);
+        return null;
+      } else {
+        // Memory에서 조회
+        const data = this.memoryCache.get(key);
+        if (data && data.expires > Date.now()) {
+          console.log(`💾 [Memory HIT] 닉네임: ${userId} → "${data.value}"`);
+          return data.value; // expires 체크 후 value 반환
+        }
+        console.log(`🔍 [Memory MISS] 닉네임: ${userId}`);
+        return null;
+      }
+    } catch (error) {
+      console.error(`❌ 닉네임 캐시 조회 실패 (${userId}):`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 사용자 닉네임 저장 (30분 TTL)
+   *
+   * 사용처:
+   * - socketIO.js (DB 조회 후 캐싱)
+   *
+   * @param {string} userId - 사용자 ID
+   * @param {string} nickname - 닉네임
+   * @param {number} ttl - Time To Live (초 단위, 기본 1800초=30분)
+   */
+  async cacheUserNickname(userId, nickname, ttl = 1800) {
+    const key = `user:nickname:${userId}`;
+
+    try {
+      if (this.client && this.isConnected) {
+        // Redis에 저장 (문자열 그대로)
+        await this.client.setEx(key, ttl, nickname);
+        console.log(`✅ [Redis 캐싱] 닉네임: ${userId} → "${nickname}" (TTL: ${ttl}초)`);
+      } else {
+        // Memory에 저장
+        this.memoryCache.set(key, {
+          value: nickname, // 문자열 그대로 저장
+          expires: Date.now() + (ttl * 1000)
+        });
+        console.log(`✅ [Memory 캐싱] 닉네임: ${userId} → "${nickname}" (TTL: ${ttl}초)`);
+      }
+    } catch (error) {
+      console.error(`❌ 닉네임 캐싱 실패 (${userId}):`, error);
+    }
+  }
+
+  /**
+   * 사용자 닉네임 캐시 무효화
+   *
+   * 사용 시점:
+   * - 닉네임 변경 시 (userService.js)
+   * - 프로필 업데이트 시
+   *
+   * @param {string} userId - 사용자 ID
+   */
+  async invalidateUserNickname(userId) {
+    const key = `user:nickname:${userId}`;
+
+    try {
+      if (this.client && this.isConnected) {
+        await this.client.del(key);
+        console.log(`🗑️ [Redis 무효화] 닉네임: ${userId}`);
+      } else {
+        this.memoryCache.delete(key);
+        console.log(`🗑️ [Memory 무효화] 닉네임: ${userId}`);
+      }
+    } catch (error) {
+      console.error(`❌ 닉네임 캐시 무효화 실패 (${userId}):`, error);
+    }
+  }
+
+
   /**
    * 특정 사용자 필드 값 조회 (캐시에서)
    * @param {string} userId - 사용자 ID

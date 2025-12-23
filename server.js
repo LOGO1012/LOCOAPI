@@ -1,5 +1,6 @@
 // server.js - KMS 사용 버전
 import dotenv from 'dotenv';
+import ChatEncryption from './src/utils/encryption/chatEncryption.js';
 
 // 🔧 환경변수를 가장 먼저 로드
 dotenv.config({ path: './.env' });
@@ -34,6 +35,10 @@ import profanityRoutes from './src/routes/profanityRoutes.js'; // 비속어 관�
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
 import {startUserArchiveScheduler} from "./src/scheduler/userArchiveScheduler.js";
+
+
+// ✅ 서버 시작 시 초기화
+ChatEncryption.initializeKey();
 
 // 환경변수 로딩 확인
 console.log('🔧 환경변수 로딩 상태:');
@@ -251,6 +256,13 @@ const startServer = async () => {
             console.log('⚠️ AES 폴백 모드로 계속 진행\n');
         }
 
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 🆕 3.5단계: Socket.IO 초기화 (HTTP 서버 시작 전)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        console.log('🔌 3.5단계: Socket.IO 초기화 중...');
+        await initializeSocket(server);  // ✅ await 추가!
+        console.log('✅ Socket.IO 초기화 완료\n');
+
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 🎯 4단계: HTTP 서버 시작
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -262,6 +274,7 @@ const startServer = async () => {
             console.log(`📊 MongoDB: 연결됨`);
             console.log(`💾 캐시: ${cacheInitialized ? 'Redis' : 'Memory'}`);
             console.log(`🔐 암호화: ${process.env.ENABLE_KMS === 'true' ? 'KMS' : 'AES'}`);
+            console.log(`🔗 Socket.IO: Cluster 모드 활성화`);  // ✅ 추가
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
         });
 

@@ -139,6 +139,65 @@ chatRoomSchema.index(
     }
 );
 
+// 6. 기본 매칭 최적화 인덱스 (모든 매칭에 사용)
+chatRoomSchema.index(
+    {
+        roomType: 1,      // 'random' 필터링
+        status: 1,        // 'waiting' 필터링
+        isActive: 1,      // false 필터링
+        createdAt: 1      // 오래된 방부터 정렬 (ascending)
+    },
+    {
+        name: 'idx_matching_optimization',
+        background: true,
+        partialFilterExpression: {
+            roomType: 'random',  // random 방에만 인덱스 적용 (효율성)
+            status: 'waiting',
+            isActive: false
+        }
+    }
+);
+
+// 7. 성별 매칭 최적화 인덱스 (성별 조건이 있는 매칭에 사용)
+chatRoomSchema.index(
+    {
+        roomType: 1,
+        status: 1,
+        matchedGender: 1,  // 성별 조건 필터링
+        isActive: 1,
+        createdAt: 1
+    },
+    {
+        name: 'idx_gender_matching_optimization',
+        background: true,
+        partialFilterExpression: {
+            roomType: 'random',
+            status: 'waiting',
+            isActive: false
+        }
+    }
+);
+
+// 8. ageGroup 매칭 최적화 인덱스 (나이 조건 포함)
+chatRoomSchema.index(
+    {
+        roomType: 1,
+        status: 1,
+        ageGroup: 1,      // 성인/미성년자 필터링
+        isActive: 1,
+        createdAt: 1
+    },
+    {
+        name: 'idx_age_matching_optimization',
+        background: true,
+        partialFilterExpression: {
+            roomType: 'random',
+            status: 'waiting',
+            isActive: false
+        }
+    }
+);
+
 
 /**
  * ChatMessage 스키마 - 암호화 지원
@@ -231,9 +290,35 @@ const chatMessageSchema = new Schema({
 
 // === 인덱스 설정 ===
 // 기존 인덱스
-chatMessageSchema.index({ chatRoom: "text", sender: "text", text: "text" });
+//chatMessageSchema.index({ chatRoom: "text", sender: "text", text: "text" });
 chatMessageSchema.index({ chatRoom: 1, textTime: -1 });
 chatMessageSchema.index({ 'readBy.user': 1 });
+
+// 읽음 처리 최적화 복합 인덱스
+chatMessageSchema.index(
+    {
+        chatRoom: 1,
+        sender: 1,
+        'readBy.user': 1
+    },
+    {
+        name: 'idx_mark_as_read',
+        background: true  // 무중단 생성
+    }
+);
+
+// 🆕 안읽은 개수 조회 최적화 인덱스 (배치 API용)
+chatMessageSchema.index(
+    {
+        chatRoom: 1,
+        'readBy.user': 1,
+        sender: 1
+    },
+    {
+        name: 'idx_unread_optimization',
+        background: true
+    }
+);
 
 // 새로운 암호화 관련 인덱스
 chatMessageSchema.index({ isReported: 1, reportedAt: -1 });     // 신고 메시지 조회용
@@ -335,6 +420,13 @@ chatRoomExitSchema.index(
         name: 'idx_chatRoom_user',
         background: true
     }
+);
+
+
+// ✅ 새로 추가할 인덱스
+chatRoomExitSchema.index(
+    { chatRoom: 1, phase: 1 },
+    { name: 'idx_chatRoom_phase', background: true }
 );
 
 // 모델 Export

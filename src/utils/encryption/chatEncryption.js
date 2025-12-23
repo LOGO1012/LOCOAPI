@@ -7,7 +7,48 @@ import crypto from 'crypto';
  * 기존 ComprehensiveEncryption을 활용하여 채팅에 최적화된 기능 제공
  */
 class ChatEncryption {
-    
+    // ✅ 클래스 변수로 캐시된 키 저장
+    static #cachedKey = null;
+    /**
+     * 서버 시작 시 키 초기화
+     * 🎯 app.js 또는 server.js에서 호출
+     */
+    static initializeKey() {
+        if (this.#cachedKey) {
+            console.log('✅ [ChatEncryption] 키가 이미 초기화되어 있습니다.');
+            return;
+        }
+
+        console.log('🔑 [ChatEncryption] 키 초기화 시작...');
+        const startTime = Date.now();
+
+        const masterKey = process.env.ENCRYPTION_KEY || 'loco_fallback_key_2024';
+        const chatSalt = process.env.CHAT_SALT || 'loco_chat_salt_2024_secure_key_v2';
+
+        // 서버 시작 시 딱 한 번만 실행
+        this.#cachedKey = crypto.pbkdf2Sync(
+            masterKey,
+            chatSalt,
+            100000,
+            32,
+            'sha256'
+        );
+
+        const elapsed = Date.now() - startTime;
+        console.log(`✅ [ChatEncryption] 키 초기화 완료 (소요 시간: ${elapsed}ms)`);
+    }
+
+    /**
+     * 캐시된 키 반환 (기존 deriveChatKey 대체)
+     */
+    static deriveChatKey() {
+        if (!this.#cachedKey) {
+            throw new Error('ChatEncryption.initializeKey()를 먼저 호출해야 합니다.');
+        }
+        return this.#cachedKey;
+    }
+
+
     /**
      * 채팅 메시지 암호화 (AES-256-GCM)
      * @param {string} text - 암호화할 메시지 텍스트
@@ -90,31 +131,31 @@ class ChatEncryption {
         }
     }
 
-    /**
-     * 채팅 전용 암호화 키 유도
-     * 기존 ComprehensiveEncryption의 키를 활용
-     */
-    static deriveChatKey() {
-        try {
-            // 기존 시스템의 마스터 키 활용
-            const masterKey = process.env.ENCRYPTION_KEY || 'loco_fallback_key_2024';
-            const chatSalt = process.env.CHAT_SALT || 'loco_chat_salt_2024_secure_key_v2';
-            
-            // PBKDF2로 채팅 전용 키 유도
-            const derivedKey = crypto.pbkdf2Sync(
-                masterKey, 
-                chatSalt, 
-                100000, // 10만회 반복
-                32,     // 32바이트 (256비트)
-                'sha256'
-            );
-            
-            return derivedKey;
-        } catch (error) {
-            console.error('키유도 실패:', error);
-            throw new Error('채팅 키 생성 실패');
-        }
-    }
+    // /**
+    //  * 채팅 전용 암호화 키 유도
+    //  * 기존 ComprehensiveEncryption의 키를 활용
+    //  */
+    // static deriveChatKey() {
+    //     try {
+    //         // 기존 시스템의 마스터 키 활용
+    //         const masterKey = process.env.ENCRYPTION_KEY || 'loco_fallback_key_2024';
+    //         const chatSalt = process.env.CHAT_SALT || 'loco_chat_salt_2024_secure_key_v2';
+    //
+    //         // PBKDF2로 채팅 전용 키 유도
+    //         const derivedKey = crypto.pbkdf2Sync(
+    //             masterKey,
+    //             chatSalt,
+    //             100000, // 10만회 반복
+    //             32,     // 32바이트 (256비트)
+    //             'sha256'
+    //         );
+    //
+    //         return derivedKey;
+    //     } catch (error) {
+    //         console.error('키유도 실패:', error);
+    //         throw new Error('채팅 키 생성 실패');
+    //     }
+    // }
 
 
     /**

@@ -2,6 +2,9 @@ import * as chatService from '../services/chatService.js';
 import {leaveChatRoomService} from "../services/chatService.js";
 import {ChatRoomExit, ChatMessage} from "../models/chat.js";
 import { createReport } from '../services/reportService.js';
+import ChatRoomResponseDTO from '../dto/common/ChatRoomResponseDTO.js';
+import mongoose from 'mongoose';
+import ChatEncryption from '../utils/encryption/chatEncryption.js';
 
 /**
  * 채팅방 생성 컨트롤러
@@ -92,12 +95,11 @@ export const getRoomById = async (req, res) => {
             !exited.some(id => id.toString() === u._id.toString())
         );
 
-        // 3) payload 구성
-        const payload = room.toObject();
-        payload.activeUsers = activeUsers;   // 👈 새 필드
-        // payload.chatUsers 는 그대로 둔다 (전체 참가자)
+        const responseDTO = ChatRoomResponseDTO.from(room, activeUsers);
 
-        return res.status(200).json(payload);
+
+
+        return res.status(200).json(responseDTO);
     } catch (e) {
         return res.status(500).json({ error: e.message });
     }
@@ -187,10 +189,21 @@ export const getMessages = async (req, res) => {
 export const deleteMessage = async (req, res) => {
     try {
         const { messageId } = req.params;
-        const deletedMessage = await chatService.softDeleteMessage(messageId);
-        res.status(200).json({ message: '메시지가 삭제되었습니다.', deletedMessage });
+        await chatService.softDeleteMessage(messageId);
+
+        res.status(204).send();  // 응답 본문 없음
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('메시지 삭제 실패:', error);
+
+        // 에러 타입에 따른 상세 응답
+        const status = error.status || 500;
+        const message = error.message || '메시지 삭제에 실패했습니다.';
+
+        res.status(status).json({
+            success: false,
+            message: message,
+            code: error.code || 'DELETE_MESSAGE_FAILED'
+        });
     }
 };
 
@@ -202,39 +215,121 @@ export const leaveChatRoom = async (req, res) => {
         const { roomId, userId } = req.params;  // userId는 URL 파라미터에서 받기
 
         if (!userId) {
-            return res.status(400).json({ message: "사용자 ID가 필요합니다." });
+            return res.status(400).json({ success: false });
         }
 
-        const result = await leaveChatRoomService(roomId, userId);
-        res.status(200).json(result);
+        await leaveChatRoomService(roomId, userId);
+        res.status(200).json({ success: true });  // ✅ success만 반환
     } catch (error) {
-        console.error("채팅방 나가기 실패:", error);  // 서버에서 발생한 오류 출력
-        res.status(500).json({ success: false, message: "서버 오류", error: error.message });
+        console.error("채팅방 나가기 실패:", error);
+
+        // ✅ 에러 타입별로 HTTP 상태 코드와 에러 코드 구분
+
+        // 1. 채팅방을 찾을 수 없음
+        if (error.message?.includes('찾을 수 없습니다')) {
+            return res.status(404).json({
+                success: false,
+                errorCode: 'ROOM_NOT_FOUND',
+                message: '채팅방을 찾을 수 없습니다.'
+            });
+        }
+
+        // 2. 잘못된 ObjectId
+        if (error.name === 'CastError') {
+            return res.status(400).json({
+                success: false,
+                errorCode: 'INVALID_ID',
+                message: '잘못된 요청입니다.'
+            });
+        }
+
+        // 3. 이미 퇴장한 방
+        if (error.message?.includes('이미 퇴장')) {
+            return res.status(409).json({
+                success: false,
+                errorCode: 'ALREADY_LEFT',
+                message: '이미 퇴장한 채팅방입니다.'
+            });
+        }
+
+        // 4. 권한 없음
+        if (error.message?.includes('권한')) {
+            return res.status(403).json({
+                success: false,
+                errorCode: 'PERMISSION_DENIED',
+                message: '권한이 없습니다.'
+            });
+        }
+
+        // 5. 기타 서버 오류 (실제 500 에러)
+        res.status(500).json({
+            success: false,
+            errorCode: 'INTERNAL_ERROR',
+            message: '서버 오류가 발생했습니다.'
+        });
     }
 };
 
-/**
- * 사용자 종료한 채팅방 ID 목록 조회 컨트롤러
- */
-export const getLeftRooms = async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const leftRooms = await chatService.getUserLeftRooms(userId);
-        res.status(200).json({ leftRooms });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
+// /**
+//  * 사용자 종료한 채팅방 ID 목록 조회 컨트롤러
+//  */
+// export const getLeftRooms = async (req, res) => {
+//     try {
+//         const { userId } = req.params;
+//         const leftRooms = await chatService.getUserLeftRooms(userId);
+//         res.status(200).json({ leftRooms });
+//     } catch (error) {
+//         res.status(500).json({ error: error.message });
+//     }
+// };
 
 export const updateRoomActive = async (req, res) => {
     try {
         const { roomId } = req.params;
         const { active } = req.body;            // Boolean
+
+        // ✅ 1. 입력 검증
+        if (!roomId) {
+            return res.status(400).json({
+                success: false,
+                error: 'roomId가 필요합니다.',
+                errorCode: 'MISSING_ROOM_ID'
+            });
+        }
+
+        if (typeof active !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                error: 'active는 boolean 타입이어야 합니다.',
+                errorCode: 'INVALID_ACTIVE_TYPE'
+            });
+        }
+
         const room = await chatService.setRoomActive(roomId, active);
-        res.status(200).json(room);
+
+        // ✅ 3. 성공 응답
+        res.status(200).json({
+            success: true,
+            isActive: room.isActive
+        });
+
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        // ✅ 4. 에러 타입별 처리
+        const status = error.status || 500;
+        const errorCode = error.code || 'INTERNAL_ERROR';
+
+        res.status(status).json({
+            success: false,
+            error: error.message,
+            errorCode: errorCode
+        });
+
+        // ✅ 5. 서버 에러 로깅
+        if (status === 500) {
+            console.error('[updateRoomActive] 서버 오류:', error);
+        }
     }
+
 };
 
 
@@ -259,16 +354,20 @@ export const markMessagesAsRead = async (req, res) => {
         const { roomId } = req.params;
         const { userId } = req.body;
 
-        const result = await chatService.markMessagesAsRead(roomId, userId);
-        res.status(200).json({
-            success: true,
-            message: '메시지를 읽음으로 표시했습니다.',
-            modifiedCount: result.modifiedCount
-        });
+        await chatService.markMessagesAsRead(roomId, userId);
+
+        // ✅ 단순화: success만 반환
+        res.status(200).json({ success: true });
+        // const result = await chatService.markMessagesAsRead(roomId, userId);
+        // res.status(200).json({
+        //     success: true,
+        //     modifiedCount: result.modifiedCount
+        // });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };
+
 
 /**
  * 안읽은 메시지 개수 조회
@@ -286,12 +385,55 @@ export const getUnreadCount = async (req, res) => {
 };
 
 /**
+ * 여러 채팅방의 안읽은 메시지 개수 일괄 조회
+ * POST /api/chat/rooms/unread-batch
+ */
+export const getUnreadCountsBatch = async (req, res) => {
+    try {
+        const { roomIds, userId } = req.body;
+
+        // 입력 검증
+        if (!Array.isArray(roomIds) || roomIds.length === 0) {
+            return res.status(400).json({
+                error: 'roomIds는 배열이어야 하며 비어있을 수 없습니다.'
+            });
+        }
+
+        if (!userId) {
+            return res.status(400).json({
+                error: 'userId가 필요합니다.'
+            });
+        }
+
+        if (roomIds.length > 100) {
+            return res.status(400).json({
+                error: '한 번에 최대 100개 채팅방까지 조회 가능합니다.'
+            });
+        }
+
+        // 서비스 호출
+        const counts = await chatService.getUnreadCountsBatch(roomIds, userId);
+
+        res.status(200).json({
+            counts: counts  // { roomId: unreadCount }
+        });
+
+    } catch (error) {
+        console.error('❌ [배치조회] 컨트롤러 오류:', error);
+        res.status(500).json({
+            error: '안읽은 개수 배치 조회 실패',
+            details: error.message
+        });
+    }
+};
+
+/**
  * 채팅방 입장 시간 기록 컨트롤러
  */
 export const recordRoomEntry = async (req, res) => {
     try {
         const { roomId } = req.params;
-        const { userId, entryTime } = req.body;
+        const { userId } = req.body;
 
         if (!userId) {
             return res.status(400).json({
@@ -300,14 +442,11 @@ export const recordRoomEntry = async (req, res) => {
             });
         }
 
-        const result = await chatService.recordRoomEntry(roomId, userId, entryTime);
+        // ✅ entryTime은 서비스에서 자동 생성 (파라미터 2개만 전달)
+        await chatService.recordRoomEntry(roomId, userId);
 
-        res.status(200).json({
-            success: true,
-            message: result.isUpdate ? '입장 시간이 업데이트되었습니다.' : '입장 시간이 기록되었습니다.',
-            entryTime: result.entryTime,
-            isUpdate: result.isUpdate
-        });
+        // ✅ HTTP 204 No Content (Response Body 없음)
+        res.status(204).send();
     } catch (error) {
         console.error('채팅방 입장 시간 기록 실패:', error);
         res.status(500).json({
@@ -764,6 +903,160 @@ export const findOrCreateFriendRoomController = async (req, res) => {
             success: false,
             error: error.message,
             errorCode: code
+        });
+    }
+};
+
+/**
+ * 🆕 여러 채팅방의 마지막 메시지 일괄 조회
+ * N+1 쿼리 문제 해결: MongoDB Aggregation 사용
+ *
+ * @route POST /api/chat/messages/batch-last
+ * @body { roomIds: string[] } - 조회할 채팅방 ID 배열 (최대 100개)
+ * @returns { messages: Array<{ roomId, lastMessage: { text, textTime, sender } }> }
+ */
+export const getLastMessagesBatch = async (req, res) => {
+    try {
+        const { roomIds } = req.body;
+
+        // 입력 검증
+        if (!Array.isArray(roomIds) || roomIds.length === 0) {
+            return res.status(400).json({
+                error: 'roomIds는 배열이어야 하며 비어있을 수 없습니다.'
+            });
+        }
+
+        if (roomIds.length > 100) {
+            return res.status(400).json({
+                error: '한 번에 최대 100개 채팅방까지 조회 가능합니다.'
+            });
+        }
+
+        console.log(`📦 [배치조회] ${roomIds.length}개 채팅방의 마지막 메시지 조회 시작`);
+
+        // MongoDB Aggregation으로 N+1 쿼리 해결
+        const results = await ChatMessage.aggregate([
+            // 1단계: 해당 채팅방들의 메시지만 필터링
+            {
+                $match: {
+                    chatRoom: {
+                        $in: roomIds.map(id => new mongoose.Types.ObjectId(id))
+                    },
+                    isDeleted: false
+                }
+            },
+
+            // 2단계: 최신순 정렬
+            {
+                $sort: { createdAt: -1 }
+            },
+
+            // 3단계: 채팅방별로 그룹화하여 가장 최신 메시지만 선택
+            {
+                $group: {
+                    _id: '$chatRoom',
+                    lastMessage: { $first: '$$ROOT' }  // 가장 최신 메시지
+                }
+            },
+
+            // 4단계: sender 정보 조인
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'lastMessage.sender',
+                    foreignField: '_id',
+                    pipeline: [
+                        {
+                            $project: {
+                                _id: 1,
+                                nickname: 1
+                                // profilePhoto는 프론트엔드에서 사용하지 않으므로 제외
+                            }
+                        }
+                    ],
+                    as: 'lastMessage.senderInfo'
+                }
+            },
+
+            // 5단계: sender 배열을 객체로 변환
+            {
+                $addFields: {
+                    'lastMessage.sender': {
+                        $arrayElemAt: ['$lastMessage.senderInfo', 0]
+                    }
+                }
+            },
+
+            // 6단계: 필요한 필드만 선택
+            {
+                $project: {
+                    _id: 0,
+                    roomId: { $toString: '$_id' },
+                    lastMessage: {
+                        _id: '$lastMessage._id',
+                        text: '$lastMessage.text',
+                        textTime: '$lastMessage.textTime',
+                        sender: '$lastMessage.sender',
+                        isEncrypted: '$lastMessage.isEncrypted',
+                        encryptedText: '$lastMessage.encryptedText',
+                        iv: '$lastMessage.iv',
+                        tag: '$lastMessage.tag',
+                        isSystem: '$lastMessage.isSystem'
+                    }
+                }
+            }
+        ]);
+
+        // 암호화된 메시지 복호화 처리
+        const decryptedResults = results.map(item => {
+            try {
+                if (item.lastMessage.isEncrypted && item.lastMessage.encryptedText) {
+                    // 암호화된 메시지 복호화
+                    const decrypted = ChatEncryption.decryptMessage({
+                        encryptedText: item.lastMessage.encryptedText,
+                        iv: item.lastMessage.iv,
+                        tag: item.lastMessage.tag
+                    });
+
+                    // 복호화된 텍스트로 교체
+                    item.lastMessage.text = decrypted;
+
+                    // 암호화 관련 필드 제거 (클라이언트에 노출 X)
+                    delete item.lastMessage.isEncrypted;
+                    delete item.lastMessage.encryptedText;
+                    delete item.lastMessage.iv;
+                    delete item.lastMessage.tag;
+                } else {
+                    // 평문 메시지는 그대로 유지
+                    delete item.lastMessage.isEncrypted;
+                    delete item.lastMessage.encryptedText;
+                    delete item.lastMessage.iv;
+                    delete item.lastMessage.tag;
+                }
+            } catch (decryptError) {
+                console.error(`❌ [배치조회] 복호화 실패: ${item.roomId}`, decryptError);
+                // 복호화 실패 시 대체 텍스트 표시
+                item.lastMessage.text = '[메시지 로드 실패]';
+                delete item.lastMessage.isEncrypted;
+                delete item.lastMessage.encryptedText;
+                delete item.lastMessage.iv;
+                delete item.lastMessage.tag;
+            }
+
+            return item;
+        });
+
+        console.log(`✅ [배치조회] 완료: ${decryptedResults.length}개 메시지 반환`);
+
+        res.status(200).json({
+            messages: decryptedResults
+        });
+
+    } catch (error) {
+        console.error('❌ [배치조회] 오류:', error);
+        res.status(500).json({
+            error: '마지막 메시지 일괄 조회 실패',
+            details: error.message
         });
     }
 };

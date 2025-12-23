@@ -121,6 +121,23 @@ export const CacheKeys = {
      */
     USER_BY_NICKNAME: (nickname) => `user_nickname_${nickname}`,
 
+
+    /**
+     * 사용자 닉네임 캐시 키 (채팅용)
+     *
+     * 사용처:
+     * - socketIO.js (메시지 전송 시 닉네임 조회)
+     * - userService.js (닉네임 변경 시 무효화)
+     *
+     * TTL: 1800초 (30분)
+     *
+     * @param {string|ObjectId} userId - 사용자 ID
+     * @returns {string} - 캐시 키 (예: "user:nickname:68edf64310bf5ce79261de02")
+     */
+    USER_NICKNAME: (userId) => `user:nickname:${toStringId(userId)}`,
+
+
+
     /**
      * 변경 가능 여부 캐시 키
      *
@@ -207,6 +224,26 @@ export const CacheKeys = {
         const sorted = [toStringId(userId1), toStringId(userId2)].sort();
         return `friend_room:${sorted[0]}:${sorted[1]}`;
     },
+
+    /**
+     * 채팅방 정보 캐시 키
+     *
+     * 사용처:
+     * - getChatRoomById (조회/저장)
+     * - addUserToRoom (무효화)
+     * - leaveChatRoomService (무효화)
+     *
+     * TTL: 60초
+     *
+     * 적용 대상:
+     * - 친구 채팅방: 재입장 가능, 장기 세션
+     * - 랜덤 채팅방: 새로고침/뒤로가기 시나리오
+     *
+     * @param {string|ObjectId} roomId - 채팅방 ID
+     * @returns {string} - 캐시 키 (예: "chat_room_674ce8270bb103ba30bc5823")
+     */
+    CHAT_ROOM: (roomId) => `chat_room_${toStringId(roomId)}`,
+
 
 
 
@@ -297,6 +334,28 @@ export const invalidateNicknameCaches = async (IntelligentCache, ...nicknames) =
 
     console.log(`🗑️ [캐시 일괄 무효화] 닉네임: ${nicknames.join(', ')}`);
 };
+
+/**
+ * 사용자 닉네임 캐시 무효화 (ID 기반)
+ *
+ * 사용 시점:
+ * - 닉네임 변경 시 (userService.js의 updateUserProfile)
+ * - 프로필 업데이트 시
+ *
+ * @param {Object} IntelligentCache - 캐시 인스턴스
+ * @param {string|ObjectId} userId - 사용자 ID
+ * @returns {Promise<void>}
+ *
+ * @example
+ * // 닉네임 변경 후
+ * await invalidateUserNicknameCache(IntelligentCache, userId);
+ */
+export const invalidateUserNicknameCache = async (IntelligentCache, userId) => {
+    await IntelligentCache.deleteCache(CacheKeys.USER_NICKNAME(userId));
+    console.log(`🗑️ [캐시 무효화] 사용자 닉네임: ${toStringId(userId)}`);
+};
+
+
 
 
 /**
