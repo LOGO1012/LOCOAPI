@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { User } from '../models/UserProfile.js';
+import { ChatRoom } from '../models/chat.js';
 import IntelligentCache from '../utils/cache/intelligentCache.js';
 import { emitFriendBlocked, emitFriendUnblocked } from '../socket/socketIO.js';
 
@@ -214,6 +215,22 @@ export const blockUserServiceMinimal = async (userId, targetId) => {
         // await IntelligentCache.deleteCache(`user_blocks_${userId}`);
         // await IntelligentCache.deleteCache(`users_blocked_me_${targetId}`);
 
+        // 🆕 친구 채팅방 비활성화 (차단 시 필수!)
+        const chatRoom = await ChatRoom.findOne({
+            roomType: 'friend',
+            chatUsers: { $all: [userId, targetId] }
+        })
+            .select('_id isActive')
+            .lean();
+
+        if (chatRoom && chatRoom.isActive) {
+            await ChatRoom.updateOne(
+                { _id: chatRoom._id },
+                { $set: { isActive: false } }
+            );
+            console.log(`🚫 [차단] 채팅방 비활성화: ${chatRoom._id}`);
+        }
+
         // ✅ 필요한 캐시만 선택적 무효화
         await Promise.all([
             // userId의 캐시 (차단한 사람)
@@ -226,7 +243,10 @@ export const blockUserServiceMinimal = async (userId, targetId) => {
             IntelligentCache.deleteCache(`user:basic:${targetId}`),
             IntelligentCache.deleteCache(`user:friend:${targetId}`),
             IntelligentCache.deleteCache(`users_blocked_me_${targetId}`),
-            IntelligentCache.deleteCache(`user_profile_full_${targetId}`)
+            IntelligentCache.deleteCache(`user_profile_full_${targetId}`),
+            
+            // 🆕 친구방 캐시 무효화 (차단 시 필수!)
+            IntelligentCache.invalidateFriendRoomId(userId, targetId)
         ]);
 
         emitFriendBlocked(userId, targetId);
