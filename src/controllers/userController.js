@@ -207,6 +207,12 @@ export const updateUserProfile = async (req, res) => {
         await IntelligentCache.invalidateUserCache(userId);
         console.log(`✅ [캐시 무효화] 프로필 업데이트: ${userId}`);
 
+        // ✅ [필수 추가] 랜덤채팅용 상태 캐시를 강제로 삭제해야 합니다!
+        // 이 줄이 없으면 마이페이지에서 성별을 바꿔도 랜덤채팅은 5분(TTL) 동안 모릅니다.
+        await IntelligentCache.deleteCache(`user_chat_status_${userId}`);
+        console.log(`🗑️ [캐시 무효화] 채팅 상태 정보 삭제: ${userId}`);
+
+
         // 🔥 추가: 프로필 편집용 캐시도 명시적으로 삭제
         await IntelligentCache.deleteCache(`user_profile_edit_${userId}`);
         await IntelligentCache.deleteCache(`user_minimal_${userId}`);
