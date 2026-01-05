@@ -11,6 +11,7 @@ class MessageBuffer {
         this.bufferKey = 'message_buffer';
         this.batchSize = 100;  // 100개 쌓이면 즉시 저장
         this.interval = 2000;  // 2초마다 저장
+        this.hasMessages = false;  // ✅ 추가: 메시지 존재 플래그
 
         // 백그라운드 Worker 시작
         this.startWorker();
@@ -22,13 +23,14 @@ class MessageBuffer {
     async addMessage(messageData) {
         try {
             // Redis List에 메시지 추가 (RPUSH)
-            await redis.rpush(
+            await redis.rPush(
                 this.bufferKey,
                 JSON.stringify(messageData)
             );
+            this.hasMessages = true;    // 플래그 ON
 
             // 버퍼 크기 확인
-            const bufferSize = await redis.llen(this.bufferKey);
+            const bufferSize = await redis.lLen(this.bufferKey);
 
             // 100개 쌓이면 즉시 flush
             if (bufferSize >= this.batchSize) {
@@ -53,6 +55,11 @@ class MessageBuffer {
      * 버퍼를 MongoDB로 Bulk Write
      */
     async flush() {
+        //  메시지 없으면 즉시 종료
+        if (!this.hasMessages) {
+            return;
+        }
+
         const startTime = Date.now();
 
         try {
@@ -62,7 +69,7 @@ class MessageBuffer {
 
             while (true) {
                 // 100개씩 가져오기
-                const batch = await redis.lrange(
+                const batch = await redis.lRange(
                     this.bufferKey,
                     0,
                     batchCount - 1
@@ -74,13 +81,14 @@ class MessageBuffer {
                 messages.push(...batch.map(msg => JSON.parse(msg)));
 
                 // Redis에서 제거
-                await redis.ltrim(this.bufferKey, batchCount, -1);
+                await redis.lTrim(this.bufferKey, batchCount, -1);
 
                 if (batch.length < batchCount) break;
             }
 
             if (messages.length === 0) {
-                console.log('📭 [버퍼] 비어있음, skip');
+                this.hasMessages = false;       // 플래그 OFF
+                // console.log('📭 [버퍼] 비어있음, skip');
                 return;
             }
 
@@ -96,6 +104,7 @@ class MessageBuffer {
             console.log(`   - 저장: ${result.insertedCount}개`);
             console.log(`   - 실패: ${messages.length - result.insertedCount}개`);
 
+            this.hasMessages = false;
             return result;
 
         } catch (error) {
