@@ -1,4 +1,6 @@
 import { Server } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import redis from '../config/redis.js';  // ✅ 기존 Redis 클라이언트 재사용!
 import * as chatService from '../services/chatService.js';
 import {ChatRoom, ChatRoomExit} from "../models/chat.js";
 import * as userService from "../services/userService.js";
@@ -6,11 +8,38 @@ import * as onlineStatusService from '../services/onlineStatusService.js';
 import mongoose from "mongoose";
 import crypto from 'crypto';
 import { checkAndLogAccess } from '../utils/logUtils.js';
+import IntelligentCache from "../utils/cache/intelligentCache.js";
+import MessageBuffer from '../utils/messageBuffer.js';
 
 export let io;
 
-export const initializeSocket = (server) => {
+export const initializeSocket = async (server) => {
     io = new Server(server, { cors: { origin: '*' } });
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🆕 Redis Adapter 설정 (기존 Redis 재사용)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    try {
+        // ✅ 기존 redis.js의 클라이언트를 재사용
+        const pubClient = redis;
+        const subClient = redis.duplicate();
+
+        // subClient 연결
+        await subClient.connect();
+
+        console.log('✅ [Socket.IO] Redis Adapter 연결 성공');
+
+        // Socket.IO에 Redis Adapter 적용
+        io.adapter(createAdapter(pubClient, subClient));
+
+        console.log('🔗 [Socket.IO] 서버 간 통신 활성화 (Cluster 모드)');
+
+    } catch (error) {
+        console.error('❌ [Socket.IO] Redis Adapter 연결 실패:', error);
+        console.error('⚠️ [Socket.IO] 단일 서버 모드로 실행 (Cluster 불가)');
+        // Redis 실패해도 서버는 정상 작동 (단일 서버 모드)
+    }
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     io.on('connection', (socket) => {
         console.log('🔗 새로운 클라이언트 연결됨:', socket.id);
@@ -31,11 +60,11 @@ export const initializeSocket = (server) => {
             socket.userId = userId;
 
             // ✅ 🆕 추가: 소켓 연결 로그 기록
-            const userIp = socket.request.headers['x-forwarded-for'] 
+            const userIp = socket.request.headers['x-forwarded-for']
                 || socket.request.connection.remoteAddress
                 || socket.handshake.address;
             const userAgent = socket.request.headers['user-agent'] || 'unknown';
-            
+
             checkAndLogAccess(
                 userId,
                 userIp,
@@ -62,7 +91,7 @@ export const initializeSocket = (server) => {
             console.log(`📌 클라이언트 ${socket.id}가 방 ${roomId}에 참가 (타입: ${roomType})`);
 
             try {
-                const chatRoom = await ChatRoom.findById(roomId);
+                const chatRoom = await chatService.getChatRoomById(roomId);
                 if (!chatRoom) {
                     console.log("채팅방을 찾을 수 없습니다.");
                     return;
@@ -74,11 +103,13 @@ export const initializeSocket = (server) => {
                 );
 
                 const eventData = {
-                    roomId: roomId,
-                    roomType: roomType,
-                    chatUsers: chatRoom.chatUsers,
-                    activeUsers,
-                    capacity: chatRoom.capacity,
+                    roomId: roomId,                    // ✅ 또는 roomId (단축)
+                    roomType: roomType,                // ✅ 또는 roomType (단축)
+                    chatUsers: chatRoom.chatUsers,     // ✅ 수정
+                    activeUsers,                       // ✅ 이미 변수로 선언되어 있으므로 단축 가능
+                    capacity: chatRoom.capacity,       // ✅ 수정
+                    isActive: chatRoom.isActive,       // ✅ 추가
+                    status: chatRoom.status            // ✅ 추가
                 };
 
                 if (roomType === 'friend') {
@@ -108,60 +139,195 @@ export const initializeSocket = (server) => {
             }
         });
 
+        // 추가: 채팅방 입장 + 읽음 처리 통합
+        socket.on('enterRoom', async ({ roomId, userId }, callback) => {
+            try {
+                console.log(`📥 [enterRoom] ${userId} → 방 ${roomId} 입장`);
+
+                // 1. 입장 시간 기록
+                // 2. 읽음 처리
+                // 병렬 처리
+                const [entryResult, readResult] = await Promise.all([
+                    chatService.recordRoomEntry(roomId, userId),
+                    chatService.markMessagesAsRead(roomId, userId)
+                ]);
+                // 3. Socket 방 참가
+                socket.join(roomId);
+
+                // 4. 안읽은 개수 리셋 알림 (배지 0으로 만들기)
+                io.to(userId).emit("unreadCountUpdated", {
+                    roomId: roomId,
+                    reset: true,  // 리셋 플래그
+                    unreadCount: 0,
+                    timestamp: new Date()
+                });
+
+                // 5. 성공 응답
+                callback({
+                    success: true,
+                    readCount: readResult.modifiedCount,
+                    entryTime: entryResult.entryTime  // ✅ 입장 시간도 반환
+                });
+
+                console.log(`✅ [enterRoom] 완료: ${readResult.modifiedCount}개 읽음 (${entryResult.isUpdate ? '업데이트' : '생성'})`);
+
+            } catch (error) {
+                console.error('❌ [enterRoom] 실패:', error);
+
+                // ✅ 상세 에러 로깅
+                console.error('  - roomId:', roomId);
+                console.error('  - userId:', userId);
+                console.error('  - error:', error.message);
+                console.error('  - stack:', error.stack);
+
+                callback({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+
+        // 🆕 Heartbeat: Ping 받으면 Pong 응답
+        socket.on('ping', () => {
+            socket.emit('pong');
+        });
+
+
         // 💬 메시지 전송 이벤트 - 동기 저장 방식 (안정적)
         socket.on("sendMessage", async ({ chatRoom, sender, text, roomType = 'random' }, callback) => {
             try {
                 const senderId = typeof sender === "object" ? sender._id : sender;
                 const senderObjId = new mongoose.Types.ObjectId(senderId);
 
-                console.log(`📤 [메시지전송] 시작: "${text.substring(0, 20)}..." (방: ${chatRoom})`);
+                console.log(`📤 [메시지전송] 시작: "${text.substring(0, 20)}..."`);
 
                 // 1. 발신자 정보 조회 (wordFilterEnabled 포함)
-                const senderUser = await userService.getUserById(senderId);
-                const senderNick = senderUser ? senderUser.nickname : "알 수 없음";
+                // Redis 캐싱 적용 (범용 메서드)
+                let senderNick = await IntelligentCache.getUserNickname(senderId);
+
+                if (!senderNick) {
+                    const senderUser = await userService.getUserById(senderId);
+                    senderNick = senderUser?.nickname || "알 수 없음";
+                    await IntelligentCache.cacheUserNickname(senderId, senderNick);
+                }
+
+
                 
                 // 2. DB 저장 (원본 text 전달)
-                const savedMessage = await chatService.saveMessage(chatRoom, senderId, text, {
-                    platform: 'socket',
-                    userAgent: 'realtime-chat',
-                    ipHash: socket.handshake.address ?
-                        crypto.createHash('sha256').update(socket.handshake.address).digest('hex').substring(0, 16) : null
+                // const savedMessage = await chatService.saveMessage(chatRoom, senderId, text, {
+                //     platform: 'socket',
+                //     userAgent: 'realtime-chat',
+                //     ipHash: socket.handshake.address ?
+                //         crypto.createHash('sha256').update(socket.handshake.address).digest('hex').substring(0, 16) : null
+                // });
+
+
+                // ✅ 수정 2: 임시 ID 생성 (MongoDB _id와 동일한 형식)
+                const tempId = new mongoose.Types.ObjectId();
+                const now = new Date();
+                const encryptionEnabled = process.env.CHAT_ENCRYPTION_ENABLED === 'true';
+
+
+                // 수정 3: Redis 버퍼에 추가 (1-2ms)
+                const messageData  = {
+                    _id: tempId,  // 미리 생성한 ID 사용
+                    chatRoom: chatRoom,
+                    sender: senderId,
+                    text: text,
+                    textTime: now,
+                    isEncrypted: false,
+                    //roomType: roomType,
+                    readBy: [{ user: senderId, readAt: now }],
+                    //isDeleted: false, // 항상 false가 아니라 삭제 된 데이터만 필드 추가하면 됨
+                    //createdAt: now,
+                    //updatedAt: now
+                };
+
+                // ✅ 암호화 설정에 따라 필드 추가
+                if (encryptionEnabled) {
+                    console.log('🔐 [메시지전송] 암호화 모드');
+                    const encrypted = ChatEncryption.encryptMessage(text);
+
+                    messageData.isEncrypted = true;
+                    messageData.encryptedText = encrypted.encryptedText;
+                    messageData.iv = encrypted.iv;
+                    messageData.tag = encrypted.tag;
+                    // text 필드는 포함하지 않음 (암호화 모드)
+
+                } else {
+                    console.log('📝 [메시지전송] 평문 모드');
+
+                    messageData.text = text;
+                    messageData.isEncrypted = false;
+                }
+
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // 3️⃣ Redis 버퍼에 추가 (논블로킹)
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                MessageBuffer.addMessage(messageData).catch(err => {
+                    console.error('❌ [버퍼] 추가 실패:', err);
+                    // Fallback: 즉시 DB 저장 (비상)
+                    chatService.saveMessage(chatRoom, senderId, text).catch(console.error);
                 });
 
-                console.log(`✅ [메시지저장] 완료: ${savedMessage._id} (${savedMessage.isEncrypted ? '암호화' : '평문'})`);
+                console.log(`✅ [메시지버퍼] 추가: ${tempId} (${encryptionEnabled ? '암호화' : '평문'})`);
 
-                // 3. 실제 저장된 메시지로 전송 데이터 구성 (원본 텍스트 사용)
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // 4️⃣ Socket 전송용 메시지 (클라이언트는 항상 평문)
+                // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 const messageToSend = {
-                    _id: savedMessage._id, // ✅ 실제 DB ID 사용
+                    _id: tempId.toString(),
                     chatRoom,
-                    sender: { _id: senderId, id: senderId, nickname: senderNick },
-                    text: text, // ✅ 원본 텍스트를 그대로 전송
-                    textTime: savedMessage.textTime || new Date(),
-                    isEncrypted: savedMessage.isEncrypted,
-                    roomType: roomType,
-                    readBy: savedMessage.readBy || [{ user: senderId, readAt: new Date() }],
-                    isDeleted: false,
-                    createdAt: savedMessage.createdAt
+                    sender: {
+                        _id: senderId,
+                        nickname: senderNick
+                    },
+                    text: text,  // ✅ 항상 평문 (클라이언트가 암호화 신경 쓸 필요 없음)
+                    textTime: now,
+                    isEncrypted: false,  // ✅ 클라이언트는 복호화된 상태로 받음
+                    readBy: [{ user: senderId, readAt: now }]
                 };
+
 
                 // 4. 모든 사용자에게 메시지 전송
                 io.to(chatRoom).emit("receiveMessage", messageToSend);
-                console.log(`📨 [메시지전송] 완료: ${savedMessage._id} → 방 ${chatRoom}`);
+                console.log(`📨 [메시지전송] 완료: ${tempId} → 방 ${chatRoom}`);
 
                 // 5. 개인 알림 전송 (원본 텍스트로 전송)
-                const roomDoc = await ChatRoom.findById(chatRoom);
-                const exitedUsers = await ChatRoomExit.distinct("user", { chatRoom });
-                const targets = roomDoc.chatUsers.filter(uid =>
-                    !uid.equals(senderObjId) &&
-                    !exitedUsers.some(ex => ex.equals(uid))
-                );
+                const [roomDoc, exitedUsers] = await Promise.all([
+                    ChatRoom.findById(chatRoom)
+                        .select('chatUsers')
+                        .lean(),  // ✅ Plain Object로 변환
+                    ChatRoomExit.distinct("user", { chatRoom })
+                ]);
+
+                // ✅ String으로 변환 (lean 사용 시 필수!)
+                const senderIdStr = senderObjId.toString();
+                const exitedUsersStr = exitedUsers.map(id => id.toString());
+
+                const targets = roomDoc.chatUsers.filter(uid =>{
+                    const uidStr = uid.toString();
+                    return uidStr !== senderIdStr && !exitedUsersStr.includes(uidStr);
+                });
 
                 targets.forEach(uid => {
-                    io.to(uid.toString()).emit("chatNotification", {
+                    const uidStr = uid.toString();
+
+                    // 기존 채팅 알림
+                    io.to(uidStr).emit("chatNotification", {
                         chatRoom,
                         roomType: roomType,
-                        message: messageToSend, // 알림 클릭 시 필요한 원본 메시지
+                        message: messageToSend,
                         notification: `${senderNick}: ${text}`,
+                        timestamp: new Date()
+                    });
+
+                    // 🆕 안읽은 개수 실시간 푸시 (배지 업데이트용)
+                    io.to(uidStr).emit("unreadCountUpdated", {
+                        roomId: chatRoom,
+                        roomType: roomType,
+                        increment: 1,  // 메시지 1개 증가
                         timestamp: new Date()
                     });
                 });
@@ -170,7 +336,7 @@ export const initializeSocket = (server) => {
                 callback({
                     success: true,
                     message: messageToSend,
-                    encryptionEnabled: process.env.CHAT_ENCRYPTION_ENABLED === 'true'
+                    encryptionEnabled: encryptionEnabled
                 });
 
             } catch (err) {
@@ -178,6 +344,7 @@ export const initializeSocket = (server) => {
                 callback({ success: false, error: err.message });
             }
         });
+
 
         socket.on("deleteMessage", ({ messageId, roomId }) => {
             socket.to(roomId).emit("messageDeleted", { messageId });

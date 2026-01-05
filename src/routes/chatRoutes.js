@@ -31,6 +31,9 @@ router.post('/messages', chatController.sendMessage);
 // 특정 채팅방의 메시지 가져오기
 router.get('/messages/:roomId', chatController.getMessages);
 
+// 여러 채팅방의 마지막 메시지 일괄 조회
+router.post('/messages/batch-last', chatController.getLastMessagesBatch);
+
 // 메시지 삭제
 router.put('/messages/:messageId', chatController.deleteMessage);
 
@@ -38,7 +41,7 @@ router.put('/messages/:messageId', chatController.deleteMessage);
 router.delete('/rooms/:roomId/:userId', chatController.leaveChatRoom);
 
 // 사용자 종료한 채팅방 ID 목록 조회
-router.get('/leftRooms/:userId', chatController.getLeftRooms);
+//router.get('/leftRooms/:userId', chatController.getLeftRooms);
 
 router.patch('/rooms/:roomId/active', chatController.updateRoomActive);
 
@@ -49,6 +52,9 @@ router.patch('/rooms/:roomId/read', chatController.markMessagesAsRead);
 
 // 안읽은 메시지 개수 조회
 router.get('/rooms/:roomId/unread', chatController.getUnreadCount);
+
+// 안읽은 메시지 개수 조회 (배치)
+router.post('/rooms/unread-batch', chatController.getUnreadCountsBatch);
 
 router.post('/rooms/:roomId/entry', chatController.recordRoomEntry);
 
