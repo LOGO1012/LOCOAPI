@@ -5,6 +5,7 @@ import * as userService from "../services/userService.js";
 import * as onlineStatusService from '../services/onlineStatusService.js';
 import mongoose from "mongoose";
 import crypto from 'crypto';
+import { checkAndLogAccess } from '../utils/logUtils.js';
 
 export let io;
 
@@ -28,6 +29,21 @@ export const initializeSocket = (server) => {
             socket.join(userId);
 
             socket.userId = userId;
+
+            // ✅ 🆕 추가: 소켓 연결 로그 기록
+            const userIp = socket.request.headers['x-forwarded-for'] 
+                || socket.request.connection.remoteAddress
+                || socket.handshake.address;
+            const userAgent = socket.request.headers['user-agent'] || 'unknown';
+            
+            checkAndLogAccess(
+                userId,
+                userIp,
+                'socket_connect',
+                userAgent
+            ).catch(err => {
+                console.error('소켓 로그 저장 실패 (무시):', err);
+            });
 
             await onlineStatusService.setUserOnlineStatus(userId, socket.id, true);
 

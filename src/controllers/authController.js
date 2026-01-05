@@ -158,7 +158,16 @@ export const kakaoCallback = async (req, res, next) => {
         const accessToken  = jwt.sign(payload, JWT_SECRET,     { expiresIn: "2h" }); // 15분 → 2시간으로 연장
         const refreshToken = jwt.sign(payload, REFRESH_SECRET, { expiresIn: "7d" });
 
-
+        // ✅ 🆕 추가: 접속 로그 기록
+        const { checkAndLogAccess } = await import('../utils/logUtils.js');
+        checkAndLogAccess(
+            user._id.toString(),           // userId
+            req.ip,                        // IP
+            'login',                       // action
+            req.headers['user-agent']      // userAgent
+        ).catch(err => {
+            console.error('로그 저장 실패 (무시):', err);
+        });
 
         // 5) Refresh 토큰은 HttpOnly 쿠키로, Access 토큰은 JSON 바디로 응답
         // 수정 Refresh, Access 둘다 HttpOnly 쿠키로
@@ -172,6 +181,21 @@ export const kakaoCallback = async (req, res, next) => {
             });
     } catch (err) {
         console.error('카카오 콜백 처리 중 오류:', err);
+
+        // ✅ 🆕 추가: 로그인 실패 로그 기록
+        // userId는 특정할 수 없으므로 null 전달
+        import('../utils/logUtils.js').then(({ checkAndLogAccess }) => {
+            checkAndLogAccess(
+                null,                          // userId
+                req.ip,                        // IP
+                'login',                       // action
+                req.headers['user-agent'],     // userAgent
+                'fail'                         // status
+            ).catch(logErr => {
+                console.error('실패 로그 저장 실패 (무시):', logErr);
+            });
+        });
+
         res.status(400).json({ success: false, message: err.message });
     }
 };                                                    // 원본 소셜 로그인 부분 참조 :contentReference[oaicite:0]{index=0}
@@ -221,6 +245,17 @@ export const refreshToken = async (req, res) => {
         if (!user) {
             return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
         }
+
+        // ✅ 🆕 추가: 토큰 재발급 로그 (IP/기기 변경 시만 기록됨)
+        const { checkAndLogAccess } = await import('../utils/logUtils.js');
+        checkAndLogAccess(
+            payload.userId,
+            req.ip,
+            'token_refresh',
+            req.headers['user-agent']
+        ).catch(err => {
+            console.error('로그 저장 실패 (무시):', err);
+        });
 
         // 새 액세스 토큰 발급
         const newAccessToken = jwt.sign(
@@ -309,11 +344,21 @@ export const getCurrentUser = async (req, res) => {
  */
 export const logout = (req, res) => {
     console.log('로그아웃 요청 - 쿠키 삭제 시작');
-    console.log('현재 쿠키들:', req.cookies);
-    console.log('요청 헤더 Origin:', req.headers.origin);
-    console.log('요청 헤더 Host:', req.headers.host);
     
-    // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
+    // ✅ 🆕 추가: 로그아웃 로그 기록
+    if (req.user && req.user._id) {
+        import('../utils/logUtils.js').then(({ checkAndLogAccess }) => {
+            checkAndLogAccess(
+                req.user._id.toString(),
+                req.ip,
+                'logout',
+                req.headers['user-agent']
+            ).catch(err => {
+                console.error('로그 저장 실패 (무시):', err);
+            });
+        });
+    }
+    
     res.clearCookie('refreshToken', clearCookieOptions);
     res.clearCookie('accessToken', clearCookieOptions);
     
