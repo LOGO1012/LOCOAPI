@@ -1,5 +1,7 @@
 // src/controllers/userProfileController.js - KMS 사용 수정된 버전
 import { User } from '../models/UserProfile.js'; 
+import TermConsent from '../models/TermConsent.js'; // 약관 동의 모델 추가
+import Term from '../models/Term.js'; // 약관 모델 추가
 import { normalizePhoneNumber } from '../utils/normalizePhoneNumber.js';
 import { saveNicknameHistory, saveGenderHistory } from '../services/historyService.js';
 import { createUser } from '../services/userService.js';
@@ -37,7 +39,8 @@ export const registerUserProfile = async (req, res, next) => {
             naverGender,
             formGender, 
             info,
-            deactivationCount
+            deactivationCount,
+            termIds // 약관 동의 ID 배열
         } = req.body;
             
         // 🔧 닉네임 필수 검증 강화
@@ -281,6 +284,45 @@ export const registerUserProfile = async (req, res, next) => {
 
             await invalidateNicknameCaches(IntelligentCache, savedUser.nickname);
             console.log(`✅ [회원가입] 캐시 무효화: ${savedUser.nickname}`);
+
+            // ✅ 약관 동의/거절 기록 저장 (모든 유효 약관에 대해)
+            try {
+                const now = new Date();
+                // 1. 현재 유효한 모든 약관 조회
+                const types = ['TERMS', 'PRIVACY', 'MARKETING'];
+                const activeTerms = [];
+
+                for (const type of types) {
+                    const term = await Term.findOne({
+                        type,
+                        effectiveDate: { $lte: now }
+                    }).sort({ effectiveDate: -1, version: -1 });
+                    
+                    if (term) activeTerms.push(term);
+                }
+
+                if (activeTerms.length > 0) {
+                    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+                    // 사용자가 동의한 ID 목록 (없으면 빈 배열)
+                    const agreedIds = (termIds && Array.isArray(termIds)) ? termIds : [];
+
+                    const consentPromises = activeTerms.map(term => {
+                        const isAgreed = agreedIds.includes(term._id.toString());
+                        return new TermConsent({
+                            userId: savedUser._id,
+                            termId: term._id,
+                            hasAgreed: isAgreed,
+                            ipAddress
+                        }).save();
+                    });
+                    
+                    await Promise.all(consentPromises);
+                    console.log(`✅ [회원가입] 약관 의사표시 기록 저장 완료 (${activeTerms.length}건)`);
+                }
+            } catch (consentError) {
+                console.error('⚠️ 약관 동의 기록 저장 실패:', consentError);
+                // 약관 저장이 실패해도 회원가입은 성공 처리
+            }
 
             console.log('✅ 회원가입 및 히스토리 저장 완료 (KMS 암호화 적용)');
         } catch (historyError) {

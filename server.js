@@ -32,6 +32,7 @@ import newsRoutes from './src/routes/newsRoutes.js';
 import editorRoutes from './src/routes/editorRoutes.js';
 import bannerRoutes from './src/routes/bannerRoutes.js';
 import profanityRoutes from './src/routes/profanityRoutes.js'; // 비속어 관리 라우트 추가
+import termRoutes from './src/routes/termRoutes.js'; // 약관 관리 라우트 추가
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
 import {startUserArchiveScheduler} from "./src/scheduler/userArchiveScheduler.js";
@@ -199,10 +200,11 @@ app.use('/api/online-status', onlineStatusRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/editor', editorRoutes);
 app.use('/api/banners', bannerRoutes);
+app.use('/api/terms', termRoutes); // 약관 관리
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
-const io = initializeSocket(server);
+// const io = initializeSocket(server);
 
 // 포트 설정 및 서버 실행
 const PORT = process.env.PORT || 3000;
