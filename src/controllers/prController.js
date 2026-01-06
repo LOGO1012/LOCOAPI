@@ -20,7 +20,7 @@ export const getPRTopUsers = async (req, res, next) => {
         
         // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
         const userIds = topUsersRaw.map(u => u._id.toString());
-        const onlineStatusMap = onlineStatusService.getMultipleUserStatus(userIds);
+        const onlineStatusMap = await onlineStatusService.getMultipleUserStatus(userIds);
 
         const topUsers = topUsersRaw.map(u => ({
             ...u,
@@ -46,7 +46,7 @@ export const getPRUserList = async (req, res, next) => {
         let sortOption = {};
 
         if (sort === "online") {
-            const onlineUserIds = onlineStatusService.getAllOnlineUsers();
+            const onlineUserIds = await onlineStatusService.getAllOnlineUsers();
             query._id = { $in: onlineUserIds };
             sortOption = { star: -1 }; // 온라인 사용자들을 별점 높은순으로 정렬
         } else if (sort === "new") {
@@ -69,7 +69,7 @@ export const getPRUserList = async (req, res, next) => {
 
         // 🔧 온라인 상태 정보 추가 (배치로 효율적 처리)
         const userIds = usersRaw.map(u => u._id.toString());
-        const onlineStatusMap = onlineStatusService.getMultipleUserStatus(userIds);
+        const onlineStatusMap = await onlineStatusService.getMultipleUserStatus(userIds);
         
         const users = usersRaw.map(u => ({
             ...u,
