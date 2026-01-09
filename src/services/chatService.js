@@ -194,7 +194,7 @@ export const getAllChatRooms = async (filters) => {
                 }
             }
 
-            await invalidateExitedRooms(IntelligentCache, userId);
+            await invalidateExitedRooms(IntelligentCache, filters.userId);
 
             console.log(`🚪 [getAllChatRooms] 퇴장한 방: ${exited.length}개`);
 
