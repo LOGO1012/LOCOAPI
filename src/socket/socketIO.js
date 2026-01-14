@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { checkAndLogAccess } from '../utils/logUtils.js';
 import IntelligentCache from "../utils/cache/intelligentCache.js";
 import MessageBuffer from '../utils/messageBuffer.js';
+import ChatEncryption from '../utils/encryption/chatEncryption.js';
 
 export let io;
 
