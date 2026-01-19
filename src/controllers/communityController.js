@@ -217,6 +217,12 @@ export const addComment = async (req, res) => {
         const commentData = { ...req.body };
         commentData.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
 
+        // IP 및 User-Agent 수집
+        const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.ip;
+        // IPv6 형식(::ffff:127.0.0.1)인 경우 정리할 수도 있지만, 여기서는 원본 저장
+        commentData.ip = Array.isArray(clientIp) ? clientIp[0] : clientIp;
+        commentData.userAgent = req.get('User-Agent');
+
         if (req.file) {
             commentData.commentImage = `/comments/${req.file.filename}`; // 수정됨
         }
@@ -235,6 +241,11 @@ export const addReply = async (req, res) => {
         const replyData = { ...req.body };
         replyData.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
 
+        // IP 및 User-Agent 수집
+        const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.ip;
+        replyData.ip = Array.isArray(clientIp) ? clientIp[0] : clientIp;
+        replyData.userAgent = req.get('User-Agent');
+
         if (req.file) {
             replyData.replyImage = `/replies/${req.file.filename}`; // 수정됨
         }
@@ -252,6 +263,11 @@ export const addSubReply = async (req, res) => {
         const { id, commentId, replyId } = req.params;
         const subReplyData = { ...req.body };
         subReplyData.isAnonymous = req.body.isAnonymous === 'true' || req.body.isAnonymous === true;
+
+        // IP 및 User-Agent 수집
+        const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.ip;
+        subReplyData.ip = Array.isArray(clientIp) ? clientIp[0] : clientIp;
+        subReplyData.userAgent = req.get('User-Agent');
 
         if (req.file) {
             subReplyData.subReplyImage = `/subreplies/${req.file.filename}`; // 수정됨

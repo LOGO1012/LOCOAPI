@@ -36,6 +36,14 @@ export const commentSchema = new Schema({
         type: String,
         default: null,
     },
+    ip: {
+        type: String,
+        default: null
+    },
+    userAgent: {
+        type: String,
+        default: null
+    },
     isDeleted: {
         type: Boolean,
         default: false,
