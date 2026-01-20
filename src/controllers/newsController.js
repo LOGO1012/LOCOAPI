@@ -204,7 +204,7 @@ export const createNews = async (req, res) => {
 
         // content에서 첫 이미지 URL 추출
         const contentImgRegex = /<img[^>]+src="([^">]+)"/;
-        const contentMatch = formData.content.match(contentImgRegex);
+        const contentMatch = content.match(contentImgRegex);
         const contentThumbnailUrl = contentMatch ? contentMatch[1] : null;
 
         const news = new News({
