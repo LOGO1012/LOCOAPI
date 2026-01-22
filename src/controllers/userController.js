@@ -1093,6 +1093,7 @@ export const reactivateUser = async (req, res) => {
             .cookie('accessToken',  accessToken,  { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000}) // 2 hours
             .cookie('refreshToken', refreshToken, { ...cookieOptions , maxAge: 7*24*60*60*1000 })
             .json({
+                success:     true,
                 message:     "계정이 성공적으로 재활성화되었습니다.",
                 status:      "success",
                 user,
