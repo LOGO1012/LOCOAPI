@@ -108,13 +108,13 @@ router.post('/:userId/block/:targetUserId/minimal', authenticate, blockUserMinim
 router.delete('/:userId/block/:targetUserId/minimal', authenticate, unblockUserMinimalController);
 
 //유저 수 가져오기
-router.get("/user-count", getUserCountController);
+router.get("/user-count", requireLevel(3), getUserCountController);
 
 // 성별 유저 수
-router.get("/gender-count", getGenderCountController);
+router.get("/gender-count", requireLevel(3), getGenderCountController);
 
 // 소셜 성별 유저 수
-router.get("/social-gender-count", getSocialGenderCountController);
+router.get("/social-gender-count", requireLevel(3), getSocialGenderCountController);
 
 // 사용자 정보 가져오기
 router.get("/:userId", getUserInfo);
