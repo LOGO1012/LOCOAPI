@@ -5,6 +5,7 @@ import { naverLogin, revokeNaverToken } from '../services/naverAuthService.js';
 import { findUserByNaver, getUserForAuth, updateUserNaverToken } from '../services/userService.js'; // ✅ updateUserNaverToken 추가
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import { checkAndLogAccess } from '../utils/logUtils.js';
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
@@ -146,9 +147,15 @@ export const naverCallback = async (req, res, next) => {
         const accessToken  = jwt.sign(payload, JWT_SECRET,     { expiresIn: "15m" });
         const refreshToken = jwt.sign(payload, REFRESH_SECRET, { expiresIn: "7d" });
 
-
-
-
+        // ✅ 🆕 추가: 네이버 로그인 로그 기록
+        checkAndLogAccess(
+            user._id.toString(),
+            req.ip,
+            'login',
+            req.headers['user-agent']
+        ).catch(err => {
+            console.error('로그 저장 실패 (무시):', err);
+        });
 
         // 6) Refresh 토큰은 HttpOnly 쿠키로, Access 토큰은 JSON으로 응답
         res
@@ -162,6 +169,18 @@ export const naverCallback = async (req, res, next) => {
             });
     } catch (err) {
         console.error('네이버 콜백 처리 중 오류:', err);
+        
+        // ✅ 🆕 추가: 로그인 실패 로그 기록
+        checkAndLogAccess(
+            null,
+            req.ip,
+            'login',
+            req.headers['user-agent'],
+            'fail'
+        ).catch(logErr => {
+            console.error('실패 로그 저장 실패 (무시):', logErr);
+        });
+
         res.status(400).json({ success: false, message: err.message });
     }
 };
@@ -182,6 +201,16 @@ export const naverRefreshToken = async (req, res) => {
         if (!user) {
             return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
         }
+
+        // ✅ 🆕 추가: 토큰 리프레시 로그
+        checkAndLogAccess(
+            payload.userId,
+            req.ip,
+            'token_refresh',
+            req.headers['user-agent']
+        ).catch(err => {
+            console.error('로그 저장 실패 (무시):', err);
+        });
 
         const newAccessToken = jwt.sign(
             {
@@ -217,6 +246,16 @@ export const logout = async (req, res) => {
                 const decoded = jwt.decode(token);
                 if (decoded && decoded.userId) {
                     console.log('사용자 ID 추출 성공:', decoded.userId);
+                    
+                    // ✅ 🆕 추가: 로그아웃 로그 기록 (네이버 연동해제 전에)
+                    await checkAndLogAccess(
+                        decoded.userId,
+                        req.ip,
+                        'logout',
+                        req.headers['user-agent']
+                    ).catch(err => {
+                        console.error('로그 저장 실패 (무시):', err);
+                    });
                     
                     // 사용자 정보 조회하여 네이버 access_token 획득
                     const user = await getUserForAuth(decoded.userId);
@@ -279,6 +318,16 @@ export const logoutRedirect = async (req, res) => {
             try {
                 const decoded = jwt.decode(token);
                 if (decoded && decoded.userId) {
+                    // ✅ 🆕 추가: 로그아웃 로그 기록
+                    await checkAndLogAccess(
+                        decoded.userId,
+                        req.ip,
+                        'logout',
+                        req.headers['user-agent']
+                    ).catch(err => {
+                        console.error('로그 저장 실패 (무시):', err);
+                    });
+                    
                     const user = await getUserForAuth(decoded.userId);
                     if (user && user.social && user.social.naver && user.social.naver.accessToken) {
                         try {

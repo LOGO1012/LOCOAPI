@@ -7,8 +7,10 @@ import * as userService from "../services/userService.js";
 import * as onlineStatusService from '../services/onlineStatusService.js';
 import mongoose from "mongoose";
 import crypto from 'crypto';
+import { checkAndLogAccess } from '../utils/logUtils.js';
 import IntelligentCache from "../utils/cache/intelligentCache.js";
 import MessageBuffer from '../utils/messageBuffer.js';
+import ChatEncryption from '../utils/encryption/chatEncryption.js';
 
 export let io;
 
@@ -57,6 +59,21 @@ export const initializeSocket = async (server) => {
             socket.join(userId);
 
             socket.userId = userId;
+
+            // ✅ 🆕 추가: 소켓 연결 로그 기록
+            const userIp = socket.request.headers['x-forwarded-for']
+                || socket.request.connection.remoteAddress
+                || socket.handshake.address;
+            const userAgent = socket.request.headers['user-agent'] || 'unknown';
+
+            checkAndLogAccess(
+                userId,
+                userIp,
+                'socket_connect',
+                userAgent
+            ).catch(err => {
+                console.error('소켓 로그 저장 실패 (무시):', err);
+            });
 
             await onlineStatusService.setUserOnlineStatus(userId, socket.id, true);
 
@@ -297,7 +314,7 @@ export const initializeSocket = async (server) => {
 
                 targets.forEach(uid => {
                     const uidStr = uid.toString();
-                    
+
                     // 기존 채팅 알림
                     io.to(uidStr).emit("chatNotification", {
                         chatRoom,
@@ -306,7 +323,7 @@ export const initializeSocket = async (server) => {
                         notification: `${senderNick}: ${text}`,
                         timestamp: new Date()
                     });
-                    
+
                     // 🆕 안읽은 개수 실시간 푸시 (배지 업데이트용)
                     io.to(uidStr).emit("unreadCountUpdated", {
                         roomId: chatRoom,

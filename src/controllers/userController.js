@@ -31,6 +31,7 @@ import {
 import { containsProfanity } from '../utils/profanityFilter.js';
 import IntelligentCache from '../utils/cache/intelligentCache.js';
 import {CacheKeys, invalidateFriendRequestCaches, invalidateNicknameCaches} from '../utils/cache/cacheKeys.js';
+import { checkAndLogAccess } from '../utils/logUtils.js';
 
 // 총 유저 수 함수
 export const getUserCountController = async (req, res) => {
@@ -1046,6 +1047,16 @@ export const checkChangeAvailabilityController = async (req, res) => {
 export const deactivateUser = async (req, res) => {
     try {
         const userId = req.user._id;
+
+        // ✅ 🆕 추가: 탈퇴 전 마지막 접속 로그 기록
+        // (isCriticalAction으로 무조건 저장됨)
+        await checkAndLogAccess(
+            userId.toString(),
+            req.ip,
+            'withdraw',
+            req.headers['user-agent']
+        );
+        
         const result = await deactivateUserService(userId);
         // Clear cookies on the client side upon successful deactivation
         res.clearCookie('accessToken');
@@ -1082,6 +1093,7 @@ export const reactivateUser = async (req, res) => {
             .cookie('accessToken',  accessToken,  { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000}) // 2 hours
             .cookie('refreshToken', refreshToken, { ...cookieOptions , maxAge: 7*24*60*60*1000 })
             .json({
+                success:     true,
                 message:     "계정이 성공적으로 재활성화되었습니다.",
                 status:      "success",
                 user,

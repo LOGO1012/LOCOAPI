@@ -1090,19 +1090,41 @@ export const getChatUserInfo = async (userId) => {
 // 친구 요청 수락 처리, 양방향 친구 관계 생성, 요청 기록 삭제
 export const acceptFriendRequestService = async (requestId) => {
     try {
-    // 해당 친구요청 조회
-    console.log(`🤝 [친구수락] 시작: ${requestId}`);
+        console.log(`🤝 [친구수락] 시작: ${requestId}`);
 
-    const friendRequest = await FriendRequest.findByIdAndDelete(requestId)
-        .populate('sender', '_id nickname profilePhoto star gender lolNickname')
-        .populate('receiver', '_id');
+        // ✅ 1. 요청 정보 조회 (populate 포함)
+        const friendRequest = await FriendRequest.findById(requestId)
+            .populate('sender', '_id nickname profilePhoto star gender lolNickname friends') // friends 필드 추가 확인 필요
+            .populate('receiver', '_id friends'); // receiver의 friends도 필요하다면 populate 혹은 별도 조회
 
-    if (!friendRequest) throw new Error("친구 요청을 찾을 수 없습니다.");
+        if (!friendRequest) throw new Error("친구 요청을 찾을 수 없습니다.");
+        if (friendRequest.status !== 'pending') throw new Error("이미 처리된 친구 요청입니다.");
 
-    if (friendRequest.status !== 'pending') throw new Error("이미 처리된 친구 요청입니다.");
+        const senderId = friendRequest.sender._id.toString();
+        const receiverId = friendRequest.receiver._id.toString();
 
-    const senderId = friendRequest.sender._id.toString();
-    const receiverId = friendRequest.receiver._id.toString();
+        // ✅ 2. 친구 수 제한 확인 (DB 재조회 대신 populate 활용 시도 또는 별도 조회 최소화)
+        // User 모델의 friends 필드는 배열이므로 populate하지 않으면 ObjectId 배열임.
+        // 현재 populate('sender')에 friends가 포함되어 있지 않을 수 있으므로,
+        // 안전하게 User를 조회하는 것이 좋으나, 성능을 위해 select로 friends만 가져오거나
+        // 위 populate에 friends를 추가하는 것이 좋음.
+        // 하지만 User 모델 구조상 friends는 ref 배열이므로 populate 없이는 ID 배열임.
+        // 여기서는 확실하게 하기 위해 User.findById로 friends 길이만 체크 (가장 가벼운 쿼리)
+        
+        const [senderCheck, receiverCheck] = await Promise.all([
+            User.findById(senderId).select('friends').lean(),
+            User.findById(receiverId).select('friends').lean()
+        ]);
+
+        if (senderCheck?.friends && senderCheck.friends.length >= 100) {
+            throw new Error("상대방의 친구 수가 최대(100명)에 도달하여 수락할 수 없습니다.");
+        }
+        if (receiverCheck?.friends && receiverCheck.friends.length >= 100) {
+            throw new Error("내 친구 수가 최대(100명)에 도달하여 수락할 수 없습니다.");
+        }
+
+        // ✅ 3. 요청 삭제 (검증 통과 후)
+        await FriendRequest.deleteOne({ _id: requestId });
 
     console.log(`📝 [친구수락] 요청 정보:`, {
         sender: senderId,
@@ -1266,6 +1288,31 @@ export const sendFriendRequest = async (senderId, receiverId) => {
     }).select('_id').lean();
 
     if (existingRequest) throw new Error("이미 친구 요청을 보냈습니다.");
+
+    // ✅ 친구 요청 수 제한 (300개) - 초과 시 오래된 요청 삭제
+    const pendingCount = await FriendRequest.countDocuments({
+        receiver: receiverId,
+        status: 'pending'
+    });
+
+    if (pendingCount >= 300) {
+        // 300개 유지를 위해 삭제할 개수 계산 (현재 300개면 1개 삭제)
+        const deleteCount = pendingCount - 300 + 1;
+        
+        const oldestRequests = await FriendRequest.find({
+            receiver: receiverId,
+            status: 'pending'
+        })
+        .sort({ createdAt: 1 }) // 오래된 순
+        .limit(deleteCount)
+        .select('_id');
+
+        if (oldestRequests.length > 0) {
+            const idsToDelete = oldestRequests.map(req => req._id);
+            await FriendRequest.deleteMany({ _id: { $in: idsToDelete } });
+            console.log(`🗑️ [친구요청제한] 수신자(${receiverId})의 오래된 요청 ${idsToDelete.length}개 삭제`);
+        }
+    }
 
     // 새로운 친구 요청 생성
     const newRequest = new FriendRequest({

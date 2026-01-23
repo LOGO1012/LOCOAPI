@@ -781,8 +781,8 @@ export const getCommentsByPost = async (postId, page = 1, size = 20) => {
         const replySize = 5;
         const replySkip = (replyPage - 1) * replySize;
 
-        const totalReplies = await Reply.countDocuments({ commentId: comment._id, isDeleted: false });
-        const replies = await Reply.find({ commentId: comment._id, isDeleted: false })
+        const totalReplies = await Reply.countDocuments({ commentId: comment._id });
+        const replies = await Reply.find({ commentId: comment._id })
             .sort({ createdAt: 1 })
             .skip(replySkip)
             .limit(replySize)
@@ -814,8 +814,8 @@ export const getCommentsByPost = async (postId, page = 1, size = 20) => {
 
 export const getRepliesByComment = async (commentId, page = 1, size = 5) => {
     const skip = (page - 1) * size;
-    const totalCount = await Reply.countDocuments({ commentId, isDeleted: false });
-    const replies = await Reply.find({ commentId, isDeleted: false })
+    const totalCount = await Reply.countDocuments({ commentId });
+    const replies = await Reply.find({ commentId })
         .sort({ createdAt: 1 })
         .skip(skip)
         .limit(size)
