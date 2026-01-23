@@ -201,7 +201,7 @@ app.use('/api/banners', bannerRoutes);
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
-const io = initializeSocket(server);
+// const io = initializeSocket(server);
 
 // 포트 설정 및 서버 실행
 const PORT = process.env.PORT || 3000;
