@@ -194,7 +194,7 @@ export const getAllChatRooms = async (filters) => {
                 }
             }
 
-            await invalidateExitedRooms(IntelligentCache, userId);
+            await invalidateExitedRooms(IntelligentCache, filters.userId);
 
             console.log(`🚪 [getAllChatRooms] 퇴장한 방: ${exited.length}개`);
 
@@ -1649,7 +1649,7 @@ export const leaveChatRoomService = async (roomId, userId) => {
                     matchedGender: chatRoom.matchedGender,
                     ageGroup: chatRoom.ageGroup,
                     createdAt: chatRoom.createdAt,
-                    genderSelections: Object.fromEntries(chatRoom.genderSelections)
+                    genderSelections: chatRoom.genderSelections || {}
                 }
             });
             // ✅ 삭제는 병렬 처리 (히스토리 생성 후)
