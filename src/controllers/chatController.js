@@ -6,6 +6,7 @@ import ChatRoomResponseDTO from '../dto/common/ChatRoomResponseDTO.js';
 import mongoose from 'mongoose';
 import ChatEncryption from '../utils/encryption/chatEncryption.js';
 
+
 /**
  * 채팅방 생성 컨트롤러
  */
@@ -1057,6 +1058,91 @@ export const getLastMessagesBatch = async (req, res) => {
         res.status(500).json({
             error: '마지막 메시지 일괄 조회 실패',
             details: error.message
+        });
+    }
+};
+
+
+/**
+ * 리엑트 쿼리 캐싱 -> 캐싱한 뒤 오는 대화들 만 로드 할 수 있게 함
+ * 증분 동기화용 API
+ * lastMessageId 이후의 새 메시지만 반환
+ */
+export const getNewMessages = async (req, res) => {
+    const { roomId } = req.params;
+    const { lastMessageId } = req.query;
+
+    if (!roomId) {
+        return res.status(400).json({
+            success: false,
+            error: 'roomId가 필요합니다.',
+            messages: []
+        });
+    }
+
+    try {
+        let query = {
+            chatRoom: roomId,
+            isDeleted: false
+        };
+
+        if (lastMessageId) {
+            query._id = { $gt: lastMessageId };
+        }
+
+        console.log(`📡 [증분 동기화] 조회:`, { roomId, lastMessageId });
+
+        const messages = await ChatMessage.find(query)
+            .sort({ textTime: 1 })
+            .limit(100)
+            .populate('sender', 'nickname profilePhoto')
+            .lean();
+
+        console.log(`📊 [증분 동기화] ${messages.length}개 조회`);
+
+        const decryptedMessages = messages.map(msg => {
+            if (!msg.isEncrypted || !msg.encryptedText) {
+                return msg;
+            }
+
+            try {
+                const decrypted = ChatEncryption.decryptMessage({
+                    encryptedText: msg.encryptedText,
+                    iv: msg.iv,
+                    tag: msg.tag
+                });
+
+                msg.text = decrypted;
+                delete msg.encryptedText;
+                delete msg.iv;
+                delete msg.tag;
+
+            } catch (error) {
+                console.error(`❌ 복호화 실패: ${msg._id}`, error);
+                msg.text = '[메시지를 불러올 수 없습니다]';
+            }
+
+            msg.isEncrypted = false;
+            return msg;
+        });
+
+        res.json({
+            success: true,
+            messages: decryptedMessages,
+            count: decryptedMessages.length,
+            hasMore: decryptedMessages.length === 100
+        });
+
+        console.log(`✅ [증분 동기화] ${decryptedMessages.length}개 전송`);
+
+    } catch (error) {
+        console.error('❌ [증분 동기화 실패]', error);
+
+        res.status(500).json({
+            success: false,
+            error: error.message || '메시지 조회 중 오류가 발생했습니다.',
+            messages: [],
+            count: 0
         });
     }
 };

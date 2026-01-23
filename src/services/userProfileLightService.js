@@ -95,13 +95,40 @@ export const getUserChatStatus = async (userId) => {
 
         if (cached) {
             console.log(`💾 [캐시 HIT] 채팅 상태: ${userId}`);
-            return cached;
+
+            // ✅ 캐시된 데이터로 실시간 충전 계산
+            const rechargeResult = calculateRechargeRealtime({
+                numOfChat: cached.numOfChat || 0,
+                chatTimer: cached.chatTimer,
+                plan: { planType: cached.planType }
+            });
+
+            // ⚠️ 충전이 필요한 경우 = DB 업데이트가 발생한 경우
+            if (rechargeResult.needsUpdate) {
+                console.log(`🔄 [충전 감지] 캐시 무효화 및 DB 재조회: ${userId}`);
+                await IntelligentCache.deleteCache(cacheKey);
+                // 캐시 삭제 후 아래 DB 조회 로직으로 계속 진행
+            } else {
+                // ✅ 충전이 필요 없으면 캐시 + 실시간 계산 결과 반환
+                return {
+                    ...cached,
+                    numOfChat: rechargeResult.currentNumOfChat,
+                    maxChatCount: rechargeResult.maxChatCount,
+                    nextRefillAt: rechargeResult.nextRefillAt
+                };
+            }
         }
+
+        console.log(`🔍 [캐시 MISS 또는 무효화] DB 조회: ${userId}`);
+
+
+
 
         // ✅ 채팅 상태에 필요한 필드만 선택
         const user = await User.findById(userId)
             .select('star numOfChat chatTimer plan birthdate reportStatus reportTimer gender')
             .lean();
+
 
         if (!user) throw new Error('사용자를 찾을 수 없습니다.');
 
@@ -121,7 +148,9 @@ export const getUserChatStatus = async (userId) => {
             ageGroup: ageInfo?.ageGroup,
             reportStatus: user.reportStatus,
             reportTimer: user.reportTimer,
-            gender: user.gender
+            gender: user.gender,
+            chatTimer: user.chatTimer,  // ✅ 실시간 계산용 추가
+            planType: user.plan?.planType  // ✅ 실시간 계산용 추가
         };
 
         // ✅ 짧은 TTL (5분) - 채팅 횟수는 자주 변경됨
