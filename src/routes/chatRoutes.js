@@ -1,5 +1,8 @@
 import express from 'express';
 import * as chatController from '../controllers/chatController.js';
+import {requireLevel} from "../middlewares/requireLevel.js";
+import {getNewMessages} from "../controllers/chatController.js";
+import {authenticate} from "../middlewares/authMiddleware.js";
 
 
 const router = express.Router();
@@ -27,6 +30,9 @@ router.post('/rooms/:roomId/join', chatController.addUserToRoom);
 
 // 메시지 저장
 router.post('/messages', chatController.sendMessage);
+
+// 증분 동기화 라우트
+router.get('/chat/:roomId/new-messages', authenticate, getNewMessages);
 
 // 특정 채팅방의 메시지 가져오기
 router.get('/messages/:roomId', chatController.getMessages);
@@ -66,6 +72,6 @@ router.post('/rooms/:roomId/entry', chatController.recordRoomEntry);
 router.post('/messages/:messageId/report', chatController.reportMessage);
 
 // 🆕 채팅방의 신고된 메시지 목록 조회 (개발자 페이지용)
-router.get('/rooms/:roomId/reported-messages', chatController.getReportedMessages);
+router.get('/rooms/:roomId/reported-messages', requireLevel(3), chatController.getReportedMessages);
 
 export default router;
