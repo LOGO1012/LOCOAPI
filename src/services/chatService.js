@@ -417,8 +417,13 @@ export const findAvailableRoom = async (
                     _id: {$nin: exitedObjectIds},
                     chatUsers: {$nin: [userObjectId]},
 
-                    // ✅ 현재 인원 < 정원
-                    $expr: {$lt: [{$size: '$chatUsers'}, '$capacity']}
+                    // ✅ 빈 방 제외: 최소 1명 이상 + 정원 미만
+                    $expr: {
+                        $and: [
+                            {$gt: [{$size: '$chatUsers'}, 0]},        // 최소 1명 이상
+                            {$lt: [{$size: '$chatUsers'}, '$capacity']}  // 정원 미만
+                        ]
+                    }
                 }
             },
 
@@ -474,6 +479,10 @@ export const findAvailableRoom = async (
 
         const candidates = await ChatRoom.aggregate(pipeline);
 
+        // ✅ 입장자의 성별 (버그 수정: myGender 변수 정의 추가)
+        const myGender = user.gender;
+        console.log(`👤 [방찾기] 입장자 성별: ${myGender}, 선호: ${matchedGender}`);
+
         // 5️⃣ JavaScript로 성별 검증 (간단하고 명확)
         for (const room of candidates) {
             // 성별 매칭 체크
@@ -482,20 +491,26 @@ export const findAvailableRoom = async (
             if (matchedGender !== 'any') {
                 for (const participant of room.participantsData) {
                     // 상대가 설정한 성별 선호도 확인
-                    const genderSelection = room.genderSelections?.get(participant._id.toString());
+                    const participantIdStr = participant._id.toString();
+                    // const genderSelection = room.genderSelections?.get(participant._id.toString());
+                    const genderSelection = room.genderSelections?.[participantIdStr];
 
                     if (genderSelection) {
                         const pref = genderSelection.preference;
                         const pGender = participant.gender;
 
+                        console.log(`🔍 [방찾기] 방 ${room._id} - 상대 성별: ${pGender}, 상대 선호: ${pref}, 내 성별: ${myGender}`);
+
                         // 상대가 '이성만' 원하는데 내가 동성
                         if (pref === 'opposite' && myGender === pGender) {
+                            console.log(`⚠️ [방찾기] 성별 불일치: 상대가 이성만 원하는데 동성`);
                             isValid = false;
                             break;
                         }
 
                         // 상대가 '동성만' 원하는데 내가 이성
                         if (pref === 'same' && myGender !== pGender) {
+                            console.log(`⚠️ [방찾기] 성별 불일치: 상대가 동성만 원하는데 이성`);
                             isValid = false;
                             break;
                         }
@@ -871,8 +886,14 @@ export const addUserToRoom = async (roomId, userId, selectedGender = null, cache
             await IntelligentCache.invalidateFriendRoomCache(user1, user2);
             await IntelligentCache.deleteCache(`friend_room:${user1}:${user2}`);
             console.log(`🗑️ [캐시 무효화] 친구방 활성화: ${user1} ↔ ${user2}`);
-
         }
+        
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ✅ 채팅방 캐시 무효화 (타이밍 문제 해결 - joinRoom에서 최신 데이터 조회 가능)
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        await IntelligentCache.deleteCache(CacheKeys.CHAT_ROOM(roomId));
+        console.log(`🗑️ [캐시 무효화] 채팅방: ${roomId}`);
+        
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 🆕 활성방 캐시 무효화 (추가)
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1613,8 +1634,8 @@ export const leaveChatRoomService = async (roomId, userId) => {
         let updatedChatUsers = chatRoom.chatUsers;
 
         if (phase === 'waiting') {
-            // ✅ updateOne() 사용 (빠르고 가벼움)
-            const updatedChatUsers = chatRoom.chatUsers.filter(
+            // ✅ const 제거 - 외부 let 변수에 할당
+            updatedChatUsers = chatRoom.chatUsers.filter(
                 user => user.toString() !== userId.toString()
             );
 
@@ -1623,7 +1644,6 @@ export const leaveChatRoomService = async (roomId, userId) => {
                 { $set: { chatUsers: updatedChatUsers } }
             );
         }
-        // active 단계는 배열 유지
         // active 단계는 배열 유지(매너 평가용)
 
         /* ⑤ 방 삭제 판단 */
