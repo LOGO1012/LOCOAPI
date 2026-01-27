@@ -92,16 +92,26 @@ export const initializeSocket = async (server) => {
             console.log(`📌 클라이언트 ${socket.id}가 방 ${roomId}에 참가 (타입: ${roomType})`);
 
             try {
-                const chatRoom = await chatService.getChatRoomById(roomId);
+                // ✅ 수정: 캐시 우회하여 최신 데이터 조회 (타이밍 문제 해결)
+                const chatRoom = await ChatRoom.findById(roomId)
+                    .populate('chatUsers', '_id nickname profilePhoto gender')
+                    .lean();
+                    
                 if (!chatRoom) {
                     console.log("채팅방을 찾을 수 없습니다.");
                     return;
                 }
 
                 const exited = await ChatRoomExit.distinct('user', { chatRoom: roomId });
-                const activeUsers = chatRoom.chatUsers.filter(u =>
-                    !exited.some(id => id.equals(u))
-                );
+                
+                // ✅ 수정: populate된 객체의 _id로 비교
+                const exitedStrings = exited.map(id => id.toString());
+                const activeUsers = chatRoom.chatUsers.filter(u => {
+                    const odbjId = u._id ? u._id.toString() : u.toString();
+                    return !exitedStrings.includes(odbjId);
+                });
+                
+                console.log(`👥 [joinRoom] 방 ${roomId}: 전체 ${chatRoom.chatUsers.length}명, 활성 ${activeUsers.length}명, 정원 ${chatRoom.capacity}명`);
 
                 const eventData = {
                     roomId: roomId,                    // ✅ 또는 roomId (단축)

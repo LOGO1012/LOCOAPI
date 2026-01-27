@@ -32,7 +32,7 @@ router.post('/rooms/:roomId/join', chatController.addUserToRoom);
 router.post('/messages', chatController.sendMessage);
 
 // 증분 동기화 라우트
-router.get('/chat/:roomId/new-messages', authenticate, getNewMessages);
+router.get('/messages/:roomId/new', authenticate, getNewMessages);
 
 // 특정 채팅방의 메시지 가져오기
 router.get('/messages/:roomId', chatController.getMessages);

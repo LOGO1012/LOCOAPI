@@ -5,6 +5,7 @@ import { createReport } from '../services/reportService.js';
 import ChatRoomResponseDTO from '../dto/common/ChatRoomResponseDTO.js';
 import mongoose from 'mongoose';
 import ChatEncryption from '../utils/encryption/chatEncryption.js';
+import { io } from '../socket/socketIO.js';
 
 
 /**
@@ -150,6 +151,12 @@ export const sendMessage = async (req, res) => {
     try {
         const { chatRoom, sender, text } = req.body;
         const message = await chatService.saveMessage(chatRoom, sender, text);
+
+        if (io) {
+            io.to(chatRoom).emit('new_message', message);
+            console.log(`📡 [Socket] 메시지 실시간 전송: ${text}`);
+        }
+
         res.status(201).json(message);
     } catch (error) {
         res.status(500).json({ error: error.message });
