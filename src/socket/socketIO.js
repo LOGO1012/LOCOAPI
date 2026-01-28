@@ -362,12 +362,12 @@ export const initializeSocket = async (server) => {
         });
 
         // ✅ 방 나가기 - roomType에 따라 구분 처리
-        socket.on('leaveRoom', async ({ roomId, userId, roomType = 'random' }) => {
-            socket.leave(roomId);
+        socket.on('leaveRoom', async ({ roomId, userId, roomType = 'random', status }) => {
+            await socket.leave(roomId);
 
             try {
-                const room = await ChatRoom.findById(roomId).select('status');
-                const isWaiting = room?.status === 'waiting';
+                // 클라이언트가 전달한 status 사용 (DB 조회 제거 → 즉시 emit)
+                const isWaiting = status === 'waiting';
 
                 if (isWaiting) {
                     if (roomType === 'friend') {
@@ -381,16 +381,32 @@ export const initializeSocket = async (server) => {
                 if (roomType === 'friend') {
                     io.to(roomId).emit('friendUserLeft', { userId, roomId });
                 } else {
+                    // userLeft 즉시 전송 (DB 조회 없이)
                     io.to(roomId).emit('userLeft', { userId, roomId });
 
-                    const user = await userService.getUserById(userId);
-                    const nickname = user ? user.nickname : '알 수 없음';
-                    const sysText = `${nickname} 님이 퇴장했습니다.`;
-                    const saved = await chatService.saveSystemMessage(roomId, sysText);
+                    // 닉네임: Redis 캐시 우선 조회 → 캐시 미스 시 DB 조회
+                    let nickname = await IntelligentCache.getUserNickname(userId);
+                    if (!nickname) {
+                        const user = await userService.getUserById(userId);
+                        nickname = user ? user.nickname : '알 수 없음';
+                    }
 
+                    const sysText = `${nickname} 님이 퇴장했습니다.`;
+                    const tempId = new mongoose.Types.ObjectId();
+
+                    // B에게 시스템 메시지 전송
                     io.to(roomId).emit('systemMessage', {
-                        ...saved.toObject(),
+                        _id: tempId.toString(),
+                        chatRoom: roomId,
+                        text: sysText,
+                        isSystem: true,
+                        textTime: new Date(),
                         sender: { _id: 'system', nickname: 'SYSTEM' }
+                    });
+
+                    // DB 저장은 백그라운드로 처리
+                    chatService.saveSystemMessage(roomId, sysText).catch(err => {
+                        console.error('시스템 메시지 DB 저장 실패:', err);
                     });
                 }
             } catch (error) {

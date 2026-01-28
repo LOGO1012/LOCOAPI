@@ -523,13 +523,10 @@ function calculateRechargeRealtime(user) {
     // 🔍 2단계: 이미 풀충전인 경우 (계산 불필요)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if (dbNumOfChat >= max) {
-        const last = user.chatTimer ?? new Date();
-        const nextRefillAt = new Date(new Date(last).getTime() + REFILL_MS);
-
         return {
             currentNumOfChat: dbNumOfChat,    // 이미 최대값
             maxChatCount: max,
-            nextRefillAt,
+            nextRefillAt: null,               // 풀충전 상태 → 충전 불필요
             needsUpdate: false                // 업데이트 불필요
         };
     }
@@ -1005,11 +1002,15 @@ export const decrementChatCount = async (userId) => {
         // 5️⃣ 캐시 무효화
         await IntelligentCache.invalidateUserField(userId, 'numOfChat');
         await IntelligentCache.cacheUserField(userId, 'numOfChat', newNumOfChat, 60);
+        // chat-status, user_static 캐시도 무효화 (프론트 표시 정합성)
+        await IntelligentCache.deleteCache(`user_chat_status_${userId}`);
+        await IntelligentCache.invalidateUserStaticInfo(userId);
         console.log(`   🗑️ 캐시 무효화 완료`);
 
         // 6️⃣ 다음 충전 시각 계산 (✅ REFILL_MS 사용 가능)
-        const nextRefillAt = newChatTimer
-            ? new Date(newChatTimer.getTime() + REFILL_MS)
+        const timerDate = newChatTimer ? new Date(newChatTimer) : null;
+        const nextRefillAt = timerDate
+            ? new Date(timerDate.getTime() + REFILL_MS)
             : null;
 
         console.log(`✅ [decrementChatCount] 완료: ${userId}`);
