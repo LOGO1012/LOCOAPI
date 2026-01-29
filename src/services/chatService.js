@@ -1660,6 +1660,25 @@ export const leaveChatRoomService = async (roomId, userId) => {
 
         /* ⑥ 정리 & 삭제 */
         if (shouldDelete) {
+            // ✅ genderSelections 변환 (Map → Object)
+            let genderSelectionsObj = {};
+            if (chatRoom.genderSelections) {
+                // .lean() 사용 시 이미 Object이지만, Map인 경우도 처리
+                if (chatRoom.genderSelections instanceof Map) {
+                    genderSelectionsObj = Object.fromEntries(chatRoom.genderSelections);
+                } else if (typeof chatRoom.genderSelections === 'object') {
+                    genderSelectionsObj = chatRoom.genderSelections;
+                }
+            }
+
+            console.log(`📋 [ChatRoomHistory] 저장 데이터:`, {
+                chatRoomId: chatRoom._id,
+                chatUsers: chatRoom.chatUsers,
+                capacity: chatRoom.capacity,
+                matchedGender: chatRoom.matchedGender,
+                genderSelections: genderSelectionsObj
+            });
+
             await ChatRoomHistory.create({
                 chatRoomId: chatRoom._id,
                 meta: {
@@ -1669,7 +1688,7 @@ export const leaveChatRoomService = async (roomId, userId) => {
                     matchedGender: chatRoom.matchedGender,
                     ageGroup: chatRoom.ageGroup,
                     createdAt: chatRoom.createdAt,
-                    genderSelections: chatRoom.genderSelections || {}
+                    genderSelections: genderSelectionsObj
                 }
             });
             // ✅ 삭제는 병렬 처리 (히스토리 생성 후)
@@ -1941,46 +1960,27 @@ export const createReportedMessageBackup = async (messageId, reportData) => {
             hasEncryptedText: !!originalMessage.encryptedText
         });
 
-        // 2. 이미 백업이 존재하는지 확인
+        // 2. 이미 백업이 존재하는지 확인 (신고된 메시지 타입으로)
         let backup = await ReportedMessageBackup.findOne({
-            originalMessageId: messageId
+            originalMessageId: messageId,
+            messageType: 'reported'
         });
 
         console.log(`🔍 [백업생성] 기존 백업 존재:`, !!backup);
 
-        let plaintextContent = '';
+        const retentionDate = new Date();
+        retentionDate.setFullYear(retentionDate.getFullYear() + 3); // 3년 후
 
-        // 3. 메시지 복호화 (암호화된 경우)
-        if (originalMessage.isEncrypted && originalMessage.encryptedText) {
-            try {
-                console.log('🔐 [백업생성] 암호화된 메시지 복호화 시도...');
-
-                // ✅ ChatEncryption 사용 (채팅 전용)
-                const encryptedData = {
-                    encryptedText: originalMessage.encryptedText,
-                    iv: originalMessage.iv,
-                    tag: originalMessage.tag
-                };
-
-                plaintextContent = ChatEncryption.decryptMessage(encryptedData);
-
-                console.log(`✅ [백업생성] 복호화 성공, 길이: ${plaintextContent.length}`);
-            } catch (decryptError) {
-                console.error('❌ [백업생성] 복호화 실패:', decryptError.message);
-                console.error('❌ [백업생성] 복호화 스택:', decryptError.stack);
-                plaintextContent = `[복호화 실패] Error: ${decryptError.message} | 암호화 데이터 길이: ${originalMessage.encryptedText?.length || 0}`;
-            }
-        } else {
-            // 평문 메시지인 경우
-            plaintextContent = originalMessage.text || '[메시지 내용 없음]';
-            console.log(`📝 [백업생성] 평문 메시지, 길이: ${plaintextContent.length}`);
-        }
+        let isFirstReport = false;
 
         if (backup) {
-            // 4. 기존 백업이 있으면 신고자만 추가
+            // 3. 기존 백업이 있으면 신고자만 추가
             console.log(`♻️ [백업생성] 기존 백업 업데이트`);
 
-            if (!backup.reportedBy.includes(reportData.reportedBy)) {
+            const reporterId = reportData.reportedBy.toString();
+            const existingReporters = backup.reportedBy.map(id => id.toString());
+
+            if (!existingReporters.includes(reporterId)) {
                 backup.reportedBy.push(reportData.reportedBy);
                 await backup.save();
                 console.log('✅ [백업생성] 신고자 추가 완료');
@@ -1988,40 +1988,75 @@ export const createReportedMessageBackup = async (messageId, reportData) => {
                 console.log('ℹ️ [백업생성] 이미 신고한 사용자');
             }
         } else {
-            // 5. 새 백업 생성
-            console.log(`🆕 [백업생성] 새 백업 생성`);
+            // 4. 새 백업 생성 (암호화 상태 유지)
+            console.log(`🆕 [백업생성] 새 백업 생성 (암호화 유지)`);
+            isFirstReport = true;
 
-            const retentionDate = new Date();
-            retentionDate.setFullYear(retentionDate.getFullYear() + 3); // 3년 후
-
-            backup = new ReportedMessageBackup({
+            const backupData = {
                 originalMessageId: messageId,
-                roomId: originalMessage.chatRoom, // 비정규화
-                sender: { // 비정규화
+                roomId: originalMessage.chatRoom,
+                sender: {
                     _id: originalMessage.sender._id,
                     nickname: originalMessage.sender.nickname
                 },
-                messageCreatedAt: originalMessage.createdAt, // 비정규화
-                plaintextContent: plaintextContent,
+                messageCreatedAt: originalMessage.createdAt,
+                messageType: 'reported',
+                reportedMessageId: messageId,  // 자기 자신
+                contextOrder: 0,  // 신고된 메시지는 0
                 reportedBy: [reportData.reportedBy],
-                reportReason: reportData.reason || 'other',  // ✅ enum 값
+                reportReason: reportData.reason || 'other',
                 backupReason: 'legal_compliance',
                 retentionUntil: retentionDate
-            });
+            };
 
+            // 암호화 여부에 따라 필드 설정
+            if (originalMessage.isEncrypted && originalMessage.encryptedText) {
+                backupData.isEncrypted = true;
+                backupData.encryptedText = originalMessage.encryptedText;
+                backupData.iv = originalMessage.iv;
+                backupData.tag = originalMessage.tag;
+                console.log('🔐 [백업생성] 암호화된 메시지 그대로 저장');
+            } else {
+                backupData.isEncrypted = false;
+                backupData.text = originalMessage.text || '[메시지 내용 없음]';
+                console.log('📝 [백업생성] 평문 메시지 저장');
+            }
+
+            backup = new ReportedMessageBackup(backupData);
             const saved = await backup.save();
             console.log('✅ [백업생성] 저장 완료, _id:', saved._id);
+
+            // 5. 원본 메시지의 expiresAt을 3년으로 연장
+            await ChatMessage.updateOne(
+                { _id: messageId },
+                { $set: { expiresAt: retentionDate } }
+            );
+            console.log('🕒 [백업생성] 원본 메시지 expiresAt 3년으로 연장');
+        }
+
+        // 6. 첫 번째 신고인 경우에만 컨텍스트 메시지 백업
+        let contextResult = null;
+        if (isFirstReport && reportData.reportId) {
+            console.log('📦 [백업생성] 컨텍스트 메시지 백업 시작...');
+            contextResult = await backupContextMessages(
+                originalMessage.chatRoom,
+                messageId,
+                originalMessage.textTime || originalMessage.createdAt,
+                reportData.reportId
+            );
+            console.log('📦 [백업생성] 컨텍스트 백업 결과:', contextResult);
         }
 
         // ✅ 저장 확인
         const verifyBackup = await ReportedMessageBackup.findOne({
-            originalMessageId: messageId
+            originalMessageId: messageId,
+            messageType: 'reported'
         });
 
         console.log(`🔍 [백업생성] 저장 검증:`, {
             exists: !!verifyBackup,
             backupId: verifyBackup?._id,
-            contentLength: verifyBackup?.plaintextContent?.length,
+            isEncrypted: verifyBackup?.isEncrypted,
             reportReason: verifyBackup?.reportReason
         });
 
@@ -2030,10 +2065,11 @@ export const createReportedMessageBackup = async (messageId, reportData) => {
             backupCreated: true,
             messageId: messageId,
             backupId: backup._id,
-            contentLength: plaintextContent.length,
+            isEncrypted: backup.isEncrypted,
             reportersCount: backup.reportedBy.length,
             reportReason: backup.reportReason,
-            verified: !!verifyBackup
+            verified: !!verifyBackup,
+            contextBackup: contextResult
         };
 
     } catch (error) {
@@ -2046,6 +2082,226 @@ export const createReportedMessageBackup = async (messageId, reportData) => {
             messageId: messageId,
             stack: error.stack
         };
+    }
+};
+
+/**
+ * 컨텍스트 메시지 백업 (신고 기준 전후 메시지)
+ *
+ * 저장 범위:
+ * - 이전: 1시간 내 메시지 OR 최소 50개
+ * - 이후: 30분 내 메시지 OR 최소 50개
+ * - 채팅방 전체 메시지 수를 초과할 수 없음
+ *
+ * @param {ObjectId} roomId - 채팅방 ID
+ * @param {ObjectId} reportedMessageId - 신고된 메시지 ID
+ * @param {Date} reportedAt - 신고된 메시지 시간
+ * @param {ObjectId} reportId - 신고 ID
+ * @returns {object} 백업 결과
+ */
+export const backupContextMessages = async (roomId, reportedMessageId, reportedAt, reportId) => {
+    try {
+        console.log(`📦 [컨텍스트백업] 시작: roomId=${roomId}, reportedMessageId=${reportedMessageId}`);
+
+        const ONE_HOUR = 60 * 60 * 1000;
+        const THIRTY_MINUTES = 30 * 60 * 1000;
+        const MIN_MESSAGES = 50;
+
+        // 3년 후 만료일 계산
+        const retentionDate = new Date();
+        retentionDate.setFullYear(retentionDate.getFullYear() + 3);
+
+        // === 1. 이전 메시지 조회 (1시간 내 + 최소 50개 보장) ===
+        const oneHourAgo = new Date(reportedAt.getTime() - ONE_HOUR);
+
+        // 1시간 내 메시지 먼저 조회
+        let beforeMessages = await ChatMessage.find({
+            chatRoom: roomId,
+            _id: { $ne: reportedMessageId },
+            textTime: { $gte: oneHourAgo, $lt: reportedAt }
+        })
+        .sort({ textTime: -1 })
+        .populate('sender', 'nickname')
+        .lean();
+
+        console.log(`📊 [컨텍스트백업] 1시간 내 이전 메시지: ${beforeMessages.length}개`);
+
+        // 50개 미만이면 시간 범위 확장
+        if (beforeMessages.length < MIN_MESSAGES) {
+            const additionalCount = MIN_MESSAGES - beforeMessages.length;
+            const additionalBefore = await ChatMessage.find({
+                chatRoom: roomId,
+                _id: { $ne: reportedMessageId },
+                textTime: { $lt: oneHourAgo }
+            })
+            .sort({ textTime: -1 })
+            .limit(additionalCount)
+            .populate('sender', 'nickname')
+            .lean();
+
+            beforeMessages = [...beforeMessages, ...additionalBefore];
+            console.log(`📊 [컨텍스트백업] 추가 조회 후 이전 메시지: ${beforeMessages.length}개`);
+        }
+
+        // === 2. 이후 메시지 조회 (30분 내 + 최소 50개 보장) ===
+        const thirtyMinutesLater = new Date(reportedAt.getTime() + THIRTY_MINUTES);
+
+        // 30분 내 메시지 먼저 조회
+        let afterMessages = await ChatMessage.find({
+            chatRoom: roomId,
+            _id: { $ne: reportedMessageId },
+            textTime: { $gt: reportedAt, $lte: thirtyMinutesLater }
+        })
+        .sort({ textTime: 1 })
+        .populate('sender', 'nickname')
+        .lean();
+
+        console.log(`📊 [컨텍스트백업] 30분 내 이후 메시지: ${afterMessages.length}개`);
+
+        // 50개 미만이면 시간 범위 확장
+        if (afterMessages.length < MIN_MESSAGES) {
+            const additionalCount = MIN_MESSAGES - afterMessages.length;
+            const additionalAfter = await ChatMessage.find({
+                chatRoom: roomId,
+                _id: { $ne: reportedMessageId },
+                textTime: { $gt: thirtyMinutesLater }
+            })
+            .sort({ textTime: 1 })
+            .limit(additionalCount)
+            .populate('sender', 'nickname')
+            .lean();
+
+            afterMessages = [...afterMessages, ...additionalAfter];
+            console.log(`📊 [컨텍스트백업] 추가 조회 후 이후 메시지: ${afterMessages.length}개`);
+        }
+
+        console.log(`📊 [컨텍스트백업] 총계: 이전 ${beforeMessages.length}개 + 이후 ${afterMessages.length}개`);
+
+        // === 3. 컨텍스트 메시지 백업 생성 ===
+        const backupPromises = [];
+
+        // 이전 메시지 백업 (가장 오래된 것부터 순서대로)
+        const sortedBeforeMessages = beforeMessages.reverse(); // 시간순 정렬
+        for (let i = 0; i < sortedBeforeMessages.length; i++) {
+            const msg = sortedBeforeMessages[i];
+            const contextOrder = -(sortedBeforeMessages.length - i); // -N ~ -1
+
+            backupPromises.push(
+                createSingleContextBackup(msg, {
+                    messageType: 'context_before',
+                    relatedReportId: reportId,
+                    reportedMessageId: reportedMessageId,
+                    contextOrder: contextOrder,
+                    retentionUntil: retentionDate
+                })
+            );
+        }
+
+        // 이후 메시지 백업
+        for (let i = 0; i < afterMessages.length; i++) {
+            const msg = afterMessages[i];
+            const contextOrder = i + 1; // +1 ~ +N
+
+            backupPromises.push(
+                createSingleContextBackup(msg, {
+                    messageType: 'context_after',
+                    relatedReportId: reportId,
+                    reportedMessageId: reportedMessageId,
+                    contextOrder: contextOrder,
+                    retentionUntil: retentionDate
+                })
+            );
+        }
+
+        // === 4. 원본 ChatMessage의 expiresAt을 3년으로 연장 ===
+        const allContextIds = [
+            ...beforeMessages.map(m => m._id),
+            ...afterMessages.map(m => m._id),
+            reportedMessageId
+        ];
+
+        await ChatMessage.updateMany(
+            { _id: { $in: allContextIds } },
+            { $set: { expiresAt: retentionDate } }
+        );
+
+        console.log(`🕒 [컨텍스트백업] ${allContextIds.length}개 메시지 expiresAt 3년으로 연장`);
+
+        // === 5. 백업 실행 ===
+        const results = await Promise.allSettled(backupPromises);
+        const successCount = results.filter(r => r.status === 'fulfilled' && r.value).length;
+        const failCount = results.filter(r => r.status === 'rejected' || !r.value).length;
+
+        console.log(`✅ [컨텍스트백업] 완료: 성공 ${successCount}개, 실패 ${failCount}개`);
+
+        return {
+            success: true,
+            beforeCount: beforeMessages.length,
+            afterCount: afterMessages.length,
+            totalBackups: successCount,
+            failedBackups: failCount,
+            expiresAtUpdated: allContextIds.length
+        };
+
+    } catch (error) {
+        console.error('❌ [컨텍스트백업] 실패:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+};
+
+/**
+ * 단일 컨텍스트 메시지 백업 생성 (암호화 상태 유지)
+ */
+const createSingleContextBackup = async (message, contextData) => {
+    try {
+        // 이미 백업된 메시지인지 확인 (동일 신고에 대해)
+        const existing = await ReportedMessageBackup.findOne({
+            originalMessageId: message._id,
+            reportedMessageId: contextData.reportedMessageId
+        });
+
+        if (existing) {
+            console.log(`⏭️ [단일백업] 이미 존재: ${message._id}`);
+            return existing;
+        }
+
+        // 백업 데이터 구성 (암호화 상태 유지)
+        const backupData = {
+            originalMessageId: message._id,
+            roomId: message.chatRoom,
+            sender: {
+                _id: message.sender?._id,
+                nickname: message.sender?.nickname || '[알 수 없음]'
+            },
+            messageCreatedAt: message.createdAt || message.textTime,
+            messageType: contextData.messageType,
+            relatedReportId: contextData.relatedReportId,
+            reportedMessageId: contextData.reportedMessageId,
+            contextOrder: contextData.contextOrder,
+            backupReason: 'context_preservation',
+            retentionUntil: contextData.retentionUntil
+        };
+
+        // 암호화 여부에 따라 필드 설정
+        if (message.isEncrypted && message.encryptedText) {
+            backupData.isEncrypted = true;
+            backupData.encryptedText = message.encryptedText;
+            backupData.iv = message.iv;
+            backupData.tag = message.tag;
+        } else {
+            backupData.isEncrypted = false;
+            backupData.text = message.text || '[메시지 내용 없음]';
+        }
+
+        const backup = new ReportedMessageBackup(backupData);
+        return await backup.save();
+
+    } catch (error) {
+        console.error(`❌ [단일백업] 실패 (${message._id}):`, error.message);
+        return null;
     }
 };
 

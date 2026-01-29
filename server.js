@@ -33,6 +33,7 @@ import editorRoutes from './src/routes/editorRoutes.js';
 import bannerRoutes from './src/routes/bannerRoutes.js';
 import profanityRoutes from './src/routes/profanityRoutes.js'; // 비속어 관리 라우트 추가
 import termRoutes from './src/routes/termRoutes.js'; // 약관 관리 라우트 추가
+import compression from "compression";
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
 import {startUserArchiveScheduler} from "./src/scheduler/userArchiveScheduler.js";
@@ -73,6 +74,7 @@ const initializeIntelligentCache = async () => {
 const app = express();
 
 // 미들웨어 설정
+app.use(compression()); // gzip 응답 압축
 app.use(cors({
     origin: [process.env.FRONTEND_URL || "http://localhost:5173",
         "http://192.168.219.104:5173"],
