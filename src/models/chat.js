@@ -284,8 +284,19 @@ const chatMessageSchema = new Schema({
         platform: String,            // 'web', 'mobile' 등
         userAgent: String,            // 클라이언트 정보
         ipHash: String                // IP 해시 (개인정보보호)
+    },
+
+    // === 메시지 만료 필드 (TTL) ===
+    expiresAt: {
+        type: Date,
+        default: function() {
+            const date = new Date();
+            date.setDate(date.getDate() + 7);  // 기본 7일 후 만료
+            return date;
+        },
+        index: true
     }
-    
+
 }, { timestamps: true });
 
 // === 인덱스 설정 ===
@@ -323,6 +334,16 @@ chatMessageSchema.index(
 // 새로운 암호화 관련 인덱스
 chatMessageSchema.index({ isReported: 1, reportedAt: -1 });     // 신고 메시지 조회용
 chatMessageSchema.index({ isEncrypted: 1, createdAt: -1 });     // 암호화 메시지 분류용
+
+// TTL 인덱스 - 메시지 자동 삭제 (expiresAt 기준)
+chatMessageSchema.index(
+    { expiresAt: 1 },
+    {
+        expireAfterSeconds: 0,  // expiresAt 값 도달 시 즉시 삭제
+        name: 'idx_message_ttl',
+        background: true
+    }
+);
 
 
 
