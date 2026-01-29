@@ -7,6 +7,7 @@ import {User} from "../models/UserProfile.js";
 import {ChatMessage, ChatRoom} from "../models/chat.js";
 import {ChatRoomHistory} from "../models/chatRoomHistory.js";
 import ReportedMessageBackup from "../models/reportedMessageBackup.js";
+import ChatEncryption from "../utils/encryption/chatEncryption.js";
 
 /**
  * 신고 생성 컨트롤러 함수
@@ -179,11 +180,11 @@ export const replyToReport = async (req, res) => {
 /**
  * 🔒 신고된 메시지 평문 내용 조회 (관리자용)
  *
- * ReportedMessageBackup에서 평문으로 저장된 내용을 가져옵니다.
- * - 암호화 복호화 불필요 (이미 평문으로 저장됨)
+ * ReportedMessageBackup에서 암호화된 내용을 실시간 복호화하여 반환합니다.
+ * - 암호화된 메시지는 조회 시 복호화 (개인정보보호법 준수)
  * - 접근 로그 기록
  * - 관리자 전용
- * - ✅ 동일 채팅방의 모든 신고 메시지 표시
+ * - ✅ 동일 채팅방의 모든 신고 메시지 + 컨텍스트 메시지 표시
  */
 export const getReportedMessagePlaintext = async (req, res) => {
     try {
@@ -202,28 +203,54 @@ export const getReportedMessagePlaintext = async (req, res) => {
 
         const { roomId, targetId: reportedMessageId } = report.anchor;
 
-        // 3. 최적화된 단일 쿼리로 모든 백업 메시지 조회
-        const allBackups = await ReportedMessageBackup.find({ roomId })
-            .select('originalMessageId sender plaintextContent messageCreatedAt reportedBy createdAt retentionUntil')
-            .sort({ messageCreatedAt: 1 })
+        // 3. 해당 신고와 관련된 모든 백업 메시지 조회 (신고 메시지 + 컨텍스트)
+        const allBackups = await ReportedMessageBackup.find({
+            $or: [
+                { roomId: roomId, messageType: 'reported' },
+                { reportedMessageId: reportedMessageId }
+            ]
+        })
+            .select('originalMessageId sender encryptedText iv tag isEncrypted text messageCreatedAt reportedBy createdAt retentionUntil messageType contextOrder')
+            .sort({ contextOrder: 1 })
             .lean();
 
         if (!allBackups || allBackups.length === 0) {
             return res.status(404).json({ success: false, message: 'No backed up messages found for this room' });
         }
 
-        // 4. 프론트엔드 형식에 맞게 데이터 가공
-        const messagesWithBackup = allBackups.map(backup => ({
-            messageId: backup.originalMessageId,
-            sender: backup.sender, // 비정규화된 데이터 사용
-            plaintextContent: backup.plaintextContent,
-            createdAt: backup.messageCreatedAt, // 비정규화된 데이터 사용
-            reportersCount: backup.reportedBy?.length || 0,
-            isCurrentReport: backup.originalMessageId.toString() === reportedMessageId.toString(),
-            // 프론트엔드에서 사용하는 추가 정보
-            reportedAt: backup.createdAt,
-            retentionUntil: backup.retentionUntil
-        }));
+        // 4. 프론트엔드 형식에 맞게 데이터 가공 (실시간 복호화)
+        const messagesWithBackup = allBackups.map(backup => {
+            let plaintextContent = '';
+
+            // 암호화된 메시지는 복호화
+            if (backup.isEncrypted && backup.encryptedText) {
+                try {
+                    plaintextContent = ChatEncryption.decryptMessage({
+                        encryptedText: backup.encryptedText,
+                        iv: backup.iv,
+                        tag: backup.tag
+                    });
+                } catch (decryptError) {
+                    console.error(`❌ 복호화 실패 (${backup.originalMessageId}):`, decryptError.message);
+                    plaintextContent = '[복호화 실패]';
+                }
+            } else {
+                plaintextContent = backup.text || '[메시지 내용 없음]';
+            }
+
+            return {
+                messageId: backup.originalMessageId,
+                sender: backup.sender,
+                plaintextContent: plaintextContent,
+                createdAt: backup.messageCreatedAt,
+                reportersCount: backup.reportedBy?.length || 0,
+                isCurrentReport: backup.originalMessageId.toString() === reportedMessageId.toString(),
+                reportedAt: backup.createdAt,
+                retentionUntil: backup.retentionUntil,
+                messageType: backup.messageType,
+                contextOrder: backup.contextOrder
+            };
+        });
 
         // 5. 접근 로그 기록 (현재 신고 메시지 백업에만)
         const currentBackup = allBackups.find(b => b.originalMessageId.toString() === reportedMessageId.toString());
@@ -234,7 +261,7 @@ export const getReportedMessagePlaintext = async (req, res) => {
                     $push: {
                         accessLog: {
                             accessedBy: adminId,
-                            purpose: 'admin_review_all', // 전체 보기용 로그
+                            purpose: 'admin_review_all',
                             ipAddress: req.ip,
                             userAgent: req.headers['user-agent']
                         }
@@ -254,10 +281,11 @@ export const getReportedMessagePlaintext = async (req, res) => {
                 offenderNickname: report.offenderNickname,
                 reportErNickname: report.reportErNickname
             },
-            allReportedMessages: messagesWithBackup, // 모든 정보가 여기에 통합됨
+            allReportedMessages: messagesWithBackup,
             roomInfo: {
                 roomId: roomId,
-                totalReportedMessages: messagesWithBackup.length,
+                totalReportedMessages: messagesWithBackup.filter(m => m.messageType === 'reported').length,
+                totalContextMessages: messagesWithBackup.filter(m => m.messageType !== 'reported').length,
                 roomType: report.reportArea
             }
         };
@@ -277,14 +305,18 @@ export const getReportedMessagePlaintext = async (req, res) => {
 /**
  * 🔒 단일 신고 메시지 백업 조회 (관리자용)
  * ReportDetailModal에서 특정 신고 1건에 대한 내용만 볼 때 사용
+ * 암호화된 메시지는 실시간 복호화하여 반환
  */
 export const getSingleReportedMessageBackup = async (req, res) => {
     try {
         const { messageId } = req.params;
 
-        // 1. 원본 메시지 ID로 백업 문서를 찾음
-        const backup = await ReportedMessageBackup.findOne({ originalMessageId: messageId })
-            .select('originalMessageId sender plaintextContent messageCreatedAt reportedBy createdAt retentionUntil roomId') // roomId도 select
+        // 1. 원본 메시지 ID로 백업 문서를 찾음 (신고된 메시지 타입으로)
+        const backup = await ReportedMessageBackup.findOne({
+            originalMessageId: messageId,
+            messageType: 'reported'
+        })
+            .select('originalMessageId sender encryptedText iv tag isEncrypted text messageCreatedAt reportedBy createdAt retentionUntil roomId')
             .lean();
 
         if (!backup) {
@@ -292,7 +324,10 @@ export const getSingleReportedMessageBackup = async (req, res) => {
         }
 
         // 2. 해당 채팅방의 전체 신고 메시지 개수 조회
-        const totalReportedMessagesInRoom = await ReportedMessageBackup.countDocuments({ roomId: backup.roomId });
+        const totalReportedMessagesInRoom = await ReportedMessageBackup.countDocuments({
+            roomId: backup.roomId,
+            messageType: 'reported'
+        });
 
         // 3. 접근 로그 기록
         const adminId = req.user?._id;
@@ -301,7 +336,7 @@ export const getSingleReportedMessageBackup = async (req, res) => {
                 $push: {
                     accessLog: {
                         accessedBy: adminId,
-                        purpose: 'admin_review_single', // 단일 보기용 로그
+                        purpose: 'admin_review_single',
                         ipAddress: req.ip,
                         userAgent: req.headers['user-agent']
                     }
@@ -309,17 +344,34 @@ export const getSingleReportedMessageBackup = async (req, res) => {
             });
         }
 
-        // 4. 프론트엔드 형식에 맞게 데이터 가공
+        // 4. 암호화된 메시지 실시간 복호화
+        let plaintextContent = '';
+        if (backup.isEncrypted && backup.encryptedText) {
+            try {
+                plaintextContent = ChatEncryption.decryptMessage({
+                    encryptedText: backup.encryptedText,
+                    iv: backup.iv,
+                    tag: backup.tag
+                });
+            } catch (decryptError) {
+                console.error(`❌ 복호화 실패 (${backup.originalMessageId}):`, decryptError.message);
+                plaintextContent = '[복호화 실패]';
+            }
+        } else {
+            plaintextContent = backup.text || '[메시지 내용 없음]';
+        }
+
+        // 5. 프론트엔드 형식에 맞게 데이터 가공
         const responseData = {
             messageId: backup.originalMessageId,
             sender: backup.sender,
-            plaintextContent: backup.plaintextContent,
+            plaintextContent: plaintextContent,
             createdAt: backup.messageCreatedAt,
             reportersCount: backup.reportedBy?.length || 0,
-            isCurrentReport: true, // 단일 조회이므로 항상 true
+            isCurrentReport: true,
             reportedAt: backup.createdAt,
             retentionUntil: backup.retentionUntil,
-            totalReportedMessagesInRoom: totalReportedMessagesInRoom // 추가된 필드
+            totalReportedMessagesInRoom: totalReportedMessagesInRoom
         };
 
         res.status(200).json({
