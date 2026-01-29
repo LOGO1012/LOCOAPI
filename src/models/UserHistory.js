@@ -1,3 +1,4 @@
+//탈퇴회원 보관
 import mongoose from "mongoose";
 
 const { Schema, model } = mongoose;
