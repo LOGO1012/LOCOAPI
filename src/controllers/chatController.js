@@ -628,17 +628,18 @@ export const reportMessage = async (req, res) => {
 /**
  * 채팅방의 신고된 메시지 목록 조회 (개발자 페이지용)
  * GET /api/chat/rooms/:roomId/reported-messages
- * 
+ *
  * 🎯 기능:
  * - 채팅방의 모든 isReported=true 메시지 조회
- * - 각 신고 메시지 기준 전후 30개씩 포함 (총 61개씩)
+ * - 각 신고 메시지 기준 전후 20개씩 포함 (총 41개씩)
  */
 export const getReportedMessages = async (req, res) => {
     try {
         const { roomId } = req.params;
-        
+        const CONTEXT_COUNT = 20;  // 전후 20개씩 (총 41개)
+
         console.log(`🔍 [신고메시지조회] 채팅방 ${roomId}의 신고된 메시지 조회 시작`);
-        
+
         // 1. 채팅방의 모든 신고된 메시지 조회
         const reportedMessages = await ChatMessage.find({
             chatRoom: roomId,
@@ -647,7 +648,7 @@ export const getReportedMessages = async (req, res) => {
         .sort({ createdAt: 1 })
         .populate('sender', 'nickname profileImg')
         .populate('reportedBy', 'nickname');
-        
+
         if (!reportedMessages || reportedMessages.length === 0) {
             console.log(`ℹ️ [신고메시지조회] 신고된 메시지 없음`);
             return res.status(200).json({
@@ -658,38 +659,38 @@ export const getReportedMessages = async (req, res) => {
                 message: '신고된 메시지가 없습니다.'
             });
         }
-        
+
         console.log(`📊 [신고메시지조회] 신고된 메시지 ${reportedMessages.length}개 발견`);
-        
-        // 2. 각 신고 메시지의 전후 30개씩 조회
+
+        // 2. 각 신고 메시지의 전후 20개씩 조회 (총 41개)
         const contextMessagesSet = new Set(); // 중복 제거용
-        
+
         for (const reportedMsg of reportedMessages) {
             // 신고된 메시지 자체 포함
             contextMessagesSet.add(reportedMsg._id.toString());
-            
-            // 이전 30개 메시지
+
+            // 이전 20개 메시지
             const beforeMessages = await ChatMessage.find({
                 chatRoom: roomId,
                 createdAt: { $lt: reportedMsg.createdAt }
             })
             .sort({ createdAt: -1 })
-            .limit(30)
+            .limit(CONTEXT_COUNT)
             .populate('sender', 'nickname profileImg');
-            
+
             beforeMessages.forEach(msg => {
                 contextMessagesSet.add(msg._id.toString());
             });
-            
-            // 이후 30개 메시지
+
+            // 이후 20개 메시지
             const afterMessages = await ChatMessage.find({
                 chatRoom: roomId,
                 createdAt: { $gt: reportedMsg.createdAt }
             })
             .sort({ createdAt: 1 })
-            .limit(30)
+            .limit(CONTEXT_COUNT)
             .populate('sender', 'nickname profileImg');
-            
+
             afterMessages.forEach(msg => {
                 contextMessagesSet.add(msg._id.toString());
             });
