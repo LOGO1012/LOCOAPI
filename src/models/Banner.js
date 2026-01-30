@@ -40,10 +40,6 @@ const bannerSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
-    authorNickname: {
-        type: String,
-        required: true
-    },
     views: {
         type: Number,
         default: 0 // 클릭 횟수

@@ -62,8 +62,9 @@ export const getAllBanners = async (req, res) => {
         const banners = await Banner.find()
             .sort({ order: 1, createdAt: -1 })
             .select(
-                '_id title image.path isActive order description authorNickname createdAt views linkUrl'
+                '_id title image.path isActive order description author createdAt views linkUrl'
             )
+            .populate('author', 'nickname')
             .skip(skip)
             .limit(limitNum)
             .lean();
@@ -157,8 +158,7 @@ export const createBanner = async (req, res) => {
             image,
             linkUrl: linkUrl || '',
             order: parseInt(order) || 0,
-            author: user._id,
-            authorNickname: user.nickname
+            author: user._id
         });
 
         await banner.save();
