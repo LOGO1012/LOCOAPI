@@ -16,10 +16,6 @@ export const commentSchema = new Schema({
         ref: 'User',
         required: true,
     },
-    userNickname: {
-        type: String,
-        default: ''
-    },
     commentContents: {
         type: String,
         required: true,

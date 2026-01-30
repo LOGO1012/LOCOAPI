@@ -61,11 +61,6 @@ const reportSchema = new Schema({
         ref: 'User',                    // User 컬렉션 참조
         required: true
     },
-    // 신고자 별칭 (신고 시점의 별칭 스냅샷)
-    reportErNickname: {
-        type: String,
-        default: ''
-    },
     // 답변 내용 (관리자가 신고에 대해 답변하거나 사유를 설명)
     reportAnswer: {
         type: String,
@@ -93,20 +88,11 @@ const reportSchema = new Schema({
         ref: 'User',
         default: null
     },
-    adminNickname: {
-        type: String,
-        default: ''
-    },
     // 가해자(신고 대상) 고유 ID
     offenderId: {
         type: Schema.Types.ObjectId,
         ref: 'User',
         required: true
-    },
-    // 가해자 별칭 (신고 시점의 가해자 별칭 스냅샷)
-    offenderNickname: {
-        type: String,
-        default: ''
     },
     // 추가: 신고 상태 (신고가 pending, reviewed, resolved, dismissed 등)
     reportStatus: {
@@ -127,8 +113,6 @@ const reportSchema = new Schema({
 reportSchema.index({ reportTitle: "text", reportContants: "text", reportErId: "text", adminId: "text", offenderId: "text" });
 reportSchema.index({ reportTitle:    1 });   // 제목 필드에 B‑Tree 인덱스
 reportSchema.index({ reportContants: 1 });  // 내용 필드에 B‑Tree 인덱스
-reportSchema.index({ offenderNickname: 1 });
-reportSchema.index({ adminNickname: 1 });
 
 // Report 모델을 'Report' 컬렉션으로 생성 및 내보내기
 export const Report = model('Report', reportSchema);

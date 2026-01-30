@@ -15,10 +15,6 @@ const replySchema = new Schema({
         ref: 'User',
         required: true,
     },
-    userNickname: {
-        type: String,
-        default: ''
-    },
     commentContents: {
         type: String,
         required: true,

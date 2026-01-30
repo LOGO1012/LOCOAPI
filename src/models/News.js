@@ -22,10 +22,6 @@ const newsSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
-    authorNickname: {
-        type: String,
-        required: true
-    },
     contentThumbnailUrl: {
         type: String // content에서 추출한 첫 이미지 URL
     },

@@ -13,10 +13,6 @@ const communitySchema = new Schema({
         ref: 'User',
         required: true,
     },
-    userNickname: {
-        type: String,
-        default: ''
-    },
     // ✅ 익명 작성 여부 추가
     isAnonymous: {
         type: Boolean,
@@ -78,7 +74,6 @@ communitySchema.index({
 
 communitySchema.index({ communityTitle: 1 });
 communitySchema.index({ communityContents: 1 });
-communitySchema.index({ userNickname: 1 }); // Corrected from authorNickname
 communitySchema.index({ isDeleted: 1 });
 communitySchema.index({ createdAt: -1 });
 communitySchema.index({ isDeleted: 1, createdAt: -1 });

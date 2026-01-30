@@ -2,6 +2,10 @@ import {Community} from '../models/Community.js';
 import {Comment} from '../models/Comment.js';
 import {Reply} from '../models/Reply.js';
 import {SubReply} from '../models/SubReply.js';
+import { CommunityHistory } from '../models/CommunityHistory.js';
+import { CommentHistory } from '../models/CommentHistory.js';
+import { ReplyHistory } from '../models/ReplyHistory.js';
+import { SubReplyHistory } from '../models/SubReplyHistory.js';
 import PageResponseDTO from '../../src/dto/common/PageResponseDTO.js';
 import cron from "node-cron";
 import {User} from "../models/UserProfile.js"; // 파일 경로를 실제 경로에 맞게 수정하세요.
@@ -40,7 +44,8 @@ export const getCommunitiesPage = async (
         const totalCount = await Community.countDocuments(filter);
 
         const communities = await Community.find(filter)
-            .select('_id communityTitle communityCategory userNickname commentCount communityViews recommended createdAt isAnonymous')
+            .select('_id communityTitle communityCategory userId commentCount communityViews recommended createdAt isAnonymous')
+            .populate('userId', 'nickname')
             .sort(sortCriteria)
             .skip(skip)
             .limit(size)
@@ -94,7 +99,10 @@ export const getCommunitiesPage = async (
                 filter.communityContents = {$regex: regex};
                 break;
             case 'author':
-                filter.userNickname = {$regex: regex};
+                // 닉네임으로 사용자 검색 후 그 ID들로 필터링
+                const users = await User.find({ nickname: { $regex: regex } }).select('_id');
+                const userIds = users.map(u => u._id);
+                filter.userId = { $in: userIds };
                 break;
             case 'title+content':
                 filter.$or = [
@@ -107,7 +115,8 @@ export const getCommunitiesPage = async (
 
     const totalCount = await Community.countDocuments(filter);
     const communities = await Community.find(filter)
-        .select('_id communityTitle communityCategory userNickname commentCount communityViews recommended createdAt isAnonymous communityImages') // Removed commentCount
+        .select('_id communityTitle communityCategory userId commentCount communityViews recommended createdAt isAnonymous communityImages') // Removed commentCount
+        .populate('userId', 'nickname')
         .sort(sortCriteria)
         .skip(skip)
         .limit(size)
@@ -131,12 +140,6 @@ export const createCommunity = async (data) => {
         throw new Error('제목이나 내용에 비속어가 포함되어 있어 게시글을 생성할 수 없습니다.');
     }
 
-    if (data.userId) {
-        // 기존 로직: 실명일 때만 실제 닉네임 조회
-        const author = await User.findById(data.userId, 'nickname');
-        data.userNickname = author?.nickname || '';
-    }
-
     const community = new Community(data);
     const savedCommunity = await community.save();
 
@@ -145,7 +148,6 @@ export const createCommunity = async (data) => {
         _id: savedCommunity._id,
         communityTitle: savedCommunity.communityTitle,
         communityCategory: savedCommunity.communityCategory,
-        userNickname: savedCommunity.userNickname,
         isAnonymous: savedCommunity.isAnonymous,
         createdAt: savedCommunity.createdAt,
     };
@@ -166,13 +168,19 @@ export const updateCommunity = async (id, data) => {
         throw new Error('제목이나 내용에 비속어가 포함되어 있어 게시글을 수정할 수 없습니다.');
     }
 
-    if (data.userId) {
-        const author = await User.findById(data.userId, 'nickname');
-        data.userNickname = author?.nickname || '';
+    // 기존 데이터 조회 (히스토리 저장용)
+    const currentPost = await Community.findById(id);
+    if (currentPost && (data.communityTitle || data.communityContents)) {
+        await CommunityHistory.create({
+            postId: currentPost._id,
+            title: currentPost.communityTitle,
+            contents: currentPost.communityContents
+        });
     }
 
     return await Community.findByIdAndUpdate(id, data, {new: true})
-        .select('_id communityTitle communityCategory userNickname isAnonymous updatedAt');
+        .select('_id communityTitle communityCategory userId isAnonymous updatedAt')
+        .populate('userId', 'nickname');
 };
 
 // 커뮤니티 삭제
@@ -195,7 +203,9 @@ export const incrementViews = async (id) => {
         {_id: id, isDeleted: false},
         {$inc: {communityViews: 1}},
         {new: true}
-    ).select('_id userId userNickname isAnonymous communityTitle communityContents communityCategory communityImages recommended recommendedUsers communityViews commentCount createdAt polls');
+    )
+    .select('_id userId isAnonymous communityTitle communityContents communityCategory communityImages recommended recommendedUsers communityViews commentCount createdAt polls')
+    .populate('userId', 'nickname');
 };
 
 export const getCommunityForEdit = async (id) => {
@@ -252,14 +262,6 @@ export const addComment = async (communityId, commentData) => {
         commentData.commentContents = filterProfanity(commentData.commentContents);
     }
 
-    // ✅ 사용자 닉네임 조회 추가
-    if (commentData.userId && !commentData.isAnonymous) {
-        const user = await User.findById(commentData.userId);
-        if (user) {
-            commentData.userNickname = user.nickname || user.userId || '';
-        }
-    }
-
     const comment = new Comment({
         ...commentData,
         postId: communityId,
@@ -278,14 +280,6 @@ export const addReply = async (commentId, replyData) => {
     // 욕설 필터링
     if (replyData.commentContents) {
         replyData.commentContents = filterProfanity(replyData.commentContents);
-    }
-
-    // ✅ 사용자 닉네임 조회 추가
-    if (replyData.userId && !replyData.isAnonymous) {
-        const user = await User.findById(replyData.userId);
-        if (user) {
-            replyData.userNickname = user.nickname || user.userId || '';
-        }
     }
 
     const reply = new Reply({
@@ -309,14 +303,6 @@ export const addSubReply = async (replyId, subReplyData) => {
     // 욕설 필터링
     if (subReplyData.commentContents) {
         subReplyData.commentContents = filterProfanity(subReplyData.commentContents);
-    }
-
-    // ✅ 사용자 닉네임 조회 추가
-    if (subReplyData.userId && !subReplyData.isAnonymous) {
-        const user = await User.findById(subReplyData.userId);
-        if (user) {
-            subReplyData.userNickname = user.nickname || user.userId || '';
-        }
     }
 
     const subReply = new SubReply({
@@ -771,6 +757,7 @@ export const getCommentsByPost = async (postId, page = 1, size = 20) => {
     const comments = await Comment.find({
         postId: new mongoose.Types.ObjectId(postId),
     })
+        .populate('userId', 'nickname')
         .sort({ createdAt: -1 }) // 최신순으로 정렬
         .skip(skip)
         .limit(size)
@@ -783,6 +770,7 @@ export const getCommentsByPost = async (postId, page = 1, size = 20) => {
 
         const totalReplies = await Reply.countDocuments({ commentId: comment._id });
         const replies = await Reply.find({ commentId: comment._id })
+            .populate('userId', 'nickname')
             .sort({ createdAt: 1 })
             .skip(replySkip)
             .limit(replySize)
@@ -795,6 +783,7 @@ export const getCommentsByPost = async (postId, page = 1, size = 20) => {
 
             const totalSubReplies = await SubReply.countDocuments({ replyId: reply._id, isDeleted: false });
             const subReplies = await SubReply.find({ replyId: reply._id, isDeleted: false })
+                .populate('userId', 'nickname')
                 .sort({ createdAt: 1 })
                 .skip(subReplySkip)
                 .limit(subReplySize)
@@ -816,6 +805,7 @@ export const getRepliesByComment = async (commentId, page = 1, size = 5) => {
     const skip = (page - 1) * size;
     const totalCount = await Reply.countDocuments({ commentId });
     const replies = await Reply.find({ commentId })
+        .populate('userId', 'nickname')
         .sort({ createdAt: 1 })
         .skip(skip)
         .limit(size)
@@ -827,6 +817,7 @@ export const getSubRepliesByReply = async (replyId, page = 1, size = 5) => {
     const skip = (page - 1) * size;
     const totalCount = await SubReply.countDocuments({ replyId, isDeleted: false });
     const subReplies = await SubReply.find({ replyId, isDeleted: false })
+        .populate('userId', 'nickname')
         .sort({ createdAt: 1 })
         .skip(skip)
         .limit(size)
@@ -1219,4 +1210,76 @@ export const deleteCommentPoll = async (commentId, pollId, userId, isAdmin) => {
     } catch (error) {
         throw new Error(`댓글 투표 삭제 실패: ${error.message}`);
     }
+};
+
+// ✅ 댓글 수정
+export const updateComment = async (commentId, data) => {
+    if (data.commentContents) {
+        data.commentContents = filterProfanity(data.commentContents);
+    }
+
+    const currentComment = await Comment.findById(commentId);
+    if (currentComment && data.commentContents) {
+        await CommentHistory.create({
+            commentId: currentComment._id,
+            contents: currentComment.commentContents
+        });
+    }
+
+    return await Comment.findByIdAndUpdate(
+        commentId,
+        { 
+            commentContents: data.commentContents,
+            updatedAt: new Date()
+        },
+        { new: true }
+    ).populate('userId', 'nickname');
+};
+
+// ✅ 답글 수정
+export const updateReply = async (replyId, data) => {
+    if (data.commentContents) {
+        data.commentContents = filterProfanity(data.commentContents);
+    }
+
+    const currentReply = await Reply.findById(replyId);
+    if (currentReply && data.commentContents) {
+        await ReplyHistory.create({
+            replyId: currentReply._id,
+            contents: currentReply.commentContents
+        });
+    }
+
+    return await Reply.findByIdAndUpdate(
+        replyId,
+        { 
+            commentContents: data.commentContents,
+            updatedAt: new Date()
+        },
+        { new: true }
+    ).populate('userId', 'nickname');
+};
+
+// ✅ 대댓글 수정
+export const updateSubReply = async (subReplyId, data) => {
+    if (data.commentContents) {
+        data.commentContents = filterProfanity(data.commentContents);
+    }
+
+    const currentSubReply = await SubReply.findById(subReplyId);
+    if (currentSubReply && data.commentContents) {
+        await SubReplyHistory.create({
+            subReplyId: currentSubReply._id,
+            contents: currentSubReply.commentContents
+        });
+    }
+
+    return await SubReply.findByIdAndUpdate(
+        subReplyId,
+        { 
+            commentContents: data.commentContents,
+            updatedAt: new Date()
+        },
+        { new: true }
+    ).populate('userId', 'nickname');
 };
