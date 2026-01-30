@@ -44,11 +44,20 @@ router.get('/replies/:replyId/subreplies', communityController.getSubReplies);
 // 댓글 추가 엔드포인트 (commentImage 파일 업로드 처리)
 router.post('/:id/comments', upload.single('commentImage'), communityController.addComment);
 
+// 댓글 수정 엔드포인트
+router.put('/comments/:commentId', communityController.updateComment);
+
 // 대댓글 추가 엔드포인트 (reply 사진 업로드를 위해 'replyImage' 필드 사용)
 router.post('/:id/comments/:commentId/replies', upload.single('replyImage'), communityController.addReply);
 
+// 답글 수정 엔드포인트
+router.put('/replies/:replyId', communityController.updateReply);
+
 // **대대댓글 추가 엔드포인트 (subReply 사진 업로드 처리)**
 router.post('/:id/comments/:commentId/replies/:replyId/subreplies', upload.single('subReplyImage'), communityController.addSubReply);
+
+// 대대댓글 수정 엔드포인트
+router.put('/subreplies/:subReplyId', communityController.updateSubReply);
 
 // 댓글 삭제: DELETE /api/communities/:id/comments/:commentId
 router.delete('/:id/comments/:commentId', communityController.deleteComment);
