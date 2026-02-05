@@ -259,17 +259,7 @@ const chatMessageSchema = new Schema({
         type: Date,
         default: Date.now
     },
-    readBy: [{
-        user: {
-            type: Schema.Types.ObjectId,
-            ref: 'User',
-            required: true
-        },
-        readAt: {
-            type: Date,
-            default: Date.now
-        }
-    }],
+    // readBy 배열 제거됨 — RoomEntry.lastReadAt (Last-Read Pointer) 방식으로 대체
     isDeleted: {
         type: Boolean,
         default: false
@@ -303,33 +293,8 @@ const chatMessageSchema = new Schema({
 // 기존 인덱스
 //chatMessageSchema.index({ chatRoom: "text", sender: "text", text: "text" });
 chatMessageSchema.index({ chatRoom: 1, textTime: -1 });
-chatMessageSchema.index({ 'readBy.user': 1 });
-
-// 읽음 처리 최적화 복합 인덱스
-chatMessageSchema.index(
-    {
-        chatRoom: 1,
-        sender: 1,
-        'readBy.user': 1
-    },
-    {
-        name: 'idx_mark_as_read',
-        background: true  // 무중단 생성
-    }
-);
-
-// 🆕 안읽은 개수 조회 최적화 인덱스 (배치 API용)
-chatMessageSchema.index(
-    {
-        chatRoom: 1,
-        'readBy.user': 1,
-        sender: 1
-    },
-    {
-        name: 'idx_unread_optimization',
-        background: true
-    }
-);
+// readBy 관련 인덱스 제거됨 — RoomEntry.lastReadAt 방식으로 대체
+// 안읽은 개수 조회는 기존 { chatRoom: 1, textTime: -1 } 인덱스 활용
 
 // 새로운 암호화 관련 인덱스
 chatMessageSchema.index({ isReported: 1, reportedAt: -1 });     // 신고 메시지 조회용
@@ -371,7 +336,7 @@ chatMessageSchema.set('toJSON', { virtuals: true });
 chatMessageSchema.set('toObject', { virtuals: true });
 
 /**
- * RoomEntry 스키마 - 채팅방 입장 시간 기록
+ * RoomEntry 스키마 - 채팅방별 마지막 읽은 시점 기록 (Last-Read Pointer)
  */
 const roomEntrySchema = new Schema({
     room: {
@@ -384,19 +349,14 @@ const roomEntrySchema = new Schema({
         ref: 'User',
         required: true
     },
-    entryTime: {
-        type: Date,
-        default: Date.now
-    },
-    lastActiveTime: {
+    lastReadAt: {
         type: Date,
         default: Date.now
     }
-}, { timestamps: true });
+});
 
-// 인덱스 추가
+// 인덱스: 방+사용자 유니크
 roomEntrySchema.index({ room: 1, user: 1 }, { unique: true });
-roomEntrySchema.index({ entryTime: -1 });
 
 /**
  * ChatRoomExit 스키마 - 채팅방 퇴장 기록
