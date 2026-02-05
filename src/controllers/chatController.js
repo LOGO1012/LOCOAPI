@@ -1,6 +1,6 @@
 import * as chatService from '../services/chatService.js';
 import {leaveChatRoomService} from "../services/chatService.js";
-import {ChatRoomExit, ChatMessage} from "../models/chat.js";
+import {ChatRoomExit, ChatMessage, ChatRoom} from "../models/chat.js";
 import { createReport } from '../services/reportService.js';
 import ChatRoomResponseDTO from '../dto/common/ChatRoomResponseDTO.js';
 import mongoose from 'mongoose';
@@ -355,35 +355,27 @@ export const getChatRoomHistory = async (req, res) => {
 };
 
 /**
- * 메시지 읽음 처리 컨트롤러
+ * 메시지 읽음 처리 컨트롤러 (인증 필수 — req.user에서 userId 추출)
  */
 export const markMessagesAsRead = async (req, res) => {
     try {
         const { roomId } = req.params;
-        const { userId } = req.body;
+        const userId = req.user._id;
 
         await chatService.markMessagesAsRead(roomId, userId);
-
-        // ✅ 단순화: success만 반환
-        res.status(200).json({ success: true });
-        // const result = await chatService.markMessagesAsRead(roomId, userId);
-        // res.status(200).json({
-        //     success: true,
-        //     modifiedCount: result.modifiedCount
-        // });
+        res.status(204).send();
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };
 
-
 /**
- * 안읽은 메시지 개수 조회
+ * 안읽은 메시지 개수 조회 (인증 필수)
  */
 export const getUnreadCount = async (req, res) => {
     try {
         const { roomId } = req.params;
-        const { userId } = req.query;
+        const userId = req.user._id;
 
         const count = await chatService.getUnreadMessageCount(roomId, userId);
         res.status(200).json({ unreadCount: count });
@@ -393,23 +385,16 @@ export const getUnreadCount = async (req, res) => {
 };
 
 /**
- * 여러 채팅방의 안읽은 메시지 개수 일괄 조회
- * POST /api/chat/rooms/unread-batch
+ * 여러 채팅방의 안읽은 메시지 개수 일괄 조회 (인증 필수)
  */
 export const getUnreadCountsBatch = async (req, res) => {
     try {
-        const { roomIds, userId } = req.body;
+        const { roomIds } = req.body;
+        const userId = req.user._id;
 
-        // 입력 검증
         if (!Array.isArray(roomIds) || roomIds.length === 0) {
             return res.status(400).json({
                 error: 'roomIds는 배열이어야 하며 비어있을 수 없습니다.'
-            });
-        }
-
-        if (!userId) {
-            return res.status(400).json({
-                error: 'userId가 필요합니다.'
             });
         }
 
@@ -419,47 +404,13 @@ export const getUnreadCountsBatch = async (req, res) => {
             });
         }
 
-        // 서비스 호출
         const counts = await chatService.getUnreadCountsBatch(roomIds, userId);
-
-        res.status(200).json({
-            counts: counts  // { roomId: unreadCount }
-        });
+        res.status(200).json({ counts });
 
     } catch (error) {
-        console.error('❌ [배치조회] 컨트롤러 오류:', error);
         res.status(500).json({
             error: '안읽은 개수 배치 조회 실패',
             details: error.message
-        });
-    }
-};
-
-/**
- * 채팅방 입장 시간 기록 컨트롤러
- */
-export const recordRoomEntry = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const { userId } = req.body;
-
-        if (!userId) {
-            return res.status(400).json({
-                success: false,
-                error: '사용자 ID가 필요합니다.'
-            });
-        }
-
-        // ✅ entryTime은 서비스에서 자동 생성 (파라미터 2개만 전달)
-        await chatService.recordRoomEntry(roomId, userId);
-
-        // ✅ HTTP 204 No Content (Response Body 없음)
-        res.status(204).send();
-    } catch (error) {
-        console.error('채팅방 입장 시간 기록 실패:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
         });
     }
 };
@@ -755,6 +706,24 @@ export const findOrCreateRoom = async (req, res) => {
                 success: false,
                 error: '필수 파라미터가 누락되었습니다.'
             });
+        }
+
+        // 1.5️⃣ 이미 활성 랜덤 방에 있는지 체크 (재접속 버그 방지)
+        if (roomType === 'random') {
+            const existingRoom = await ChatRoom.findOne({
+                roomType: 'random',
+                chatUsers: userId,
+                status: { $in: ['waiting', 'active'] }
+            }).select('_id').lean();
+
+            if (existingRoom) {
+                console.log(`🔄 [방찾기/생성] 기존 활성 방 발견, 재접속: ${existingRoom._id}`);
+                return res.status(200).json({
+                    success: true,
+                    action: 'rejoined',
+                    room: { _id: existingRoom._id }
+                });
+            }
         }
 
         // 2️⃣ 참가 가능한 방 찾기

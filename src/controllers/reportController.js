@@ -203,11 +203,16 @@ export const getReportedMessagePlaintext = async (req, res) => {
 
         const { roomId, targetId: reportedMessageId } = report.anchor;
 
-        // 3. 해당 신고와 관련된 모든 백업 메시지 조회 (신고 메시지 + 컨텍스트)
+        // 3. 해당 신고와 관련된 백업 메시지 조회 (전후 20개씩, 총 41개 제한)
+        const CONTEXT_LIMIT = 20;  // 전후 20개씩
+
         const allBackups = await ReportedMessageBackup.find({
             $or: [
                 { roomId: roomId, messageType: 'reported' },
-                { reportedMessageId: reportedMessageId }
+                {
+                    reportedMessageId: reportedMessageId,
+                    contextOrder: { $gte: -CONTEXT_LIMIT, $lte: CONTEXT_LIMIT }  // -20 ~ +20
+                }
             ]
         })
             .select('originalMessageId sender encryptedText iv tag isEncrypted text messageCreatedAt reportedBy createdAt retentionUntil messageType contextOrder')
@@ -271,6 +276,9 @@ export const getReportedMessagePlaintext = async (req, res) => {
         }
 
         // 6. 최적화된 응답 데이터 구성
+        const contextBefore = messagesWithBackup.filter(m => m.messageType === 'context_before').length;
+        const contextAfter = messagesWithBackup.filter(m => m.messageType === 'context_after').length;
+
         const response = {
             success: true,
             reportInfo: {
@@ -285,7 +293,10 @@ export const getReportedMessagePlaintext = async (req, res) => {
             roomInfo: {
                 roomId: roomId,
                 totalReportedMessages: messagesWithBackup.filter(m => m.messageType === 'reported').length,
-                totalContextMessages: messagesWithBackup.filter(m => m.messageType !== 'reported').length,
+                totalContextMessages: contextBefore + contextAfter,
+                contextBefore: contextBefore,    // 이전 메시지 개수
+                contextAfter: contextAfter,      // 이후 메시지 개수
+                contextLimit: CONTEXT_LIMIT,     // 제한 (전후 20개씩)
                 roomType: report.reportArea
             }
         };

@@ -951,10 +951,6 @@ export const saveMessage = async (chatRoom, senderId, text, metadata = {}) => {
                 sender: senderId,
                 text: text, // 원본 텍스트 사용 (필터링 제거)
                 isEncrypted: false, // 명시적으로 평문임을 표시
-                readBy: [{
-                    user: senderId,
-                    readAt: new Date()
-                }]
             });
             return await newMessage.save();
         }
@@ -995,13 +991,6 @@ export const saveEncryptedMessage = async (messageData) => {
             encryptedText: encryptedData.encryptedText,
             iv: encryptedData.iv,
             tag: encryptedData.tag,
-
-
-            // 읽음 처리 (발송자는 자동으로 읽음)
-            readBy: [{
-                user: senderId,
-                readAt: new Date()
-            }],
 
             // 메타데이터
             metadata: {
@@ -1104,27 +1093,16 @@ export const saveEncryptedMessage = async (messageData) => {
 
 
 /**
- * 메시지를 읽음으로 표시
+ * 메시지 읽음 처리 (Last-Read Pointer 방식)
+ * RoomEntry.lastReadAt을 현재 시간으로 갱신 — 1개 문서만 update
  */
 export const markMessagesAsRead = async (roomId, userId) => {
     try {
-        // 해당 채팅방에서 본인이 보내지 않은 메시지들 중 아직 읽지 않은 메시지들을 읽음 처리
-        const result = await ChatMessage.updateMany(
-            {
-                chatRoom: roomId,
-                sender: {$ne: userId}, // 본인이 보낸 메시지 제외
-                'readBy.user': {$ne: userId} // 아직 읽지 않은 메시지만
-            },
-            {
-                $push: {
-                    readBy: {
-                        user: userId,
-                        readAt: new Date()
-                    }
-                }
-            }
+        const result = await RoomEntry.findOneAndUpdate(
+            { room: roomId, user: userId },
+            { $set: { lastReadAt: new Date() } },
+            { upsert: true, new: true }
         );
-
         return result;
     } catch (error) {
         throw new Error(`메시지 읽음 처리 실패: ${error.message}`);
@@ -1132,38 +1110,36 @@ export const markMessagesAsRead = async (roomId, userId) => {
 };
 
 /**
- * 특정 메시지를 읽음으로 표시
+ * 상대방의 마지막 읽은 시간 조회 (인스타 "읽음" 표시용)
+ * 1:1 친구 채팅 전용
  */
-export const markSingleMessageAsRead = async (messageId, userId) => {
+export const getPartnerLastReadAt = async (roomId, userId) => {
     try {
-        const result = await ChatMessage.findByIdAndUpdate(
-            messageId,
-            {
-                $addToSet: {
-                    readBy: {
-                        user: userId,
-                        readAt: new Date()
-                    }
-                }
-            },
-            {new: true}
-        );
+        const room = await ChatRoom.findById(roomId).select('chatUsers').lean();
+        if (!room) return null;
 
-        return result;
+        const partnerId = room.chatUsers.find(u => u.toString() !== userId.toString());
+        if (!partnerId) return null;
+
+        const pointer = await RoomEntry.findOne({ room: roomId, user: partnerId }).lean();
+        return pointer?.lastReadAt || null;
     } catch (error) {
-        throw new Error(`단일 메시지 읽음 처리 실패: ${error.message}`);
+        return null;
     }
 };
 
 /**
- * 채팅방의 안읽은 메시지 개수 조회
+ * 채팅방의 안읽은 메시지 개수 조회 (Last-Read Pointer 방식)
  */
 export const getUnreadMessageCount = async (roomId, userId) => {
     try {
+        const pointer = await RoomEntry.findOne({ room: roomId, user: userId }).lean();
+        const lastReadAt = pointer?.lastReadAt || new Date(0);
+
         const count = await ChatMessage.countDocuments({
             chatRoom: roomId,
-            sender: {$ne: userId}, // 본인이 보낸 메시지 제외
-            'readBy.user': {$ne: userId} // 읽지 않은 메시지만
+            sender: { $ne: userId },
+            textTime: { $gt: lastReadAt }
         });
 
         return count;
@@ -1174,14 +1150,13 @@ export const getUnreadMessageCount = async (roomId, userId) => {
 
 
 /**
- * 여러 채팅방의 안읽은 메시지 개수 일괄 조회 (N+1 문제 해결)
+ * 여러 채팅방의 안읽은 메시지 개수 일괄 조회 (Last-Read Pointer 방식)
  * @param {string[]} roomIds - 채팅방 ID 배열 (최대 100개)
  * @param {string} userId - 사용자 ID
  * @returns {Promise<Object>} { roomId: unreadCount } 형태의 객체
  */
 export const getUnreadCountsBatch = async (roomIds, userId) => {
     try {
-        // 1. 입력 검증
         if (!Array.isArray(roomIds) || roomIds.length === 0) {
             return {};
         }
@@ -1190,140 +1165,54 @@ export const getUnreadCountsBatch = async (roomIds, userId) => {
             throw new Error('최대 100개 채팅방까지 조회 가능합니다.');
         }
 
-        console.log(`📊 [배치조회] ${roomIds.length}개 채팅방 안읽은 개수 조회 시작`);
+        // 1. 사용자의 모든 읽음 포인터 조회 (작은 컬렉션, 빠름)
+        const pointers = await RoomEntry.find({
+            user: new mongoose.Types.ObjectId(userId),
+            room: { $in: roomIds.map(id => new mongoose.Types.ObjectId(id)) }
+        }).lean();
 
-        // 2. MongoDB Aggregation으로 한 번에 조회 (N+1 문제 해결)
+        const pointerMap = {};
+        pointers.forEach(p => {
+            pointerMap[p.room.toString()] = p.lastReadAt;
+        });
+
+        // 2. 방별 조건으로 안읽은 메시지 aggregation
+        const conditions = roomIds.map(roomId => ({
+            chatRoom: new mongoose.Types.ObjectId(roomId),
+            sender: { $ne: new mongoose.Types.ObjectId(userId) },
+            textTime: { $gt: pointerMap[roomId] || new Date(0) }
+        }));
+
         const results = await ChatMessage.aggregate([
-            // 2-1. 해당 채팅방들 + 안읽은 메시지만 필터링
-            {
-                $match: {
-                    chatRoom: {
-                        $in: roomIds.map(id => new mongoose.Types.ObjectId(id))
-                    },
-                    sender: { $ne: new mongoose.Types.ObjectId(userId) },
-                    'readBy.user': { $ne: new mongoose.Types.ObjectId(userId) }
-                }
-            },
-
-            // 2-2. 채팅방별로 그룹화하여 개수 계산
-            {
-                $group: {
-                    _id: '$chatRoom',
-                    unreadCount: { $sum: 1 }
-                }
-            },
-
-            // 2-3. 결과 포맷팅 (ObjectId → String)
-            {
-                $project: {
-                    _id: 0,
-                    roomId: { $toString: '$_id' },
-                    unreadCount: 1
-                }
-            }
+            { $match: { $or: conditions } },
+            { $group: { _id: '$chatRoom', unreadCount: { $sum: 1 } } },
+            { $project: { _id: 0, roomId: { $toString: '$_id' }, unreadCount: 1 } }
         ]);
 
-        // 3. 결과를 객체로 변환 { roomId: count }
+        // 3. 결과 매핑 (없는 방은 0)
         const countMap = {};
         results.forEach(item => {
             countMap[item.roomId] = item.unreadCount;
         });
-
-        // 4. 조회한 모든 방에 대해 결과 보장 (안읽은 메시지 없으면 0)
         roomIds.forEach(roomId => {
-            if (!(roomId in countMap)) {
-                countMap[roomId] = 0;
-            }
+            if (!(roomId in countMap)) countMap[roomId] = 0;
         });
-
-        console.log(`✅ [배치조회] 완료: ${Object.keys(countMap).length}개 방 처리`);
 
         return countMap;
 
     } catch (error) {
-        console.error('❌ [배치조회] 실패:', error);
         throw new Error(`안읽은 개수 배치 조회 실패: ${error.message}`);
     }
 };
 
 
 /**
- * 채팅방 입장 시간 기록
+ * 채팅방 입장 시간 기록 (markMessagesAsRead의 별칭)
+ * findOrCreateFriendRoom 등 기존 호출부 호환용
  */
 export const recordRoomEntry = async (roomId, userId) => {
-    try {
-        const timestamp =  new Date();
-
-        // ✅ 쿼리 1개로 통합 (upsert)
-        const result = await RoomEntry.findOneAndUpdate(
-            {
-                room: roomId,
-                user: userId
-            },
-            {
-                $set: {
-                    entryTime: timestamp,
-                    lastActiveTime: timestamp
-                }
-            },
-            {
-                upsert: true,              // 없으면 생성
-                new: true,                 // 업데이트된 문서 반환
-                setDefaultsOnInsert: true  // 기본값 적용
-            }
-        );
-
-        return {
-            success: true,
-            entryTime: result.entryTime,
-            isUpdate: !!result.updatedAt  // updatedAt 존재 = 업데이트
-        };
-    } catch (error) {
-        throw new Error(`채팅방 입장 시간 기록 실패: ${error.message}`);
-    }
+    return markMessagesAsRead(roomId, userId);
 };
-
-//     try {
-//         const timestamp = entryTime ? new Date(entryTime) : new Date();
-//
-//         // 기존 입장 기록이 있는지 확인
-//         const existingEntry = await RoomEntry.findOne({
-//             room: roomId,
-//             user: userId
-//         });
-//
-//         if (existingEntry) {
-//             // 기존 기록 업데이트
-//             existingEntry.entryTime = timestamp;
-//             existingEntry.lastActiveTime = timestamp;
-//             await existingEntry.save();
-//
-//             return {
-//                 success: true,
-//                 entryTime: existingEntry.entryTime,
-//                 isUpdate: true
-//             };
-//         } else {
-//             // 새 입장 기록 생성
-//             const newEntry = new RoomEntry({
-//                 room: roomId,
-//                 user: userId,
-//                 entryTime: timestamp,
-//                 lastActiveTime: timestamp
-//             });
-//
-//             await newEntry.save();
-//
-//             return {
-//                 success: true,
-//                 entryTime: newEntry.entryTime,
-//                 isUpdate: false
-//             };
-//         }
-//     } catch (error) {
-//         throw new Error(`채팅방 입장 시간 기록 실패: ${error.message}`);
-//     }
-// };
 
 /**
  * ⚠️ 기존 메시지 저장 함수 (deprecated - sender 타입 오류)
@@ -1523,10 +1412,6 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
                         console.log(`📝 [메시지조회] 평문 메시지: ${messageObj._id} -> "${(messageObj.text || '').substring(0, 20)}..."`);
                     }
                 }
-
-                // ✅ readBy 개수만 반환
-                messageObj.readByCount = messageObj.readBy?.length || 0;
-                delete messageObj.readBy;
 
                 return messageObj;
 
@@ -1890,7 +1775,6 @@ export const getMessagesByRoomForAdmin = async (roomId, includeDeleted = false, 
 
         const messages = await ChatMessage.find(filter)
             .populate('sender')
-            .populate('readBy.user', 'nickname')
             .sort({createdAt: -1})
             .skip(skip)
             .limit(limit)
@@ -1910,7 +1794,6 @@ export const getMessagesByRoomForAdmin = async (roomId, includeDeleted = false, 
     // 그 외 채팅방(랜덤 채팅 등)은 모든 메시지를 한 번에 반환 (기존 방식)
     const messages = await ChatMessage.find(filter)
         .populate('sender')
-        .populate('readBy.user', 'nickname')
         .sort({createdAt: 1})
         .exec();
 

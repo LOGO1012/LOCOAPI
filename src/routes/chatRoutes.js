@@ -54,15 +54,13 @@ router.patch('/rooms/:roomId/active', chatController.updateRoomActive);
 router.get('/search/chat-room-history', chatController.getChatRoomHistory);
 
 // 메시지 읽음 처리
-router.patch('/rooms/:roomId/read', chatController.markMessagesAsRead);
+router.patch('/rooms/:roomId/read', authenticate, chatController.markMessagesAsRead);
 
 // 안읽은 메시지 개수 조회
-router.get('/rooms/:roomId/unread', chatController.getUnreadCount);
+router.get('/rooms/:roomId/unread', authenticate, chatController.getUnreadCount);
 
 // 안읽은 메시지 개수 조회 (배치)
-router.post('/rooms/unread-batch', chatController.getUnreadCountsBatch);
-
-router.post('/rooms/:roomId/entry', chatController.recordRoomEntry);
+router.post('/rooms/unread-batch', authenticate, chatController.getUnreadCountsBatch);
 
 // ============================================================================
 //   🚨 메시지 신고 API
@@ -72,6 +70,6 @@ router.post('/rooms/:roomId/entry', chatController.recordRoomEntry);
 router.post('/messages/:messageId/report', chatController.reportMessage);
 
 // 🆕 채팅방의 신고된 메시지 목록 조회 (개발자 페이지용)
-router.get('/rooms/:roomId/reported-messages', requireLevel(3), chatController.getReportedMessages);
+router.get('/rooms/:roomId/reported-messages', authenticate, requireLevel(3), chatController.getReportedMessages);
 
 export default router;

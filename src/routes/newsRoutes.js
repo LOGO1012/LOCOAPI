@@ -1,13 +1,15 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
-import { 
-    getNewsList, 
-    getNewsDetail, 
-    createNews, 
-    updateNews, 
-    deleteNews 
+import {
+    getNewsList,
+    getNewsDetail,
+    createNews,
+    updateNews,
+    deleteNews
 } from '../controllers/newsController.js';
+import { authenticate } from '../middlewares/authMiddleware.js';
+import { requireLevel } from '../middlewares/requireLevel.js';
 
 const router = express.Router();
 
@@ -45,8 +47,8 @@ router.get('/', getNewsList);           // 뉴스 목록 조회
 router.get('/:id', getNewsDetail);      // 뉴스 상세 조회
 
 // 개발자 전용 라우트 (lv3 이상)
-router.post('/', upload.array('images', 10), createNews);     // 뉴스 작성
-router.put('/:id', upload.array('images', 10), updateNews);   // 뉴스 수정
-router.delete('/:id', deleteNews);                            // 뉴스 삭제
+router.post('/', authenticate, requireLevel(3), upload.array('images', 10), createNews);     // 뉴스 작성
+router.put('/:id', authenticate, requireLevel(3), upload.array('images', 10), updateNews);   // 뉴스 수정
+router.delete('/:id', authenticate, requireLevel(3), deleteNews);                            // 뉴스 삭제
 
 export default router;
