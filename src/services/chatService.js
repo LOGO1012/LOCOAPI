@@ -2281,47 +2281,56 @@ export const findOrCreateFriendRoom = async (userId, friendId) => {
         const cachedRoomId = await IntelligentCache.getCachedFriendRoomId(userId, friendId);
 
         if (cachedRoomId) {
-            // 캐시 히트 - 차단 관계만 빠르게 확인
-            const [user, friend] = await Promise.all([
+            // 캐시 히트 - 방 존재 여부 + 차단 관계 확인
+            const [roomExists, user, friend] = await Promise.all([
+                ChatRoom.exists({ _id: cachedRoomId }),
                 User.findById(userId).select('blockedUsers').lean(),
                 User.findById(friendId).select('blockedUsers').lean()
             ]);
 
-            if (!user || !friend) {
-                const err = new Error('사용자를 찾을 수 없습니다.');
-                err.status = 404;
-                err.code = 'USER_NOT_FOUND';
-                throw err;
-            }
-
-            // 차단 관계 체크
-            const isBlockedByMe = user.blockedUsers?.some(id => id.toString() === friendId);
-            const isBlockedByFriend = friend.blockedUsers?.some(id => id.toString() === userId);
-
-            if (isBlockedByMe || isBlockedByFriend) {
-                console.log(`🔒 [findOrCreate] 차단 관계 존재, 캐시 무효화`);
-
-                // 차단 발생 - 캐시 무효화
+            // 🆕 방이 DB에 존재하지 않으면 캐시 무효화 후 새로 생성 로직으로 진행
+            if (!roomExists) {
+                console.log(`⚠️ [캐시 무효] 방이 DB에 없음: ${cachedRoomId}`);
                 await IntelligentCache.invalidateFriendRoomId(userId, friendId);
+                // 캐시 무효화 후 아래 새 방 생성 로직으로 계속 진행
+            } else {
+                // 방이 존재하는 경우에만 캐시 결과 사용
+                if (!user || !friend) {
+                    const err = new Error('사용자를 찾을 수 없습니다.');
+                    err.status = 404;
+                    err.code = 'USER_NOT_FOUND';
+                    throw err;
+                }
 
-                const err = new Error('차단 관계가 있는 사용자와 채팅할 수 없습니다.');
-                err.status = 403;
-                err.code = 'BLOCKED_USER';
-                throw err;
+                // 차단 관계 체크
+                const isBlockedByMe = user.blockedUsers?.some(id => id.toString() === friendId);
+                const isBlockedByFriend = friend.blockedUsers?.some(id => id.toString() === userId);
+
+                if (isBlockedByMe || isBlockedByFriend) {
+                    console.log(`🔒 [findOrCreate] 차단 관계 존재, 캐시 무효화`);
+
+                    // 차단 발생 - 캐시 무효화
+                    await IntelligentCache.invalidateFriendRoomId(userId, friendId);
+
+                    const err = new Error('차단 관계가 있는 사용자와 채팅할 수 없습니다.');
+                    err.status = 403;
+                    err.code = 'BLOCKED_USER';
+                    throw err;
+                }
+
+                // 입장 시간 기록
+                await Promise.all([
+                    recordRoomEntry(cachedRoomId, userId),
+                    recordRoomEntry(cachedRoomId, friendId)
+                ]);
+
+                console.log(`✅ [캐시 HIT] 방 ID: ${cachedRoomId}`);
+
+                return {
+                    roomId: cachedRoomId,
+                    created: false
+                };
             }
-
-            // 입장 시간 기록
-            await Promise.all([
-                recordRoomEntry(cachedRoomId, userId),
-                recordRoomEntry(cachedRoomId, friendId)
-            ]);
-
-            console.log(`✅ [캐시 HIT] 방 ID: ${cachedRoomId}`);
-
-            return {
-                roomId: cachedRoomId,
-                created: false
-            };
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
