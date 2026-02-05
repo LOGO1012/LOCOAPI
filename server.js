@@ -331,6 +331,17 @@ process.on('SIGINT', async () => {
         console.error('MongoDB 종료 중 오류:', error.message);
     }
 
+    // Socket.IO 연결 종료
+    try {
+        const { io } = await import('./src/socket/socketIO.js');
+        if (io) {
+            io.close();
+            console.log('✅ Socket.IO 연결 종료');
+        }
+    } catch (error) {
+        console.error('Socket.IO 종료 중 오류:', error.message);
+    }
+
     // HTTP 서버 종료
     server.close(() => {
         console.log('✅ 서버 종료 완료');
