@@ -284,10 +284,8 @@ export const initializeSocket = async (server) => {
                         return;
                     }
 
-                    const senderUser = await userService.getUserById(senderId);
-                    const isFriend = senderUser?.friends?.some(fid =>
-                        fid.toString() === otherUserId.toString()
-                    );
+                    // 경량 친구 관계 확인 (DB에서 직접 확인)
+                    const isFriend = await userService.checkIsFriend(senderId, otherUserId);
 
                     if (!isFriend) {
                         console.log(`🚫 [메시지전송] 친구 아님: ${senderId} → ${otherUserId}`);
