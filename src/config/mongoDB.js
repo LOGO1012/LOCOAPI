@@ -3,11 +3,15 @@ import mongoose from 'mongoose';
 // MongoDB 연결
 const connectMongoDB = async () => {
     try {
-        const mongoURI = 'mongodb://loco:loco98@192.168.219.101/locodb';
+        const mongoURI = 'mongodb://loco:loco98@192.168.219.103/locodb';
 
         console.log('MongoDB 연결 시도...');
 
-        await mongoose.connect(mongoURI);
+        await mongoose.connect(mongoURI, {
+            socketTimeoutMS: 30000,
+            serverSelectionTimeoutMS: 5000,
+            connectTimeoutMS: 10000
+        });
 
         console.log('MongoDB에 성공적으로 연결되었습니다...');
 

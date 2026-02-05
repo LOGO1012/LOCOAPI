@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { 
+import {
     getActiveBanners,
     getAllBanners,
     getBannerDetail,
@@ -11,6 +11,8 @@ import {
     deleteBanner,
     incrementBannerViews
 } from '../controllers/bannerController.js';
+import { authenticate } from '../middlewares/authMiddleware.js';
+import { requireLevel } from '../middlewares/requireLevel.js';
 
 const router = express.Router();
 
@@ -55,10 +57,10 @@ router.get('/active', getActiveBanners);           // 활성 배너 목록 (메�
 router.post('/:id/view', incrementBannerViews);    // 배너 클릭 수 증가
 
 // 관리자 라우트 (lv2 이상)
-router.get('/', getAllBanners);                    // 모든 배너 목록 (관리자용)
-router.get('/:id', getBannerDetail);               // 배너 상세 조회
-router.post('/', upload.single('image'), createBanner);     // 배너 생성
-router.put('/:id', upload.single('image'), updateBanner);   // 배너 수정
-router.delete('/:id', deleteBanner);               // 배너 삭제
+router.get('/', authenticate, requireLevel(2), getAllBanners);                    // 모든 배너 목록 (관리자용)
+router.get('/:id', authenticate, requireLevel(2), getBannerDetail);               // 배너 상세 조회
+router.post('/', authenticate, requireLevel(2), upload.single('image'), createBanner);     // 배너 생성
+router.put('/:id', authenticate, requireLevel(2), upload.single('image'), updateBanner);   // 배너 수정
+router.delete('/:id', authenticate, requireLevel(2), deleteBanner);               // 배너 삭제
 
 export default router;
