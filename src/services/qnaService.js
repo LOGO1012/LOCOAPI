@@ -1,5 +1,6 @@
 // QnaService.js
 import { Qna } from '../models/Qna.js';
+import { QnaHistory } from '../models/QnaHistory.js';
 
 import PageResponseDTO from '../dto/common/PageResponseDTO.js';
 import {User} from "../models/UserProfile.js";
@@ -37,11 +38,13 @@ const getQnaListPage = async (pageRequestDTO) => {
                     ];
                     break;
                 case 'author': {
-                    filter.userNickname = { $regex: regex };
+                    const users = await User.find({ nickname: { $regex: regex } }).select('_id');
+                    filter.userId = { $in: users.map(u => u._id) };
                     break;
                 }
                 case 'answerer': {
-                    filter.answerUserNickname = { $regex: regex };
+                    const users = await User.find({ nickname: { $regex: regex } }).select('_id');
+                    filter.answerUserId = { $in: users.map(u => u._id) };
                     break;
                 }
                 default:
@@ -53,8 +56,10 @@ const getQnaListPage = async (pageRequestDTO) => {
         // 쿼리 실행
         const dtoList = await Qna.find(filter)
             .select(
-                'qnaTitle qnaContents qnaAnswer qnaStatus userNickname answerUserNickname isAnonymous isAdminOnly userId updatedAt createdAt'
+                'qnaTitle qnaContents qnaAnswer qnaStatus isAnonymous isAdminOnly userId answerUserId updatedAt createdAt'
             )
+            .populate('userId', 'nickname')
+            .populate('answerUserId', 'nickname')
             .sort({ qnaStatus: 1, createdAt: -1 })
             .skip(skip)
             .limit(size)
@@ -75,12 +80,7 @@ const getQnaListPage = async (pageRequestDTO) => {
  */
 const createQna = async (qnaData) => {
     try {
-        // 작성자 닉네임 스냅샷
-        const author = await User.findById(qnaData.userId, 'nickname');
-        await Qna.create({
-            ...qnaData,
-            userNickname: author?.nickname || '',
-        });
+        await Qna.create(qnaData);
         return { success: true, message: 'QnA가 성공적으로 생성되었습니다.' };
     } catch (error) {
         throw new Error(error);
@@ -96,21 +96,28 @@ const createQna = async (qnaData) => {
  */
 const updateQna = async (id, updateData) => {
     try {
+        // 기존 데이터 조회 (히스토리 저장용)
+        const currentQna = await Qna.findById(id);
+        if (!currentQna) return null;
+
+        // 제목이나 내용이 수정될 경우 히스토리에 기록
+        if (updateData.qnaTitle || updateData.qnaContents) {
+            await QnaHistory.create({
+                qnaId: currentQna._id,
+                title: currentQna.qnaTitle,
+                contents: currentQna.qnaContents
+            });
+        }
+
         // 답변 내용이 있다면 상태를 'Answered'로 설정
         if (updateData.qnaAnswer) {
             updateData.qnaStatus = '답변완료';
-            // 답변자 닉네임 스냅샷
-            if (updateData.answerUserId) {
-                const answerer = await User.findById(updateData.answerUserId, 'nickname');
-                updateData.answerUserNickname = answerer?.nickname || '';
-            }
         }
-        const updatedQna = await Qna.findByIdAndUpdate(id, updateData, { new: true });
-        if (!updatedQna) return null;
-        return {
-            qnaAnswer: updatedQna.qnaAnswer,
-            qnaStatus: updatedQna.qnaStatus
-        };
+        const updatedQna = await Qna.findByIdAndUpdate(id, updateData, { new: true })
+            .populate('userId', 'nickname')
+            .populate('answerUserId', 'nickname');
+            
+        return updatedQna;
     } catch (error) {
         throw new Error(error);
     }

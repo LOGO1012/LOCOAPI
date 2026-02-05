@@ -77,7 +77,8 @@ export const getNewsList = async (req, res) => {
 
         // 중요 공지사항을 먼저, 그 다음 최신순
         const news = await News.find(filter)
-            .select('_id title category authorNickname images.path contentThumbnailUrl isImportant isActive views createdAt')
+            .select('_id title category author images.path contentThumbnailUrl isImportant isActive views createdAt')
+            .populate('author', 'nickname')
             .sort({ isImportant: -1, createdAt: -1 })
             .skip(skip)
             .limit(limitNum)
@@ -117,7 +118,9 @@ export const getNewsDetail = async (req, res) => {
         const currentUser = await getCurrentUser(req);
                     const isAdmin = currentUser && currentUser.userLv >= 3;
         
-                    const news = await News.findById(id).select('-isDeleted');
+                    const news = await News.findById(id)
+                        .select('-isDeleted')
+                        .populate('author', 'nickname');
         if (!news || news.isDeleted) {
             return res.status(404).json({
                 success: false,
@@ -212,7 +215,6 @@ export const createNews = async (req, res) => {
             content,
             category,
             author: user._id,
-            authorNickname: user.nickname,
             images,
             isImportant: isImportant === 'true' || isImportant === true,
             contentThumbnailUrl // 추출한 이미지 URL 저장
