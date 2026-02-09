@@ -1,6 +1,9 @@
 import { Banner } from '../models/Banner.js';
 import { User } from '../models/UserProfile.js';
 import jwt from 'jsonwebtoken';
+import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
@@ -144,12 +147,30 @@ export const createBanner = async (req, res) => {
             });
         }
 
-        // 이미지 정보 처리
+        // 이미지 정보 처리 (WebP 변환 추가)
+        const originalNameWithoutExt = path.parse(req.file.filename).name;
+        const processedFilename = `${originalNameWithoutExt}.webp`;
+        // 배너 업로드 경로는 'uploads/banners/'
+        const processedImagePath = path.join('uploads', 'banners', processedFilename);
+
+        await sharp(req.file.path)
+            // 배너는 보통 크기가 크므로 1920px 정도로 제한하거나, 원본 비율 유지
+            .resize({ width: 1920, withoutEnlargement: true }) 
+            .webp({ quality: 85 }) // 배너는 품질이 중요하므로 85
+            .toFile(processedImagePath);
+
+        // 원본 파일 삭제
+        try {
+            fs.unlinkSync(req.file.path);
+        } catch (err) {
+            console.error("원본 파일 삭제 실패:", err);
+        }
+
         const image = {
-            filename: req.file.filename,
+            filename: processedFilename,
             originalName: req.file.originalname,
-            path: `uploads/banners/${req.file.filename}`, // 정적 파일 서빙 경로와 일치
-            size: req.file.size
+            path: `uploads/banners/${processedFilename}`, // 정적 파일 서빙 경로와 일치
+            size: fs.statSync(processedImagePath).size
         };
 
         const banner = new Banner({
@@ -220,11 +241,29 @@ export const updateBanner = async (req, res) => {
 
         // 새 이미지가 업로드된 경우
         if (req.file) {
+            // 이미지 정보 처리 (WebP 변환 추가)
+            const originalNameWithoutExt = path.parse(req.file.filename).name;
+            const processedFilename = `${originalNameWithoutExt}.webp`;
+            // 배너 업로드 경로는 'uploads/banners/'
+            const processedImagePath = path.join('uploads', 'banners', processedFilename);
+
+            await sharp(req.file.path)
+                .resize({ width: 1920, withoutEnlargement: true }) 
+                .webp({ quality: 85 })
+                .toFile(processedImagePath);
+
+            // 원본 파일 삭제
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (err) {
+                console.error("원본 파일 삭제 실패:", err);
+            }
+
             updateData.image = {
-                filename: req.file.filename,
+                filename: processedFilename,
                 originalName: req.file.originalname,
-                path: `uploads/banners/${req.file.filename}`, // 정적 파일 서빙 경로와 일치
-                size: req.file.size
+                path: `uploads/banners/${processedFilename}`, // 정적 파일 서빙 경로와 일치
+                size: fs.statSync(processedImagePath).size
             };
         }
 
