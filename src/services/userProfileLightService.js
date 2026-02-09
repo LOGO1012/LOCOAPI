@@ -180,7 +180,7 @@ export const getUserForEdit = async (userId) => {
 
         // ✅ 프로필 편집에 필요한 필드만 선택
         const user = await User.findById(userId)
-            .select('_id nickname info gender lolNickname suddenNickname battleNickname profilePhoto photo coinLeft star')
+            .select('_id nickname info gender lolNickname profilePhoto photo coinLeft star isPublicPR')
             .lean();
 
         if (!user) throw new Error('사용자를 찾을 수 없습니다.');
@@ -191,12 +191,11 @@ export const getUserForEdit = async (userId) => {
             info: user.info,
             gender: user.gender,
             lolNickname: user.lolNickname,
-            suddenNickname: user.suddenNickname,
-            battleNickname: user.battleNickname,
             profilePhoto: user.profilePhoto,
             photo: user.photo || [],
             coinLeft: user.coinLeft,
-            star: user.star
+            star: user.star,
+            isPublicPR: user.isPublicPR ?? true // ✅ undefined일 경우 true (기본값)
         };
 
         // 캐시 저장 (10분) - 편집 중에는 자주 조회됨
