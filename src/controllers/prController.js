@@ -12,7 +12,7 @@ const mapGenderKor = (g) => {
 // 상위 10명 (별점 기준 내림차순)
 export const getPRTopUsers = async (req, res, next) => {
     try {
-        const topUsersRaw = await User.find()
+        const topUsersRaw = await User.find({ isPublicPR: { $ne: false } }) // ✅ 비공개 유저 제외
             .sort({ star: -1 })
             .limit(10)
             .select('_id nickname profilePhoto star gender') // ◀◀◀ Select 절 추가
@@ -41,7 +41,7 @@ export const getPRUserList = async (req, res, next) => {
         page = parseInt(page);
         limit = parseInt(limit);
 
-        const query = {};
+        const query = { isPublicPR: { $ne: false } }; // ✅ 비공개 유저 제외
         if (gender !== "all") query.gender = gender;
         let sortOption = {};
 

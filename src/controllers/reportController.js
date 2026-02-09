@@ -67,8 +67,8 @@ export const getReports = async (req, res) => {
             '욕설, 모욕, 혐오발언',
             '스팸, 도배, 거짓정보',
             '부적절한 메세지(성인/도박/마약 등)',
-            '규칙에 위반되는 프로필/모욕성 닉네임',
-            '음란물 (이미지)'
+            '부적절한 닉네임 / 모욕성 닉네임',
+            '부적절한 프로필 이미지 / 음란물 (이미지)'
         ];
         if (req.query.reportCategory && allowedCategories.includes(req.query.reportCategory)) {
             filters.reportCategory = req.query.reportCategory;
@@ -83,6 +83,14 @@ export const getReports = async (req, res) => {
         const { keyword, searchType = 'all' } = req.query;
         if (keyword) {
             const regex = new RegExp(keyword, 'i');
+            
+            // 닉네임 검색이 필요한 경우 User 모델에서 먼저 ID들을 찾음
+            let matchingUserIds = [];
+            if (['admin', 'offender', 'all'].includes(searchType)) {
+                const users = await User.find({ nickname: { $regex: regex } }).select('_id').lean();
+                matchingUserIds = users.map(u => u._id);
+            }
+
             let orConditions = [];
             switch (searchType) {
                 case 'title':
@@ -92,18 +100,18 @@ export const getReports = async (req, res) => {
                     orConditions = [{ reportContants: { $regex: regex } }];
                     break;
                 case 'admin':
-                    orConditions = [{ adminNickname: { $regex: regex } }];
+                    orConditions = [{ adminId: { $in: matchingUserIds } }];
                     break;
                 case 'offender':
-                    orConditions = [{ offenderNickname: { $regex: regex } }];
+                    orConditions = [{ offenderId: { $in: matchingUserIds } }];
                     break;
                 case 'all':
                 default: {
                     orConditions = [
                         { reportTitle:    { $regex: regex } },
                         { reportContants: { $regex: regex } },
-                        { adminNickname:        { $regex: regex } },
-                        { offenderNickname:     { $regex: regex } }
+                        { adminId:        { $in: matchingUserIds } },
+                        { offenderId:     { $in: matchingUserIds } }
                     ];
                 }
             }

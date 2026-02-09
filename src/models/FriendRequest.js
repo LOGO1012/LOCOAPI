@@ -18,9 +18,7 @@ const friendRequestSchema = new Schema({
         enum: ['pending', 'accepted', 'declined'],
         default: 'pending',
     },
-}, {
-    timestamps: true,
-});
+}, { timestamps: { createdAt: true, updatedAt: false } });
 
 // ✅ 복합 인덱스 추가
 friendRequestSchema.index({ sender: 1, receiver: 1, status: 1 });

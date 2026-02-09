@@ -3,6 +3,9 @@ import PageRequestDTO from '../../src/dto/common/PageRequestDTO.js';
 import {User} from "../models/UserProfile.js";
 import * as communityService from '../services/communityService.js';
 import {saveRemoteImage} from "../utils/saveRemoteImage.js";
+import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
 
 export const getCommunities = async (req, res) => {
     try {
@@ -86,7 +89,28 @@ const isLocalImagePath = (path) => {
 /* 공통 유틸: multipart 파일 + URL 문자열을 모두 받아 배열로 만든다 */
 const buildImageArray = async (req, folderType = 'posts') => {
 
-    const fromUpload = (req.files || []).map(f => `/${folderType}/${f.filename}`);
+    const fromUpload = [];
+    if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+            const originalNameWithoutExt = path.parse(file.filename).name;
+            const processedFilename = `${originalNameWithoutExt}.webp`;
+            const processedImagePath = path.join(file.destination, processedFilename);
+
+            await sharp(file.path)
+                .resize({ width: 1200, withoutEnlargement: true })
+                .webp({ quality: 80 })
+                .toFile(processedImagePath);
+
+            // 원본 파일 삭제
+            try {
+                fs.unlinkSync(file.path);
+            } catch (err) {
+                console.error("원본 파일 삭제 실패:", err);
+            }
+
+            fromUpload.push(`/${folderType}/${processedFilename}`);
+        }
+    }
 
     const raw = req.body.communityImages || [];
     const urls = (Array.isArray(raw) ? raw : [raw]).filter(Boolean);
@@ -224,7 +248,22 @@ export const addComment = async (req, res) => {
         commentData.userAgent = req.get('User-Agent');
 
         if (req.file) {
-            commentData.commentImage = `/comments/${req.file.filename}`; // 수정됨
+            const originalNameWithoutExt = path.parse(req.file.filename).name;
+            const processedFilename = `${originalNameWithoutExt}.webp`;
+            const processedImagePath = path.join(req.file.destination, processedFilename);
+
+            await sharp(req.file.path)
+                .resize({ width: 1200, withoutEnlargement: true })
+                .webp({ quality: 80 })
+                .toFile(processedImagePath);
+
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (err) {
+                console.error("원본 파일 삭제 실패:", err);
+            }
+
+            commentData.commentImage = `/comments/${processedFilename}`;
         }
 
         const createdComment = await communityService.addComment(id, commentData);
@@ -247,7 +286,22 @@ export const addReply = async (req, res) => {
         replyData.userAgent = req.get('User-Agent');
 
         if (req.file) {
-            replyData.replyImage = `/replies/${req.file.filename}`; // 수정됨
+            const originalNameWithoutExt = path.parse(req.file.filename).name;
+            const processedFilename = `${originalNameWithoutExt}.webp`;
+            const processedImagePath = path.join(req.file.destination, processedFilename);
+
+            await sharp(req.file.path)
+                .resize({ width: 1200, withoutEnlargement: true })
+                .webp({ quality: 80 })
+                .toFile(processedImagePath);
+
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (err) {
+                console.error("원본 파일 삭제 실패:", err);
+            }
+
+            replyData.replyImage = `/replies/${processedFilename}`;
         }
 
         const updatedComment = await communityService.addReply(commentId, replyData);
@@ -270,7 +324,22 @@ export const addSubReply = async (req, res) => {
         subReplyData.userAgent = req.get('User-Agent');
 
         if (req.file) {
-            subReplyData.subReplyImage = `/subreplies/${req.file.filename}`; // 수정됨
+            const originalNameWithoutExt = path.parse(req.file.filename).name;
+            const processedFilename = `${originalNameWithoutExt}.webp`;
+            const processedImagePath = path.join(req.file.destination, processedFilename);
+
+            await sharp(req.file.path)
+                .resize({ width: 1200, withoutEnlargement: true })
+                .webp({ quality: 80 })
+                .toFile(processedImagePath);
+
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (err) {
+                console.error("원본 파일 삭제 실패:", err);
+            }
+
+            subReplyData.subReplyImage = `/subreplies/${processedFilename}`;
         }
 
         const updatedSubReply = await communityService.addSubReply(replyId, subReplyData);
