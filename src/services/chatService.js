@@ -1139,7 +1139,7 @@ export const getUnreadMessageCount = async (roomId, userId) => {
         const count = await ChatMessage.countDocuments({
             chatRoom: roomId,
             sender: { $ne: userId },
-            textTime: { $gt: lastReadAt }
+            createdAt: { $gt: lastReadAt }
         });
 
         return count;
@@ -1180,7 +1180,7 @@ export const getUnreadCountsBatch = async (roomIds, userId) => {
         const conditions = roomIds.map(roomId => ({
             chatRoom: new mongoose.Types.ObjectId(roomId),
             sender: { $ne: new mongoose.Types.ObjectId(userId) },
-            textTime: { $gt: pointerMap[roomId] || new Date(0) }
+            createdAt: { $gt: pointerMap[roomId] || new Date(0) }
         }));
 
         const results = await ChatMessage.aggregate([
@@ -1342,7 +1342,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
 
         messages = await ChatMessage.find(filter)
             .populate('sender', '_id nickname profilePhoto')
-            .select('_id text sender textTime isDeleted createdAt encryptedText iv tag isEncrypted isSystem')
+            .select('_id text sender isDeleted createdAt encryptedText iv tag isEncrypted isSystem')
             .lean()  // ✅ 추가 (성능 최적화)
             .sort({createdAt: -1})
             .skip(skip)
@@ -1361,7 +1361,7 @@ export const getMessagesByRoom = async (roomId, includeDeleted = false, page = 1
         // 그 외 채팅방(랜덤 채팅 등)은 모든 메시지를 한 번에 반환
         messages = await ChatMessage.find(filter)
             .populate('sender', '_id nickname profilePhoto')
-            .select('_id text sender textTime isDeleted createdAt encryptedText iv tag isEncrypted isSystem')
+            .select('_id text sender isDeleted createdAt encryptedText iv tag isEncrypted isSystem')
             .lean()  // ✅ 추가 (성능 최적화)
             .sort({createdAt: 1})
 
@@ -1924,7 +1924,7 @@ export const createReportedMessageBackup = async (messageId, reportData) => {
             contextResult = await backupContextMessages(
                 originalMessage.chatRoom,
                 messageId,
-                originalMessage.textTime || originalMessage.createdAt,
+                originalMessage.createdAt,
                 reportData.reportId
             );
             console.log('📦 [백업생성] 컨텍스트 백업 결과:', contextResult);
@@ -2001,9 +2001,9 @@ export const backupContextMessages = async (roomId, reportedMessageId, reportedA
         let beforeMessages = await ChatMessage.find({
             chatRoom: roomId,
             _id: { $ne: reportedMessageId },
-            textTime: { $gte: oneHourAgo, $lt: reportedAt }
+            createdAt: { $gte: oneHourAgo, $lt: reportedAt }
         })
-        .sort({ textTime: -1 })
+        .sort({ createdAt: -1 })
         .populate('sender', 'nickname')
         .lean();
 
@@ -2015,9 +2015,9 @@ export const backupContextMessages = async (roomId, reportedMessageId, reportedA
             const additionalBefore = await ChatMessage.find({
                 chatRoom: roomId,
                 _id: { $ne: reportedMessageId },
-                textTime: { $lt: oneHourAgo }
+                createdAt: { $lt: oneHourAgo }
             })
-            .sort({ textTime: -1 })
+            .sort({ createdAt: -1 })
             .limit(additionalCount)
             .populate('sender', 'nickname')
             .lean();
@@ -2033,9 +2033,9 @@ export const backupContextMessages = async (roomId, reportedMessageId, reportedA
         let afterMessages = await ChatMessage.find({
             chatRoom: roomId,
             _id: { $ne: reportedMessageId },
-            textTime: { $gt: reportedAt, $lte: thirtyMinutesLater }
+            createdAt: { $gt: reportedAt, $lte: thirtyMinutesLater }
         })
-        .sort({ textTime: 1 })
+        .sort({ createdAt: 1 })
         .populate('sender', 'nickname')
         .lean();
 
@@ -2047,9 +2047,9 @@ export const backupContextMessages = async (roomId, reportedMessageId, reportedA
             const additionalAfter = await ChatMessage.find({
                 chatRoom: roomId,
                 _id: { $ne: reportedMessageId },
-                textTime: { $gt: thirtyMinutesLater }
+                createdAt: { $gt: thirtyMinutesLater }
             })
-            .sort({ textTime: 1 })
+            .sort({ createdAt: 1 })
             .limit(additionalCount)
             .populate('sender', 'nickname')
             .lean();
@@ -2159,7 +2159,7 @@ const createSingleContextBackup = async (message, contextData) => {
                 _id: message.sender?._id,
                 nickname: message.sender?.nickname || '[알 수 없음]'
             },
-            messageCreatedAt: message.createdAt || message.textTime,
+            messageCreatedAt: message.createdAt,
             messageType: contextData.messageType,
             relatedReportId: contextData.relatedReportId,
             reportedMessageId: contextData.reportedMessageId,

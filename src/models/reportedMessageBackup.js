@@ -104,10 +104,9 @@ const ReportedMessageBackupSchema = new Schema({
     }],
 
     // === 시간 필드 ===
-    createdAt: { type: Date, default: Date.now },
     retentionUntil: { type: Date }  // 보관 기한 (3년)
 }, {
-    timestamps: true,
+    timestamps: { createdAt: true, updatedAt: false },  // createdAt만 생성 (백업 데이터는 수정 안함)
     collection: 'reportedMessageBackups'
 });
 

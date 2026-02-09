@@ -38,7 +38,7 @@ const nicknameHistorySchema = new Schema({
         default: ''
     }
 }, {
-    timestamps: true  // createdAt, updatedAt 자동 생성
+    timestamps: { createdAt: true, updatedAt: false }  // createdAt만 생성 (이력 데이터는 수정 안함)
 });
 
 // 성별 히스토리 스키마
@@ -78,7 +78,7 @@ const genderHistorySchema = new Schema({
         default: ''
     }
 }, {
-    timestamps: true
+    timestamps: { createdAt: true, updatedAt: false }  // createdAt만 생성 (이력 데이터는 수정 안함)
 });
 
 // 복합 인덱스 (성능 최적화)
