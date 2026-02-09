@@ -67,8 +67,8 @@ export const getReports = async (req, res) => {
             '욕설, 모욕, 혐오발언',
             '스팸, 도배, 거짓정보',
             '부적절한 메세지(성인/도박/마약 등)',
-            '규칙에 위반되는 프로필/모욕성 닉네임',
-            '음란물 (이미지)'
+            '부적절한 닉네임 / 모욕성 닉네임',
+            '부적절한 프로필 이미지 / 음란물 (이미지)'
         ];
         if (req.query.reportCategory && allowedCategories.includes(req.query.reportCategory)) {
             filters.reportCategory = req.query.reportCategory;
