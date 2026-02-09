@@ -76,16 +76,21 @@ router.post('/upload-image', editorUpload.single('image'), async (req, res) => {
         }
 
         // sharp를 이용한 이미지 처리
-        const processedFilename = `processed-${req.file.filename}`;
+        const originalNameWithoutExt = path.parse(req.file.filename).name;
+        const processedFilename = `${originalNameWithoutExt}.webp`;
         const processedImagePath = path.join('uploads', 'news', 'editor', processedFilename);
 
         await sharp(req.file.path)
             .resize({ width: 1200, withoutEnlargement: true }) // 너비 1200px로 리사이즈 (이미지가 작으면 확대 안함)
-            .toFormat('jpeg', { quality: 80 }) // jpeg 80% 품질로 압축
+            .webp({ quality: 80 }) // WebP 변환
             .toFile(processedImagePath);
 
         // 원본 파일 삭제
-        fs.unlinkSync(req.file.path);
+        try {
+            fs.unlinkSync(req.file.path);
+        } catch (err) {
+            console.error("원본 파일 삭제 실패:", err);
+        }
 
         // 이미지 URL 반환
         const imageUrl = `/uploads/news/editor/${processedFilename}`;

@@ -758,7 +758,7 @@ export const getPaginatedFriendsController = async (req, res) => {
 // 알림 설정 변경 (PATCH /:userId/prefs)
 export const updateUserPrefsController = async (req, res) => {
     const { userId } = req.params;
-    const { friendReqEnabled, chatPreviewEnabled, wordFilterEnabled } = req.body; // ✅ wordFilterEnabled 추가
+    const { friendReqEnabled, chatPreviewEnabled, wordFilterEnabled, isPublicPR } = req.body; // ✅ isPublicPR 추가
 
     // ✅ 권한 체크
     if (req.user._id.toString() !== userId) {
@@ -780,12 +780,15 @@ export const updateUserPrefsController = async (req, res) => {
         if (typeof wordFilterEnabled === 'boolean') { // ✅ 추가
             updateData.wordFilterEnabled = wordFilterEnabled;
         }
+        if (typeof isPublicPR === 'boolean') { // ✅ 추가
+            updateData.isPublicPR = isPublicPR;
+        }
 
         // ✅ 업데이트 실행
         const updated = await User.findByIdAndUpdate(
             userId,
             updateData,
-            { new: false , select: 'friendReqEnabled chatPreviewEnabled wordFilterEnabled' } // ✅ 필드 추가
+            { new: false , select: 'friendReqEnabled chatPreviewEnabled wordFilterEnabled isPublicPR' } // ✅ 필드 추가
         );
 
         if (!updated) {
@@ -797,7 +800,14 @@ export const updateUserPrefsController = async (req, res) => {
             await FriendRequest.deleteMany({ receiver: userId, status: 'pending' });
         }
 
-        // 3. 응답 반환
+        // ✅ 3. 캐시 무효화 (프로필 편집 및 풀 프로필)
+        await IntelligentCache.deleteCache(`user_profile_edit_${userId}`);
+        await IntelligentCache.deleteCache(`user_profile_full_${userId}`);
+        await IntelligentCache.deleteCache(`user_static_${userId}`); // getUserById용 캐시
+        
+        console.log(`✅ [설정 변경] 캐시 무효화 완료: ${userId}`);
+
+        // 4. 응답 반환
         return res.status(200).json({ success: true});
 
     } catch (e) {

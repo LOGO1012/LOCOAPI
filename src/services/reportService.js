@@ -41,8 +41,8 @@ export const createReport = async (data) => {
                     '욕설, 모욕, 혐오발언': 'harassment',
                     '스팸, 도배, 거짓정보': 'spam',
                     '부적절한 메세지(성인/도박/마약 등)': 'inappropriate',
-                    '규칙에 위반되는 프로필/모욕성 닉네임': 'inappropriate',
-                    '음란물 (이미지)': 'inappropriate'
+                    '부적절한 닉네임 / 모욕성 닉네임': 'inappropriate',
+                    '부적절한 프로필 이미지 / 음란물 (이미지)': 'inappropriate'
                 };
                 
                 const mappedReason = reasonMapping[data.reportCategory] || 'other';
@@ -87,12 +87,72 @@ export const createReport = async (data) => {
  */
 export const getReportById = async (id) => {
     try {
-        return await Report.findById(id)
+        // 1. 먼저 신고 기본 정보를 가져옵니다. (offenderId는 ID만)
+        const report = await Report.findById(id)
             .select('reportTitle reportArea reportCategory reportContants reportErId offenderId adminId stopDetail stopDate durUntil anchor reportAnswer reportStatus createdAt')
             .populate('reportErId', 'nickname')
-            .populate('offenderId', 'nickname')
             .populate('adminId', 'nickname')
             .lean();
+
+        if (!report) return null;
+
+        // 2. 가해자 정보 채우기 (조건부 필드 선택)
+        // 신고 구역이 '프로필'이면서 카테고리에 '이미지'가 포함된 경우에만 사진 필드를 가져옴
+        const needsImages = report.reportArea === '프로필' && report.reportCategory.includes('이미지');
+        const offenderFields = needsImages ? 'nickname profilePhoto photo' : 'nickname';
+
+        const populatedReport = await Report.populate(report, {
+            path: 'offenderId',
+            select: offenderFields
+        });
+
+        // 3. 커뮤니티(게시글, 댓글 등) 증거 추가 조회 (텍스트 + 이미지)
+        if (report.reportArea === '커뮤니티' && report.anchor) {
+            const { type, targetId } = report.anchor;
+            let contentImages = [];
+            let contentText = '';
+
+            try {
+                if (type === 'post') {
+                    const { Community } = await import('../models/Community.js');
+                    const post = await Community.findById(targetId).select('communityImages communityContents').lean();
+                    contentImages = (post?.communityImages || []).map(img => img.startsWith('/uploads') ? img : `/uploads${img}`);
+                    contentText = post?.communityContents || '';
+                } else if (type === 'comment') {
+                    const { Comment } = await import('../models/Comment.js');
+                    const comment = await Comment.findById(targetId).select('commentImage commentContents').lean();
+                    if (comment?.commentImage) {
+                        const img = comment.commentImage;
+                        contentImages = [img.startsWith('/uploads') ? img : `/uploads${img}`];
+                    }
+                    contentText = comment?.commentContents || '';
+                } else if (type === 'reply') {
+                    const { Reply } = await import('../models/Reply.js');
+                    const reply = await Reply.findById(targetId).select('replyImage commentContents').lean();
+                    if (reply?.replyImage) {
+                        const img = reply.replyImage;
+                        contentImages = [img.startsWith('/uploads') ? img : `/uploads${img}`];
+                    }
+                    contentText = reply?.commentContents || '';
+                } else if (type === 'subreply') {
+                    const { SubReply } = await import('../models/SubReply.js');
+                    const subReply = await SubReply.findById(targetId).select('subReplyImage commentContents').lean();
+                    if (subReply?.subReplyImage) {
+                        const img = subReply.subReplyImage;
+                        contentImages = [img.startsWith('/uploads') ? img : `/uploads${img}`];
+                    }
+                    contentText = subReply?.commentContents || '';
+                }
+                
+                // 조회된 데이터를 report 객체에 추가
+                populatedReport.contentImages = contentImages;
+                populatedReport.contentText = contentText;
+            } catch (err) {
+                console.error(`[증거조회] 커뮤니티 데이터 로드 실패: ${err.message}`);
+            }
+        }
+
+        return populatedReport;
     } catch (error) {
         throw error;
     }
@@ -191,21 +251,57 @@ export const addReplyToReport = async (id, replyContent, adminUser, suspensionDa
 
         // 신고당한(가해자) 사용자의 신고 횟수 증가 및 정지 상태 적용 (채팅 관련 필드는 업데이트하지 않음)
         const offenderId = updatedReport.offenderId._id || updatedReport.offenderId;
-        let updateFields = {};
+        let updateFields = { $set: {} };
 
         if (updatedReport.stopDetail === '일시정지' || updatedReport.stopDetail === '영구정지') {
-            updateFields.$set = {
-                reportStatus: updatedReport.stopDetail, // '알시정지' 또는 '영구정지'로 업데이트
-                reportTimer: updatedReport.durUntil       // 정지 해제 시각으로 설정
-            };
+            updateFields.$set.reportStatus = updatedReport.stopDetail;
+            updateFields.$set.reportTimer = updatedReport.durUntil;
         } else {
-            updateFields.$set = {
-                reportStatus: '활성',
-                reportTimer: null
-            };
+            updateFields.$set.reportStatus = '활성';
+            updateFields.$set.reportTimer = null;
+        }
+
+        // ✅ 부적절한 프로필/닉네임 제재 시 자동 초기화 로직
+        // 제재 내용이 '활성'(단순 답변)이 아닌 경우에만 실행 (경고, 일시정지, 영구정지 등)
+        // 신고 구역이 '프로필'인 경우에만 적용
+        const isSanctioned = updatedReport.stopDetail !== '활성';
+        const isProfileReport = updatedReport.reportArea === '프로필';
+        
+        if (isSanctioned && isProfileReport) {
+            // 1. 이미지 관련 제재 처리
+            if (updatedReport.reportCategory === '부적절한 프로필 이미지 / 음란물 (이미지)') {
+                console.log(`[제재 실행] 가해자(${offenderId})의 모든 사진(프로필+앨범)을 삭제합니다.`);
+                updateFields.$set.profilePhoto = ''; // 대표 프로필 삭제
+                updateFields.$set.photo = [];        // 앨범 이미지 전체 삭제
+            } 
+            
+            // 2. 닉네임 관련 제재 처리
+            if (updatedReport.reportCategory === '부적절한 닉네임 / 모욕성 닉네임') {
+                const randomNum = Math.floor(1000 + Math.random() * 9000);
+                const newNickname = `부적절한닉네임_${randomNum}`;
+                console.log(`[제재 실행] 가해자(${offenderId})의 닉네임을 강제 변경합니다: ${newNickname}`);
+                updateFields.$set.nickname = newNickname;
+            }
         }
 
         await User.findByIdAndUpdate(offenderId, updateFields);
+
+        // ✅ 프로필 정보가 변경된 경우 캐시 무효화
+        if (isSanctioned && isProfileReport && (
+            updatedReport.reportCategory === '부적절한 프로필 이미지 / 음란물 (이미지)' || 
+            updatedReport.reportCategory === '부적절한 닉네임 / 모욕성 닉네임'
+        )) {
+            try {
+                await IntelligentCache.invalidateUserStaticInfo(offenderId.toString());
+                await IntelligentCache.invalidateUserCache(offenderId.toString());
+                await IntelligentCache.deleteCache(`user_minimal_${offenderId.toString()}`);
+                await IntelligentCache.deleteCache(`user_profile_edit_${offenderId.toString()}`);
+                await IntelligentCache.deleteCache(`user_profile_full_${offenderId.toString()}`);
+                console.log(`[캐시] 가해자(${offenderId}) 프로필 관련 캐시 삭제 완료`);
+            } catch (cacheErr) {
+                console.error('[캐시] 가해자 캐시 무효화 실패:', cacheErr.message);
+            }
+        }
 
         // --- 알림 생성 부분 추가 ---
         // 신고자(신고를 한 사용자)에게 신고 답변 알림 생성

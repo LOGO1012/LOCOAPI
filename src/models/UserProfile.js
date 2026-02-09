@@ -277,6 +277,11 @@ const userSchema = new Schema({
         type: Boolean,
         default: true // ✅ 기본값: ON (필터링 함)
     },
+    // 명예의 전당 공개 여부
+    isPublicPR: {
+        type: Boolean,
+        default: true
+    },
     status: {
         type: String,
         enum: ['active', 'deactivated', 'archived'],

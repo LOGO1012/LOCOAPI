@@ -185,16 +185,21 @@ export const createNews = async (req, res) => {
         const images = [];
         if (req.files) {
             for (const file of req.files) {
-                const processedFilename = `processed-${file.filename}`;
+                const originalNameWithoutExt = path.parse(file.filename).name;
+                const processedFilename = `${originalNameWithoutExt}.webp`;
                 const processedImagePath = path.join('uploads', 'news', processedFilename);
 
                 await sharp(file.path)
                     .resize({ width: 1200, withoutEnlargement: true })
-                    .toFormat('jpeg', { quality: 80 })
+                    .webp({ quality: 80 })
                     .toFile(processedImagePath);
 
                 // 원본 파일 삭제
-                fs.unlinkSync(file.path);
+                try {
+                    fs.unlinkSync(file.path);
+                } catch (err) {
+                    console.error("원본 파일 삭제 실패:", err);
+                }
 
                 images.push({
                     filename: processedFilename,
@@ -287,16 +292,21 @@ export const updateNews = async (req, res) => {
         if (req.files && req.files.length > 0) {
             const newImages = [];
             for (const file of req.files) {
-                const processedFilename = `processed-${file.filename}`;
+                const originalNameWithoutExt = path.parse(file.filename).name;
+                const processedFilename = `${originalNameWithoutExt}.webp`;
                 const processedImagePath = path.join('uploads', 'news', processedFilename);
 
                 await sharp(file.path)
                     .resize({ width: 1200, withoutEnlargement: true })
-                    .toFormat('jpeg', { quality: 80 })
+                    .webp({ quality: 80 })
                     .toFile(processedImagePath);
 
                 // 원본 파일 삭제
-                fs.unlinkSync(file.path);
+                try {
+                    fs.unlinkSync(file.path);
+                } catch (err) {
+                    console.error("원본 파일 삭제 실패:", err);
+                }
 
                 newImages.push({
                     filename: processedFilename,

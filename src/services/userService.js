@@ -367,6 +367,7 @@ export const getUserById = async (userId) => {
                     wordFilterEnabled: 1,
                     friendReqEnabled: 1,
                     chatPreviewEnabled: 1,
+                    isPublicPR: 1,
                 })
                 .lean();  // ✅ lean() 사용 - 성능 최적화
 
@@ -444,6 +445,7 @@ export const getUserById = async (userId) => {
             wordFilterEnabled: user.wordFilterEnabled,
             friendReqEnabled: user.friendReqEnabled,
             chatPreviewEnabled: user.chatPreviewEnabled,
+            isPublicPR: user.isPublicPR,
 
             // 💬 채팅 정보 (실시간 계산된 값!)
             numOfChat: rechargeResult.currentNumOfChat,      // ✅ 실시간 계산된 현재 채팅 횟수

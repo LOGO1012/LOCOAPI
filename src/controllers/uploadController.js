@@ -16,18 +16,23 @@ export const uploadFile = async (req, res) => {
         let fileUrl = '';
         let finalFilename = req.file.filename;
 
-        // 이미지 파일인 경우 sharp로 최적화
+        // 이미지 파일인 경우 sharp로 최적화 (WebP 변환)
         if (req.file.mimetype.startsWith('image/')) {
-            const processedFilename = `processed-${req.file.filename}`;
+            const originalNameWithoutExt = path.parse(req.file.filename).name;
+            const processedFilename = `${originalNameWithoutExt}.webp`;
             const processedImagePath = path.join(req.file.destination, processedFilename);
 
             await sharp(req.file.path)
                 .resize({ width: 1200, withoutEnlargement: true })
-                .toFormat('jpeg', { quality: 80 })
+                .webp({ quality: 80 })
                 .toFile(processedImagePath);
 
             // 원본 파일 삭제
-            fs.unlinkSync(req.file.path);
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (err) {
+                console.error("원본 파일 삭제 실패:", err);
+            }
 
             finalFilename = processedFilename;
             fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.user._id}/${processedFilename}`;
