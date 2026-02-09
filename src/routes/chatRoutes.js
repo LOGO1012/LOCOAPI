@@ -8,16 +8,16 @@ import {authenticate} from "../middlewares/authMiddleware.js";
 const router = express.Router();
 
 // 채팅방 생성
-router.post('/rooms', authenticate, chatController.createRoom);
+router.post('/rooms', chatController.createRoom);
 
 // 방 찾기 또는 생성
-router.post('/rooms/find-or-create', authenticate, chatController.findOrCreateRoom);
+router.post('/rooms/find-or-create', chatController.findOrCreateRoom);
 
 // 새로 추가: 친구방 찾기 또는 생성 (통합 API)
-router.post("/friend/rooms/find-or-create", authenticate, chatController.findOrCreateFriendRoomController);
+router.post("/friend/rooms/find-or-create", chatController.findOrCreateFriendRoomController);
 
 //친구와 채팅방 생성
-router.post("/friend/rooms", authenticate, chatController.createFriendRoom);
+router.post("/friend/rooms", chatController.createFriendRoom);
 
 // 특정 채팅방 조회
 router.get('/rooms/:roomId', chatController.getRoomById);
@@ -29,7 +29,7 @@ router.get('/rooms', chatController.getAllRooms);
 router.post('/rooms/:roomId/join', chatController.addUserToRoom);
 
 // 메시지 저장
-router.post('/messages', authenticate, chatController.sendMessage);
+router.post('/messages', chatController.sendMessage);
 
 // 증분 동기화 라우트
 router.get('/messages/:roomId/new', authenticate, getNewMessages);
@@ -67,7 +67,7 @@ router.post('/rooms/unread-batch', authenticate, chatController.getUnreadCountsB
 // ============================================================================
 
 // 개별 메시지 신고
-router.post('/messages/:messageId/report', authenticate, chatController.reportMessage);
+router.post('/messages/:messageId/report', chatController.reportMessage);
 
 // 🆕 채팅방의 신고된 메시지 목록 조회 (개발자 페이지용)
 router.get('/rooms/:roomId/reported-messages', authenticate, requireLevel(3), chatController.getReportedMessages);

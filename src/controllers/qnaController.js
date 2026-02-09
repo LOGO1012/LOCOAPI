@@ -4,6 +4,8 @@ import PageRequestDTO from '../dto/common/PageRequestDTO.js';
 
 /**
  * 페이지네이션 처리를 한 QnA 목록을 조회하여 클라이언트에 반환합니다.
+ * 쿼리 파라미터로 page, size, qnaStatus를 전달합니다.
+ * 예: /qnas?page=2&size=10&qnaStatus=답변대기
  */
 const getQnaListPage = async (req, res) => {
     try {
@@ -12,8 +14,9 @@ const getQnaListPage = async (req, res) => {
         const qnaStatus = req.query.qnaStatus;
         const keyword = req.query.keyword;
         const searchType = req.query.searchType;
-        const userId = req.query.userId;
+        const userId = req.query.userId; // ◀◀◀ userId 파라미터 추가
 
+        // PageRequestDTO에 qnaStatus와 keyword 필드를 함께 전달합니다.
         const pageRequestDTO = new PageRequestDTO(
             page, size, qnaStatus, keyword, searchType, userId);
         const pageResponseDTO = await QnaService.getQnaListPage(pageRequestDTO);
@@ -24,61 +27,29 @@ const getQnaListPage = async (req, res) => {
 };
 
 /**
- * 새로운 QnA를 생성합니다. (로그인 사용자)
+ * 새로운 QnA를 생성하고 클라이언트에 생성된 문서를 반환합니다.
+ * @param {Object} req - 요청 객체 (req.body에 QnA 데이터가 있음)
+ * @param {Object} res - 응답 객체
  */
 const createQna = async (req, res) => {
     try {
-        // 인증된 사용자 ID를 자동으로 설정
-        const qnaData = {
-            ...req.body,
-            userId: req.user._id
-        };
-        const result = await QnaService.createQna(qnaData);
+        const result = await QnaService.createQna(req.body);
         return res.status(201).json(result);
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
 };
 
+
 /**
- * 질문을 수정합니다. (작성자 본인만)
+ * 특정 ID의 QnA 문서를 업데이트하고, 업데이트된 문서를 클라이언트에 반환합니다.
+ * 문서가 없으면 404 상태를 반환합니다.
+ * @param {Object} req - 요청 객체 (req.params.id에 QnA ID, req.body에 업데이트할 데이터가 있음)
+ * @param {Object} res - 응답 객체
  */
 const updateQna = async (req, res) => {
     try {
-        const updatedQna = await QnaService.updateQna(
-            req.params.id,
-            req.body,
-            req.user._id.toString()
-        );
-        if (!updatedQna) {
-            return res.status(404).json({ message: 'QnA not found' });
-        }
-        return res.status(200).json(updatedQna);
-    } catch (error) {
-        if (error.message.includes('본인이 작성한') || error.message.includes('답변이 완료된')) {
-            return res.status(403).json({ message: error.message });
-        }
-        return res.status(500).json({ error: error.message });
-    }
-};
-
-/**
- * QnA에 답변을 추가합니다. (관리자 전용 - Lv≥3)
- */
-const addAnswer = async (req, res) => {
-    try {
-        const { answer } = req.body;
-
-        if (!answer || answer.trim() === '') {
-            return res.status(400).json({ message: '답변 내용을 입력해주세요.' });
-        }
-
-        const updatedQna = await QnaService.addAnswer(
-            req.params.id,
-            answer,
-            req.user._id
-        );
-
+        const updatedQna = await QnaService.updateQna(req.params.id, req.body);
         if (!updatedQna) {
             return res.status(404).json({ message: 'QnA not found' });
         }
@@ -89,23 +60,19 @@ const addAnswer = async (req, res) => {
 };
 
 /**
- * QnA를 삭제합니다. (작성자 본인 또는 관리자)
+ * 특정 ID의 QnA 문서를 삭제하고, 삭제 성공 메시지를 클라이언트에 반환합니다.
+ * 문서가 없으면 404 상태를 반환합니다.
+ * @param {Object} req - 요청 객체 (req.params.id에 QnA ID가 있음)
+ * @param {Object} res - 응답 객체
  */
 const deleteQna = async (req, res) => {
     try {
-        const deletedQna = await QnaService.deleteQna(
-            req.params.id,
-            req.user._id.toString(),
-            req.user.userLv || 1
-        );
+        const deletedQna = await QnaService.deleteQna(req.params.id);
         if (!deletedQna) {
             return res.status(404).json({ message: 'QnA not found' });
         }
         return res.status(200).json({ message: 'QnA deleted successfully' });
     } catch (error) {
-        if (error.message.includes('삭제 권한')) {
-            return res.status(403).json({ message: error.message });
-        }
         return res.status(500).json({ error: error.message });
     }
 };
@@ -113,7 +80,6 @@ const deleteQna = async (req, res) => {
 export default {
     createQna,
     updateQna,
-    addAnswer,
     deleteQna,
     getQnaListPage
 };

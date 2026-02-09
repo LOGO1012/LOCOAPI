@@ -89,16 +89,6 @@ export const registerUserProfile = async (req, res, next) => {
             });
         }
 
-        // 🔒 소셜 로그인 필수 검증 (kakaoId 또는 naverId 중 하나는 필수)
-        if (!kakaoId && !naverId) {
-            console.error('❌ 소셜 로그인 필수 검증 실패: kakaoId와 naverId 모두 없음');
-            return res.status(400).json({
-                success: false,
-                message: '소셜 로그인 후 회원가입이 가능합니다.',
-                error: 'SOCIAL_LOGIN_REQUIRED'
-            });
-        }
-
         // 🔥 수정: 사용자 데이터 준비 시 nickname 필드 명시적 설정
         const userData = {
             name: name?.trim() || '',
