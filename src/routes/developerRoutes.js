@@ -250,12 +250,12 @@ router.get('/chat/reported-context/:messageId', async (req, res) => {
         // 3. 주변 메시지들 조회 (전후 30개씩)
         const contextMessages = await ChatMessage.find({
             chatRoom: reportedMessage.chatRoom,
-            textTime: {
-                $gte: new Date(reportedMessage.textTime.getTime() - 24 * 60 * 60 * 1000), // 1일 전부터
-                $lte: new Date(reportedMessage.textTime.getTime() + 24 * 60 * 60 * 1000)  // 1일 후까지
+            createdAt: {
+                $gte: new Date(reportedMessage.createdAt.getTime() - 24 * 60 * 60 * 1000), // 1일 전부터
+                $lte: new Date(reportedMessage.createdAt.getTime() + 24 * 60 * 60 * 1000)  // 1일 후까지
             }
         })
-            .sort({ textTime: 1 })
+            .sort({ createdAt: 1 })
             .populate('sender', 'nickname')
             .lean();
 
@@ -343,7 +343,7 @@ router.get('/chat/reported-context/:messageId', async (req, res) => {
                             _id: message.sender?._id,
                             nickname: message.sender?.nickname || '알 수 없음'
                         },
-                        textTime: message.textTime,
+                        createdAt: message.createdAt,
                         isReported: message.isReported,
                         isEncrypted: message.isEncrypted,
                         isDecrypted: isDecrypted,
@@ -356,7 +356,7 @@ router.get('/chat/reported-context/:messageId', async (req, res) => {
                         _id: message._id,
                         text: '[처리 오류]',
                         sender: { nickname: '알 수 없음' },
-                        textTime: message.textTime,
+                        createdAt: message.createdAt,
                         isReported: message.isReported,
                         isError: true
                     };

@@ -891,7 +891,7 @@ export const findOrCreateFriendRoomController = async (req, res) => {
  *
  * @route POST /api/chat/messages/batch-last
  * @body { roomIds: string[] } - 조회할 채팅방 ID 배열 (최대 100개)
- * @returns { messages: Array<{ roomId, lastMessage: { text, textTime, sender } }> }
+ * @returns { messages: Array<{ roomId, lastMessage: { text, createdAt, sender } }> }
  */
 export const getLastMessagesBatch = async (req, res) => {
     try {
@@ -973,7 +973,7 @@ export const getLastMessagesBatch = async (req, res) => {
                     lastMessage: {
                         _id: '$lastMessage._id',
                         text: '$lastMessage.text',
-                        textTime: '$lastMessage.textTime',
+                        createdAt: '$lastMessage.createdAt',
                         sender: '$lastMessage.sender',
                         isEncrypted: '$lastMessage.isEncrypted',
                         encryptedText: '$lastMessage.encryptedText',
@@ -1070,7 +1070,7 @@ export const getNewMessages = async (req, res) => {
         console.log(`📡 [증분 동기화] 조회:`, { roomId, lastMessageId });
 
         const messages = await ChatMessage.find(query)
-            .sort({ textTime: 1 })
+            .sort({ createdAt: 1 })
             .limit(100)
             .populate('sender', 'nickname profilePhoto')
             .lean();

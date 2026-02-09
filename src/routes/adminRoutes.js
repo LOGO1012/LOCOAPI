@@ -33,7 +33,7 @@ router.get('/reported-messages', async (req, res) => {
             .limit(parseInt(limit))
             .populate({
                 path: 'originalMessageId',
-                select: 'sender chatRoom textTime createdAt',
+                select: 'sender chatRoom createdAt',
                 populate: [
                     { path: 'sender', select: 'nickname' },
                     { path: 'chatRoom', select: '_id roomType' }
@@ -65,7 +65,7 @@ router.get('/reported-messages', async (req, res) => {
                         nickname: user.nickname
                     })) || [],
                     reportReason: backup.reportReason,
-                    textTime: backup.originalMessageId.textTime,
+                    createdAt: backup.originalMessageId.createdAt,
                     backupId: backup._id
                 };
             });
@@ -123,7 +123,7 @@ router.get('/reported-messages/:messageId', async (req, res) => {
         })
             .populate({
                 path: 'originalMessageId',
-                select: 'sender chatRoom textTime createdAt',
+                select: 'sender chatRoom createdAt',
                 populate: [
                     { path: 'sender', select: 'nickname _id' },
                     { path: 'chatRoom', select: '_id roomType' }
@@ -181,7 +181,6 @@ router.get('/reported-messages/:messageId', async (req, res) => {
                     nickname: user.nickname
                 })) || [],
                 reportReason: backup.reportReason,
-                textTime: backup.originalMessageId.textTime,
                 createdAt: backup.originalMessageId.createdAt,
                 retentionUntil: backup.retentionUntil
             },

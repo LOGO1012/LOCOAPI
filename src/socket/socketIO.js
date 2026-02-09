@@ -314,7 +314,6 @@ export const initializeSocket = async (server) => {
                     chatRoom: chatRoom,
                     sender: senderId,
                     text: text,
-                    textTime: now,
                     isEncrypted: false,
                 };
 
@@ -354,7 +353,7 @@ export const initializeSocket = async (server) => {
                         nickname: senderNick
                     },
                     text: text,
-                    textTime: now,
+                    createdAt: now,
                     isEncrypted: false,
                 };
 
@@ -450,7 +449,7 @@ export const initializeSocket = async (server) => {
                         chatRoom: roomId,
                         text: sysText,
                         isSystem: true,
-                        textTime: new Date(),
+                        createdAt: new Date(),
                         sender: { _id: 'system', nickname: 'SYSTEM' }
                     });
 

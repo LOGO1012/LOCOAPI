@@ -73,12 +73,8 @@ const chatRoomSchema = new Schema({
         sparse: true,      // friend 방만 값을 가짐 (random 방은 null)
         unique: true,      // 중복 방지 (핵심!)
         index: true        // 조회 성능 향상
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
     }
-}, { timestamps: true });
+}, { timestamps: true });  // createdAt, updatedAt 자동 생성
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Pre-save Hook
@@ -255,10 +251,6 @@ const chatMessageSchema = new Schema({
     }],
     
     // === 기존 필드들 유지 ===
-    textTime: {
-        type: Date,
-        default: Date.now
-    },
     // readBy 배열 제거됨 — RoomEntry.lastReadAt (Last-Read Pointer) 방식으로 대체
     isDeleted: {
         type: Boolean,
@@ -287,14 +279,14 @@ const chatMessageSchema = new Schema({
         index: true
     }
 
-}, { timestamps: true });
+}, { timestamps: { createdAt: true, updatedAt: false } });
 
 // === 인덱스 설정 ===
 // 기존 인덱스
 //chatMessageSchema.index({ chatRoom: "text", sender: "text", text: "text" });
-chatMessageSchema.index({ chatRoom: 1, textTime: -1 });
+chatMessageSchema.index({ chatRoom: 1, createdAt: -1 });
 // readBy 관련 인덱스 제거됨 — RoomEntry.lastReadAt 방식으로 대체
-// 안읽은 개수 조회는 기존 { chatRoom: 1, textTime: -1 } 인덱스 활용
+// 안읽은 개수 조회는 { chatRoom: 1, createdAt: -1 } 인덱스 활용
 
 // 새로운 암호화 관련 인덱스
 chatMessageSchema.index({ isReported: 1, reportedAt: -1 });     // 신고 메시지 조회용
@@ -372,16 +364,12 @@ const chatRoomExitSchema = new Schema({
         ref: 'User',
         required: true
     },
-    leftAt: {
-        type: Date,
-        default: Date.now
-    },
     phase: {
         type: String,
         enum: ['waiting', 'active'],
         required: true
     }
-}, { timestamps: true });
+}, { timestamps: { createdAt: true, updatedAt: false } });  // createdAt만 생성 (퇴장 기록은 수정 안함)
 
 // 1. 사용자별 퇴장 목록 조회 (핵심 인덱스!)
 // 사용처: getAllChatRooms에서 매번 호출

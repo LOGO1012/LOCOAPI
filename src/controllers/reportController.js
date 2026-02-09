@@ -493,14 +493,14 @@ export const getReportChatLog = async (req, res) => {
         const allMessagesPromise = ChatMessage
             .find({ chatRoom: roomId })
             .sort({ createdAt: 1 })
-            .select('_id textTime sender isReported createdAt')  // ✅ 최소 필드
+            .select('_id sender isReported createdAt')  // ✅ 최소 필드
             .lean();
 
         // ===== 6단계: 컨텍스트 메시지 상세 조회 (병렬 처리) =====
         const contextMessagesPromise = ChatMessage
             .find({ _id: { $in: Array.from(contextIds) } })
             .populate('sender', 'nickname profileImg')  // ✅ 필요한 것만 populate
-            .select('_id text sender textTime isDeleted isReported createdAt')
+            .select('_id text sender isDeleted isReported createdAt')
             .lean();
 
         // 병렬 실행
@@ -530,21 +530,19 @@ export const getReportChatLog = async (req, res) => {
                     _id: fullMsg._id,
                     text: fullMsg.text,
                     sender: fullMsg.sender,  // populate된 전체 객체
-                    textTime: fullMsg.textTime,
+                    createdAt: fullMsg.createdAt,
                     isDeleted: fullMsg.isDeleted || false,
                     isReported: isReported,
-                    isContext: true,  // 프론트엔드 판단 용이
-                    createdAt: fullMsg.createdAt
+                    isContext: true  // 프론트엔드 판단 용이
                 };
             } else {
                 // ✅ 일반 메시지: 최소 정보만 반환
                 return {
                     _id: msg._id,
-                    textTime: msg.textTime,
+                    createdAt: msg.createdAt,
                     sender: { _id: msg.sender },  // ID만
                     isReported: false,
-                    isContext: false,  // 프론트엔드에서 점 표시
-                    createdAt: msg.createdAt
+                    isContext: false  // 프론트엔드에서 점 표시
                 };
             }
         });
