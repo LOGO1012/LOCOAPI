@@ -7,7 +7,7 @@ import {User} from "../models/UserProfile.js";
 
 const getQnaListPage = async (pageRequestDTO) => {
     try {
-        const { page, size, qnaStatus, keyword, searchType, userId } = pageRequestDTO; // ◀◀◀ userId 추출
+        const { page, size, qnaStatus, keyword, searchType, userId } = pageRequestDTO;
         const skip = (page - 1) * size;
 
         // 기본 필터: 상태
@@ -16,13 +16,13 @@ const getQnaListPage = async (pageRequestDTO) => {
             filter.qnaStatus = qnaStatus;
         }
 
-        // ◀◀◀ userId가 있으면 필터에 추가
+        // userId가 있으면 필터에 추가
         if (userId) {
             filter.userId = userId;
         }
 
         // 검색어가 있으면 옵션에 따라 분기
-        if (keyword && !userId) { // ◀◀◀ userId 필터링 시에는 키워드 검색 비활성화 (또는 필요에 따라 로직 수정)
+        if (keyword && !userId) {
             const regex = new RegExp(keyword, 'i');
             switch (searchType) {
                 case 'title':
@@ -48,7 +48,6 @@ const getQnaListPage = async (pageRequestDTO) => {
                     break;
                 }
                 default:
-                    // 'both' 기본 처리도 여기로 들어오므로 별도 처리 불필요
                     break;
             }
         }
@@ -88,20 +87,39 @@ const createQna = async (qnaData) => {
 };
 
 /**
- * 주어진 ID의 QnA 문서를 업데이트합니다.
- * 답변이 추가되면 qnaStatus를 'Answered'로 변경합니다.
+ * 주어진 ID의 QnA 질문을 수정합니다. (작성자 본인만 가능)
  * @param {String} id - 업데이트할 QnA 문서의 ID
- * @param {Object} updateData - 업데이트할 데이터
+ * @param {Object} updateData - 업데이트할 데이터 (qnaTitle, qnaContents만 허용)
+ * @param {String} requestUserId - 요청한 사용자 ID
  * @returns {Promise<Object>} 업데이트된 QnA 문서
  */
-const updateQna = async (id, updateData) => {
+const updateQna = async (id, updateData, requestUserId) => {
     try {
-        // 기존 데이터 조회 (히스토리 저장용)
+        // 기존 데이터 조회
         const currentQna = await Qna.findById(id);
         if (!currentQna) return null;
 
+        // 작성자 본인 확인
+        if (currentQna.userId.toString() !== requestUserId) {
+            throw new Error('본인이 작성한 질문만 수정할 수 있습니다.');
+        }
+
+        // 답변이 이미 완료된 경우 수정 불가
+        if (currentQna.qnaStatus === '답변완료') {
+            throw new Error('답변이 완료된 질문은 수정할 수 없습니다.');
+        }
+
+        // 질문 관련 필드만 추출 (답변 필드는 제외)
+        const allowedFields = ['qnaTitle', 'qnaContents', 'isAnonymous', 'isAdminOnly'];
+        const filteredData = {};
+        for (const key of allowedFields) {
+            if (updateData[key] !== undefined) {
+                filteredData[key] = updateData[key];
+            }
+        }
+
         // 제목이나 내용이 수정될 경우 히스토리에 기록
-        if (updateData.qnaTitle || updateData.qnaContents) {
+        if (filteredData.qnaTitle || filteredData.qnaContents) {
             await QnaHistory.create({
                 qnaId: currentQna._id,
                 title: currentQna.qnaTitle,
@@ -109,14 +127,38 @@ const updateQna = async (id, updateData) => {
             });
         }
 
-        // 답변 내용이 있다면 상태를 'Answered'로 설정
-        if (updateData.qnaAnswer) {
-            updateData.qnaStatus = '답변완료';
-        }
+        const updatedQna = await Qna.findByIdAndUpdate(id, filteredData, { new: true })
+            .populate('userId', 'nickname')
+            .populate('answerUserId', 'nickname');
+
+        return updatedQna;
+    } catch (error) {
+        throw error;
+    }
+};
+
+/**
+ * QnA에 답변을 추가합니다. (관리자 전용)
+ * @param {String} id - QnA 문서의 ID
+ * @param {String} answer - 답변 내용
+ * @param {String} adminUserId - 답변을 작성하는 관리자 ID
+ * @returns {Promise<Object>} 업데이트된 QnA 문서
+ */
+const addAnswer = async (id, answer, adminUserId) => {
+    try {
+        const currentQna = await Qna.findById(id);
+        if (!currentQna) return null;
+
+        const updateData = {
+            qnaAnswer: answer,
+            qnaStatus: '답변완료',
+            answerUserId: adminUserId
+        };
+
         const updatedQna = await Qna.findByIdAndUpdate(id, updateData, { new: true })
             .populate('userId', 'nickname')
             .populate('answerUserId', 'nickname');
-            
+
         return updatedQna;
     } catch (error) {
         throw new Error(error);
@@ -124,22 +166,36 @@ const updateQna = async (id, updateData) => {
 };
 
 /**
- * 주어진 ID의 QnA 문서를 삭제합니다.
+ * 주어진 ID의 QnA 문서를 삭제합니다. (작성자 본인 또는 관리자)
  * @param {String} id - 삭제할 QnA 문서의 ID
+ * @param {String} requestUserId - 요청한 사용자 ID
+ * @param {Number} userLevel - 요청한 사용자 레벨
  * @returns {Promise<Object>} 삭제된 QnA 문서
  */
-const deleteQna = async (id) => {
+const deleteQna = async (id, requestUserId, userLevel) => {
     try {
+        const currentQna = await Qna.findById(id);
+        if (!currentQna) return null;
+
+        // 작성자 본인이거나 관리자(Lv≥3)인 경우만 삭제 가능
+        const isOwner = currentQna.userId.toString() === requestUserId;
+        const isAdmin = userLevel >= 3;
+
+        if (!isOwner && !isAdmin) {
+            throw new Error('삭제 권한이 없습니다.');
+        }
+
         const deletedQna = await Qna.findByIdAndDelete(id);
         return deletedQna;
     } catch (error) {
-        throw new Error(error);
+        throw error;
     }
 };
 
 export default {
     createQna,
     updateQna,
+    addAnswer,
     deleteQna,
     getQnaListPage
 };
