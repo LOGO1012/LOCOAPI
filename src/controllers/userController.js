@@ -17,7 +17,7 @@ import jwt from 'jsonwebtoken';
 import { rateUser } from "../services/userService.js";
 import { User } from "../models/UserProfile.js";
 import {io} from "../socket/socketIO.js";
-import {getLoLRecordByRiotId} from "../middlewares/getLoLRecordBySummonerName.js";
+// ⚠️ getLoLRecordByRiotId는 riotService.js로 이동됨 (riotRoutes.js 사용)
 import {FriendRequest} from "../models/FriendRequest.js";
 import {
     saveNicknameHistory,
@@ -717,20 +717,8 @@ export const getBlockedUsersController = async (req, res) => {
     }
 };
 
-export async function getSummonerRecord(req, res) {
-    try {
-        const { gameName, tagLine } = req.params;
-        const data = await getLoLRecordByRiotId(`${gameName}#${tagLine}`);
-        return res.status(200).json({ success: true, data });
-    } catch (err) {
-        console.error(err);
-        const status = /403/.test(err.message) ? 502   // 키 문제
-            : /404/.test(err.message) ? 404   // Riot ID 없음
-                : /429/.test(err.message) ? 503   // 레이트 리밋
-                    : 500;
-        return res.status(status).json({ success: false, message: err.message });
-    }
-}
+// ⚠️ getSummonerRecord는 riotController.js로 이동됨
+// 엔드포인트: GET /api/riot/lol/:gameName/:tagLine
 
 
 export const getPaginatedFriendsController = async (req, res) => {

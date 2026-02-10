@@ -33,11 +33,13 @@ import editorRoutes from './src/routes/editorRoutes.js';
 import bannerRoutes from './src/routes/bannerRoutes.js';
 import profanityRoutes from './src/routes/profanityRoutes.js'; // 비속어 관리 라우트 추가
 import termRoutes from './src/routes/termRoutes.js'; // 약관 관리 라우트 추가
+import riotRoutes from './src/routes/riotRoutes.js'; // 라이엇 전적 조회 라우트 추가
 import compression from "compression";
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
 import {startUserArchiveScheduler} from "./src/scheduler/userArchiveScheduler.js";
 import { startAccessLogCleanup } from './src/scheduler/cleanupAccessLogs.js';
+import { initMatchCleanupScheduler } from './src/scheduler/matchCleanupScheduler.js'; // 매치 정리 스케줄러 추가
 
 
 // ✅ 서버 시작 시 초기화
@@ -203,6 +205,7 @@ app.use('/api/news', newsRoutes);
 app.use('/api/editor', editorRoutes);
 app.use('/api/banners', bannerRoutes);
 app.use('/api/terms', termRoutes); // 약관 관리
+app.use('/api/riot', riotRoutes); // 라이엇 전적 조회
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
@@ -290,6 +293,7 @@ const startServer = async () => {
         startResetStarScheduler();
         startUserArchiveScheduler();
         startAccessLogCleanup();
+        initMatchCleanupScheduler(); // 매치 정리 스케줄러 추가
         console.log('✅ 스케줄러 시작 완료\n');
 
     } catch (error) {
