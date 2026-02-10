@@ -264,14 +264,6 @@ const userSchema = new Schema({
     },
     //임시 후에 롤은 소셜로그인 할 것
     // 추가된 사용자 정보 필드들
-    pubgNickname: {
-        type: String,
-        default: ''
-    },
-    suddenNickname: {
-        type: String,
-        default: ''
-    },
     lolNickname: {
         type: String,
         default: ''
