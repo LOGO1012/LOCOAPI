@@ -99,16 +99,44 @@ export const registerUserProfile = async (req, res, next) => {
             });
         }
 
-        // 🔥 수정: 사용자 데이터 준비 시 nickname 필드 명시적 설정
+        // 🔐 본인인증 필수 검증
+        const identityData = req.session.identityVerification;
+        if (!identityData || !identityData.verified) {
+            console.error('❌ 본인인증 미완료 상태에서 회원가입 시도');
+            return res.status(400).json({
+                success: false,
+                message: '본인인증을 먼저 완료해주세요.',
+                error: 'IDENTITY_VERIFICATION_REQUIRED'
+            });
+        }
+
+        // 🔐 CI 해시 중복 가입 체크 (가입 시점 재검증)
+        const existingUserByCI = await User.findOne({ ci_hash: identityData.ci_hash, status: 'active' });
+        if (existingUserByCI) {
+            console.error('❌ CI 중복 가입 시도:', identityData.ci_hash?.substring(0, 10));
+            return res.status(409).json({
+                success: false,
+                message: '이미 가입된 사용자입니다.',
+                error: 'DUPLICATE_CI'
+            });
+        }
+
+        // 🔥 사용자 데이터 준비 (본인인증 데이터 우선 사용)
         const userData = {
-            name: name?.trim() || '',
-            nickname: nickname.trim(), // 🔧 명시적으로 설정하고 trim 적용
+            // 본인인증 값 우선, 없으면 소셜 로그인 값 사용
+            name: identityData.name || name?.trim() || '',
+            nickname: nickname.trim(),
             gender: formGender?.trim() || 'select',
-            phone: phoneNumber ? normalizePhoneNumber(phoneNumber) : '',
-            birthdate: birthdate || '',
+            phone: normalizePhoneNumber(identityData.phoneNumber || phoneNumber || ''),
+            birthdate: identityData.birthDate || birthdate || '',
             info: info?.trim() || '',
-            numOfChat: process.env.numOfChat, // 회원가입 시 기본 채팅 횟수 50회 제공
+            numOfChat: process.env.numOfChat,
             deactivationCount: deactivationCount || 0,
+            // 🔐 본인인증 정보 (평문 - encryptUserData에서 한 번에 암호화)
+            ci: identityData.ci,
+            ci_hash: identityData.ci_hash,
+            identityVerified: true,
+            identityVerifiedAt: new Date(identityData.verifiedAt),
             social: {
                 // 카카오 소셜 로그인 정보 (kakaoId가 있을 때만 추가)
                 ...(kakaoId && {

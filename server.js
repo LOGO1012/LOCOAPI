@@ -34,6 +34,7 @@ import bannerRoutes from './src/routes/bannerRoutes.js';
 import profanityRoutes from './src/routes/profanityRoutes.js'; // 비속어 관리 라우트 추가
 import termRoutes from './src/routes/termRoutes.js'; // 약관 관리 라우트 추가
 import riotRoutes from './src/routes/riotRoutes.js'; // 라이엇 전적 조회 라우트 추가
+import identityRoutes from './src/routes/identityRoutes.js'; // 포트원 본인인증 라우트 추가
 import compression from "compression";
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
@@ -206,6 +207,7 @@ app.use('/api/editor', editorRoutes);
 app.use('/api/banners', bannerRoutes);
 app.use('/api/terms', termRoutes); // 약관 관리
 app.use('/api/riot', riotRoutes); // 라이엇 전적 조회
+app.use('/api/identity', identityRoutes); // 포트원 본인인증
 
 // ✅ 구독 상품 목록 조회 API (DetailPanel.jsx에서 사용)
 app.get('/api/product/names', (req, res) => {
