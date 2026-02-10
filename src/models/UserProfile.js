@@ -41,7 +41,26 @@ const userSchema = new Schema({
     },
     pass: {
         type: String,
-        required: false // 실제로 비밀번호를 저장할 계획이라면 required: true 로 설정하고, 해시 처리를 고려하세요.
+        required: false
+    },
+    // 본인인증 관련 필드
+    ci: {
+        type: String,           // CI (연계정보) - 암호화 저장
+        default: ''
+    },
+    ci_hash: {
+        type: String,           // CI 검색/중복체크용 해시
+        unique: true,
+        sparse: true,           // null 허용 (본인인증 안 한 기존 유저)
+        index: true
+    },
+    identityVerified: {
+        type: Boolean,          // 본인인증 완료 여부
+        default: false
+    },
+    identityVerifiedAt: {
+        type: Date,             // 본인인증 완료 시각
+        default: null
     },
     birthdate: {
         type: String,             // 생년월일: 사용자의 생년월일 정보 (암호화됨)
