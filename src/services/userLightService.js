@@ -291,3 +291,40 @@ export const unblockUserServiceMinimal = async (userId, targetId) => {
         throw error;
     }
 };
+
+/**
+ * 차단 목록 조회 (경량화 버전)
+ * @param {string} userId - 사용자 ID
+ * @returns {Promise<Array>} 차단된 사용자 목록
+ */
+export const getBlockedUsersService = async (userId) => {
+    try {
+        const cacheKey = `user_blocks_${userId}`;
+        const cached = await IntelligentCache.getCache(cacheKey);
+
+        if (cached) {
+            console.log(`💾 [캐시 HIT] 차단 목록: ${userId}`);
+            return cached;
+        }
+        console.log(`🔍 [캐시 MISS] 차단 목록 DB 조회: ${userId}`);
+
+        const user = await User.findById(userId)
+            .populate('blockedUsers', '_id nickname profilePhoto')
+            .lean();
+            
+        if (!user) {
+            throw new Error('사용자를 찾을 수 없습니다.');
+        }
+
+        const blockedUsers = user.blockedUsers || [];
+
+        // 5분 캐시
+        await IntelligentCache.setCache(cacheKey, blockedUsers, 300);
+        console.log(`✅ [캐시 저장] 차단 목록: ${cacheKey} (${blockedUsers.length}명)`);
+
+        return blockedUsers;
+    } catch (error) {
+        console.error(`❌ getBlockedUsersService 에러: ${userId}`, error.message);
+        throw error;
+    }
+};
