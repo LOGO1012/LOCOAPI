@@ -568,6 +568,11 @@ class OptimalKMSEncryption {
                 encryptedData.birthdate_hash = this.createSearchHash(userData.birthdate);
             }
 
+            // 본인인증 CI 암호화 (ci_hash는 이미 해시값이므로 그대로 유지)
+            if (userData.ci) {
+                encryptedData.ci = await this.encryptPersonalInfo(userData.ci);
+            }
+
             // 소셜 로그인 정보 암호화
             if (userData.social?.kakao) {
                 encryptedData.social.kakao = await this.encryptSocialData(userData.social.kakao, 'kakao');
@@ -816,21 +821,37 @@ class OptimalKMSEncryption {
     }
 
     /**
-     * 👥 연령대 분류
+     * 👥 연령대 분류 (청소년보호법 제2조 기준)
+     * 만 19세가 되는 해의 1월 1일부터 성인
      */
     getAgeGroup(birthdate) {
-        const age = this.calculateAge(birthdate);
-        if (age === null) return null;
-
-        return age < 19 ? 'minor' : 'adult';
+        if (!birthdate) return null;
+        try {
+            const birth = new Date(birthdate);
+            if (isNaN(birth.getTime())) return null;
+            const currentYear = new Date().getFullYear();
+            return (currentYear - birth.getFullYear()) < 19 ? 'minor' : 'adult';
+        } catch (error) {
+            console.warn('연령대 분류 실패:', error.message);
+            return null;
+        }
     }
 
     /**
-     * 🔞 미성년자 확인
+     * 🔞 미성년자 확인 (청소년보호법 제2조 기준)
+     * 만 19세가 되는 해의 1월 1일부터 성인
      */
     isMinor(birthdate) {
-        const age = this.calculateAge(birthdate);
-        return age !== null && age < 19;
+        if (!birthdate) return null;
+        try {
+            const birth = new Date(birthdate);
+            if (isNaN(birth.getTime())) return null;
+            const currentYear = new Date().getFullYear();
+            return (currentYear - birth.getFullYear()) < 19;
+        } catch (error) {
+            console.warn('미성년자 확인 실패:', error.message);
+            return null;
+        }
     }
 }
 
