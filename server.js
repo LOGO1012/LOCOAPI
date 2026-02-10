@@ -207,6 +207,16 @@ app.use('/api/banners', bannerRoutes);
 app.use('/api/terms', termRoutes); // 약관 관리
 app.use('/api/riot', riotRoutes); // 라이엇 전적 조회
 
+// ✅ 구독 상품 목록 조회 API (DetailPanel.jsx에서 사용)
+app.get('/api/product/names', (req, res) => {
+    res.json([
+        { _id: 'plan_basic', productName: 'Basic Plan' },
+        { _id: 'plan_standard', productName: 'Standard Plan' },
+        { _id: 'plan_premium', productName: 'Premium Plan' },
+        { _id: 'plan_vip', productName: 'VIP Plan' }
+    ]);
+});
+
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);
 // const io = initializeSocket(server);
