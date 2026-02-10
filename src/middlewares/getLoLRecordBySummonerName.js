@@ -1,4 +1,15 @@
 // src/middlewares/getLoLRecordBySummonerName.js
+//
+// ⚠️ DEPRECATED - 이 파일은 더 이상 사용되지 않습니다.
+//
+// 새로운 구현 위치:
+//   - utils/riotApiClient.js    : API 호출 유틸리티
+//   - services/riotService.js   : 비즈니스 로직 (DB 캐싱)
+//   - controllers/riotController.js : HTTP 핸들러
+//   - routes/riotRoutes.js      : 라우트 정의 (/api/riot/lol/...)
+//
+// 이 파일은 참조용으로 유지되며, 추후 삭제 예정입니다.
+// =========================================================================
 
 import axios from 'axios';
 

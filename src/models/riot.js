@@ -1,128 +1,151 @@
-import mongoose from 'mongoose';                     // mongoose 모듈 불러오기
-import { User }from './UserProfile.js';
+// src/models/riot.js
+// 라이엇 전적 저장용 스키마
 
-const { Schema, model } = mongoose;                  // Schema, model 생성자 추출
+import mongoose from 'mongoose';
+
+const { Schema, model } = mongoose;
 
 /**
- * recentMatchSchema
- * - 최근 경기 정보를 저장하는 서브 스키마입니다.
- * - champion: 해당 경기에서 사용한 챔피언 이름 또는 ID
- * - result: 경기 결과 ('win' 또는 'loss')
- * - playedAt: 경기가 진행된 시각
- * - _id: false 옵션으로 서브 도큐먼트에 별도 _id 생성 방지
+ * 개별 매치 스키마
+ * - 최근 경기 정보를 저장하는 서브 스키마
  */
-const recentMatchSchema = new Schema({
-    champion: {                                        // 사용한 챔피언 정보
+const matchSchema = new Schema({
+    matchId: {
         type: String,
         required: true
     },
-    result: {                                          // 경기 결과: 'win' 또는 'loss'
+    champion: {
         type: String,
-        enum: ['win', 'loss'],
         required: true
     },
-    playedAt: {                                        // 경기 발생 시각
+    championImage: {
+        type: String,
+        required: true
+    },
+    win: {
+        type: Boolean,
+        required: true
+    },
+    kills: {
+        type: Number,
+        required: true
+    },
+    deaths: {
+        type: Number,
+        required: true
+    },
+    assists: {
+        type: Number,
+        required: true
+    },
+    kda: {
+        type: Number,
+        required: true
+    },
+    lane: {
+        type: String,
+        required: true
+    },
+    duration: {
+        type: Number,
+        required: true
+    },
+    playedAt: {
         type: Date,
-        default: Date.now
+        required: true
     }
-}, { _id: false });                                  // 별도의 _id 생성 안 함
+}, { _id: false });
 
 /**
- * lolStatsSchema
- * - 리그 오브 레전드 전적 정보를 저장하는 서브 스키마입니다.
- * - nickname: 게임 내 닉네임(소환사 이름)
- * - overallWinRate: 전체 승률 (예: 52.3)
- * - recent20WinRate: 최근 20게임 승률 (예: 60.0)
- * - gameTier: 게임 티어 (예: "Gold IV")
- * - recentMatches: 최근 경기 내역 배열 (예: 최근 10게임 승패 기록)
- * - _id: false 옵션으로 별도의 _id 생성 방지
+ * 라이엇 전적 캐시 스키마 (LoL Record)
+ * - Riot ID 기반 전적 캐싱
+ * - 갱신 버튼 클릭 시에만 업데이트
  */
-const lolStatsSchema = new Schema({
-
-    overallWinRate: {                                  // 전체 승률 (%)
-        type: Number,
-        required: true,
-        default: 0
-    },
-    recent20WinRate: {                                 // 최근 20게임 승률 (%)
-        type: Number,
-        required: true,
-        default: 0
-    },
-    gameTier: {                                        // 게임 티어 (예: "Gold IV")
+const lolRecordSchema = new Schema({
+    // Riot ID 정보
+    gameName: {
         type: String,
         required: true,
-        default: ''
+        index: true
     },
-    // recentMatches: {                                   // 최근 경기 내역 배열 (예: 최근 10경기)
-    //     type: [recentMatchSchema],
-    //     default: []                                      // 기본값은 빈 배열
-    // }
-}, { _id: false });                                  // 서브 스키마에 _id 생성 안 함
-
-/**
- * tftStatsSchema
- * - 전략적 팀전투(TFT) 전적 정보를 저장하는 서브 스키마입니다.
- * - nickname: TFT 게임 내 닉네임
- * - overallWinRate: 전체 승률 (%)
- * - recent20WinRate: 최근 20게임 승률 (%)
- * - gameTier: 게임 티어 (예: "Silver")
- * - recentMatches: 최근 경기 내역 배열 (예: 최근 10경기 승패 기록)
- * - _id: false 옵션으로 별도의 _id 생성 방지.
- */
-const tftStatsSchema = new Schema({
-
-    overallWinRate: {                                  // 전체 승률 (%)
-        type: Number,
-        required: true,
-        default: 0
+    tagLine: {
+        type: String,
+        required: true
     },
-    recent20WinRate: {                                 // 최근 20게임 승률 (%)
-        type: Number,
-        required: true,
-        default: 0
-    },
-    gameTier: {                                        // 게임 티어 (예: "Silver")
+    puuid: {
         type: String,
         required: true,
+        unique: true,
+        index: true
+    },
+
+    // 랭크 정보
+    tier: {
+        type: String,
+        default: 'UNRANKED'
+    },
+    rank: {
+        type: String,
         default: ''
     },
-    recentMatches: {                                   // 최근 경기 내역 배열 (예: 최근 10경기)
-        // type: [],
-        default: []
+    leaguePoints: {
+        type: Number,
+        default: 0
+    },
+    overallWinRate: {
+        type: Number,
+        default: 0
+    },
+
+    // 최근 10판 매치 데이터
+    matches: {
+        type: [matchSchema],
+        default: [],
+        validate: [arr => arr.length <= 15, '매치는 최대 15개까지 저장됩니다.'] // 배치 삭제 전 여유분
+    },
+
+    // 갱신 메타 정보
+    lastUpdatedAt: {
+        type: Date,
+        default: null,
+        index: true
     }
-}, { _id: false });                                  // 서브 스키마에 _id 생성 안 함
+}, {
+    timestamps: true
+});
+
+// 복합 인덱스: gameName + tagLine으로 빠른 조회
+lolRecordSchema.index({ gameName: 1, tagLine: 1 }, { unique: true });
 
 /**
- * RiotProfile 스키마
- * - 라이엇 계정 연동 전적 정보를 저장하는 메인 스키마입니다.
- * - user: 해당 전적 정보가 연결된 유저의 ObjectId (User 컬렉션 참조)
- * - lol: 리그 오브 레전드 전적 정보를 저장하는 서브 도큐먼트
- * - tft: 전략적 팀전투(TFT) 전적 정보를 저장하는 서브 도큐먼트
+ * 기존 RiotProfile 스키마 (사용자 연동용 - 하위 호환)
+ * - 사용자와 라이엇 계정 연동 정보
  */
 const riotProfileSchema = new Schema({
     riotUser: {
-        type: Schema.Types.ObjectId,                   // 이 전적 정보가 연결된 사용자의 고유 ID
-        ref: 'User',                                   // User 컬렉션 참조
-        required: true,                                // 필수 항목
-        unique: true                                   // 한 유저당 하나의 RiotProfile만 존재하도록 설정
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        unique: true
     },
     nickname: {
-        type: String,                                  // 라이엇 계정의 공통 닉네임
-        required: true,                                // 필수 항목
+        type: String,
+        required: true,
         default: ''
     },
     lol: {
-        type: lolStatsSchema,                          // 리그 오브 레전드 전적 정보
-        required: true,                                // 필수 항목
-        default: {}                                    // 기본값은 빈 객체
+        overallWinRate: { type: Number, default: 0 },
+        recent20WinRate: { type: Number, default: 0 },
+        gameTier: { type: String, default: '' }
     },
     tft: {
-        type: tftStatsSchema,                          // 전략적 팀전투 전적 정보
-        required: true,                                // 필수 항목
-        default: {}                                    // 기본값은 빈 객체
+        overallWinRate: { type: Number, default: 0 },
+        recent20WinRate: { type: Number, default: 0 },
+        gameTier: { type: String, default: '' },
+        recentMatches: { type: Array, default: [] }
     }
-}, { timestamps: true });                          // createdAt, updatedAt 필드를 자동 관리
+}, { timestamps: true });
 
-// RiotProfile 모델을 'RiotProfile' 컬렉션으로 생성하여 내보냅니다.
+// 모델 export
+export const LoLRecord = model('LoLRecord', lolRecordSchema);
 export const RiotProfile = model('RiotProfile', riotProfileSchema);

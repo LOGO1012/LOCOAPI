@@ -13,7 +13,7 @@ import {
     deleteFriendController,
     declineFriendRequestController,
     getBlockedUsersController,
-    getSummonerRecord, getPaginatedFriendsController,
+    getPaginatedFriendsController,
     getUserCountController, getGenderCountController,
     getSocialGenderCountController, updateUserPrefsController,
     checkNicknameController,
@@ -24,6 +24,7 @@ import {
     archiveAndPrepareNewController,
     updateWordFilter, getFriendRequestCountController
 } from "../controllers/userController.js";
+// ❌ getSummonerRecord 제거됨 → /api/riot/lol/:gameName/:tagLine 로 이동
 import { authenticate } from '../middlewares/authMiddleware.js';
 // ✅ 신규 추가
 import {
@@ -155,7 +156,8 @@ router.delete("/:userId/friends/:friendId", authenticate, deleteFriendController
 // router.delete ('/:userId/block/:targetUserId',   unblockUserController);
 router.get    ('/:userId/blocked', authenticate, getBlockedUsersController);
 
-router.get('/lol/:gameName/:tagLine', getSummonerRecord);
+// ❌ 라이엇 전적 조회 → /api/riot/lol/:gameName/:tagLine 로 이동
+// router.get('/lol/:gameName/:tagLine', getSummonerRecord);
 
 router.get('/:userId/friends',  authenticate, getPaginatedFriendsController);
 
