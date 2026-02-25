@@ -37,16 +37,25 @@ export const getCommunities = async (req, res) => {
 
 
 
-// 단일 커뮤니티 상세 조회 (조회수 증가 포함)
+// 단일 커뮤니티 상세 조회
 export const getCommunity = async (req, res) => {
     try {
         const { id } = req.params;
-        // 조회수 증가
-        const updatedCommunity = await communityService.incrementViews(id);
-        if (!updatedCommunity) {
+        const shouldIncrement = req.query.incrementViews !== 'false';
+        
+        let community;
+        if (shouldIncrement) {
+            // 조회수 증가 포함 조회
+            community = await communityService.incrementViews(id);
+        } else {
+            // 조회수 증가 없이 조회
+            community = await communityService.getCommunityById(id);
+        }
+
+        if (!community) {
             return res.status(404).json({ message: '커뮤니티를 찾을 수 없습니다.' });
         }
-        res.status(200).json(updatedCommunity);
+        res.status(200).json(community);
     } catch (error) {
         res.status(500).json({ message: '커뮤니티 조회에 실패했습니다.', error });
     }
