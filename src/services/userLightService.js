@@ -199,22 +199,6 @@ export const blockUserServiceMinimal = async (userId, targetId) => {
             { $pull: { friends: userId } }  // ⭐ 이 줄 추가!
         );
 
-        // // 🆕 차단된 사용자 정보 조회 (필요한 필드만!)
-        // const blockedUser = await User.findById(targetId)
-        //     .select('_id nickname profilePhoto name createdAt')
-        //     .lean();
-        //
-        // if (!blockedUser) {
-        //     throw new Error('차단할 사용자를 찾을 수 없습니다.');
-        // }
-
-
-        // // 캐시 무효화
-        // await IntelligentCache.invalidateUserCache(userId);
-        // await IntelligentCache.invalidateUserCache(targetId);
-        // await IntelligentCache.deleteCache(`user_blocks_${userId}`);
-        // await IntelligentCache.deleteCache(`users_blocked_me_${targetId}`);
-
         // 🆕 친구 채팅방 비활성화 (차단 시 필수!)
         const chatRoom = await ChatRoom.findOne({
             roomType: 'friend',

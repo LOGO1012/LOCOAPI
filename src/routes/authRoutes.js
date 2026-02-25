@@ -1,9 +1,7 @@
 // src/routes/authRoutes.js
 import express from 'express'; // Express 모듈 불러오기
-import jwt from 'jsonwebtoken';
 import { kakaoCallback, logoutRedirect, getCurrentUser, logout, refreshToken, setSocialSession } from '../controllers/authController.js'; // 카카오 콜백 컨트롤러 함수 불러오기
 import naverAuthRoutes from "./naverAuthRoutes.js";
-import { User } from '../models/UserProfile.js';
 
 const router = express.Router(); // Express 라우터 인스턴스 생성
 
@@ -31,26 +29,6 @@ router.get('/kakao-data', (req, res) => {
 
 
 router.get('/me', getCurrentUser);
-
-// // 4) 현재 로그인된 유저 정보 조회
-// router.get('/me', async (req, res) => {
-//     const authHeader = req.headers.authorization;
-//     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-//         return res.status(401).json({ message: 'Unauthorized' });
-//     }
-//
-//     const token = authHeader.split(' ')[1];
-//     try {
-//         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-//         const user = await User.findById(decoded.userId).lean();
-//         if (!user) {
-//             return res.status(404).json({ message: 'User not found' });
-//         }
-//         return res.status(200).json({ user });
-//     } catch (err) {
-//         return res.status(401).json({ message: 'Invalid token' });
-//     }
-// });
 
 
 // 전용 JSON 로그아웃

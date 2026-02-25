@@ -1,6 +1,5 @@
 // src/schedulers/resetStarScheduler.js
 import cron from 'node-cron';
-import mongoose from 'mongoose';
 import { User } from '../models/UserProfile.js';
 
 // 매 달 1일 00:05 KST 실행 (서버 TZ가 KST라면)

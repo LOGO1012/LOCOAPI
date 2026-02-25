@@ -201,17 +201,6 @@ class IntelligentCache {
     }
   }
 
-  // // 복호화된 사용자 정보 캐싱 (관리자용)
-  // async cacheDecryptedUser(userId, decryptedUserData) {
-  //   const key = `decrypted_user:${userId}`;
-  //   await this.setCache(key, decryptedUserData, 1800); // 30분 TTL
-  // }
-  //
-  // async getDecryptedUser(userId) {
-  //   const key = `decrypted_user:${userId}`;
-  //   return await this.getCache(key);
-  // }
-
   // 🎯 계산된 나이 정보 캐싱 (24시간 TTL)
   async cacheUserAge(userId, age, ageGroup, isMinor) {
     const key = `user_age:${userId}`;

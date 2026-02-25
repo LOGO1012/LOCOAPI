@@ -37,15 +37,6 @@ const storage = multer.diskStorage({
     },
 });
 
-// 파일 타입 필터링 (이미지만 허용)
-const fileFilter = (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-    } else {
-        cb(new Error('이미지 파일만 업로드 가능합니다.'), false);
-    }
-};
-
 const upload = multer({
     storage,
     limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
@@ -55,4 +46,4 @@ const upload = multer({
     }
 });
 
-export default upload;  // ← 이 부분이 누락되어 있었습니다!
+export default upload;

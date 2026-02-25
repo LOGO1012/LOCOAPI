@@ -32,6 +32,13 @@ const clearCookieOptions = {
     // domain 옵션 제거
 };
 
+/**
+ * @function naverCallback
+ * @description 네이버 OAuth 콜백 요청을 처리합니다.
+ *              네이버 사용자 정보를 조회하고 DB와 대조하여 로그인, 회원가입, 또는 재활성화 상태를 반환합니다.
+ *              - 탈퇴 후 기간이 만료된 계정은 자동 보관(archiveUserData) 처리됩니다.
+ *              - 재활성화 가능 기간인 경우 reactivation_possible 상태를 반환합니다.
+ */
 export const naverCallback = async (req, res, next) => {
     try {
         console.log('네이버 콜백 요청 수신:', req.query);
