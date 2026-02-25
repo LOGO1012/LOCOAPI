@@ -82,5 +82,3 @@ export const containsProfanity = (text) => {
   regex.lastIndex = 0;
   return regex.test(text);
 };
-
-export default filterProfanity;

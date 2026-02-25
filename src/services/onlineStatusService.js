@@ -139,20 +139,6 @@ export const getAllOnlineUsers = async () => {
     }
 };
 
-// /**
-//  * 소켓 ID로 사용자 찾기
-//  * @param {string} socketId - 소켓 ID
-//  * @returns {string|null} 사용자 ID
-//  */
-// export const findUserBySocketId = (socketId) => {
-//     for (const [userId, status] of onlineUsers.entries()) {
-//         if (status.socketId === socketId) {
-//             return userId;
-//         }
-//     }
-//     return null;
-// };
-
 /**
  * 온라인 상태 통계 (Redis)
  * @returns {Promise<Object>} 통계 정보
