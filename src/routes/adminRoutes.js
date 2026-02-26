@@ -4,12 +4,53 @@ import express from 'express';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
 import ReportedMessageBackup from '../models/reportedMessageBackup.js';
+import * as adminRewardController from '../controllers/adminRewardController.js';
 
 const router = express.Router();
 
 // 권한 검증: JWT 인증 + userLv >= 2 (관리자 이상)
 router.use(authenticate);
 router.use(requireLevel(2));
+
+// ============================================================================
+//   🎁 관리자 전용 - 채팅 횟수 보상 관리
+// ============================================================================
+
+/**
+ * GET /api/admin/reward/users
+ * 보상 지급을 위한 사용자 검색
+ */
+router.get('/reward/users', adminRewardController.searchUsersForReward);
+
+/**
+ * POST /api/admin/reward/give
+ * 채팅 횟수 보상 지급
+ */
+router.post('/reward/give', adminRewardController.giveChatReward);
+
+/**
+ * GET /api/admin/reward/logs
+ * 보상 지급 내역 조회
+ */
+router.get('/reward/logs', adminRewardController.getRewardLogs);
+
+/**
+ * GET /api/admin/reward/logs/:logId/items
+ * 특정 보상의 상세 아이템 조회
+ */
+router.get('/reward/logs/:logId/items', adminRewardController.getRewardLogItems);
+
+/**
+ * POST /api/admin/reward/cancel
+ * 보상 지급 취소
+ */
+router.post('/reward/cancel', adminRewardController.cancelReward);
+
+/**
+ * POST /api/admin/reward/cancel-all
+ * 그룹 보상 전체 취소
+ */
+router.post('/reward/cancel-all', adminRewardController.cancelAllRewards);
 
 // ============================================================================
 //   🚨 관리자 전용 - 신고된 메시지 목록 조회 (최적화 버전)

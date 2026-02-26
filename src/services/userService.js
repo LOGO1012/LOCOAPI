@@ -149,6 +149,11 @@ export const findUserOrNoUser = async (kakaoUserData) => {
                     // Fall through to Step 2, where the user will be found in the archived collection.
                 }
             } else { // User is active
+                // ✅ 마지막 로그인 시간 업데이트
+                existingUser.lastLogin = new Date();
+                await existingUser.save();
+                console.log(`🕒 [로그인] 마지막 접속일 갱신: ${existingUser.nickname}`);
+                
                 return await _attachCalculatedAge(existingUser);
             }
         }
@@ -225,6 +230,11 @@ export const findUserByNaver = async (naverUserData) => {
                     // Fall through to Step 2, where the user will be found in the archived collection.
                 }
             } else { // User is active
+                // ✅ 마지막 로그인 시간 업데이트
+                existingUser.lastLogin = new Date();
+                await existingUser.save();
+                console.log(`🕒 [로그인] 마지막 접속일 갱신: ${existingUser.nickname}`);
+                
                 return await _attachCalculatedAge(existingUser);
             }
         }
