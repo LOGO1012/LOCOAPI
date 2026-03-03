@@ -158,9 +158,9 @@ class AdminChatService {
                     let text;
                     try {
                         text = await this.decryptMessageForAdmin(
-                            msg._id, 
-                            adminUser, 
-                            'context_investigation'
+                            msg._id,
+                            adminUser,
+                            'report_investigation'
                         );
                     } catch (error) {
                         text = '[복호화 권한 없음]';
