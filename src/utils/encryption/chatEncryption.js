@@ -29,7 +29,7 @@ class ChatEncryption {
         this.#cachedKey = crypto.pbkdf2Sync(
             masterKey,
             chatSalt,
-            100000,
+            310000, // 31만회 반복
             32,
             'sha256'
         );
@@ -145,7 +145,7 @@ class ChatEncryption {
     //         const derivedKey = crypto.pbkdf2Sync(
     //             masterKey,
     //             chatSalt,
-    //             100000, // 10만회 반복
+    //             310000, // 31만회 반복
     //             32,     // 32바이트 (256비트)
     //             'sha256'
     //         );
