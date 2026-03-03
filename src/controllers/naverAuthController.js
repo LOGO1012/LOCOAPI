@@ -4,48 +4,49 @@ import { naverAuthSchema } from '../dto/naverAuthValidator.js';
 import { naverLogin, revokeNaverToken } from '../services/naverAuthService.js';
 import { findUserByNaver, getUserForAuth, updateUserNaverToken } from '../services/userService.js'; // ✅ updateUserNaverToken 추가
 import jwt from 'jsonwebtoken';
+import {blacklistToken, isBlacklisted} from '../utils/tokenBlacklist.js';
 import dotenv from 'dotenv';
 import { checkAndLogAccess } from '../utils/logUtils.js';
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
-const REFRESH_SECRET = process.env.REFRESH_SECRET || "your_refresh_secret";
+const JWT_SECRET = process.env.JWT_SECRET;
+const REFRESH_SECRET = process.env.REFRESH_SECRET;
 const isProd = process.env.NODE_ENV === 'production';
 const BASE_URL_FRONT = process.env.BASE_URL_FRONT
 
 
+// H-01 보안 조치: isProd 변수 활용하여 프로덕션에서 secure/strict 적용
 const cookieOptions = {
     httpOnly: true,
-    secure:   false,  // 개발환경에서는 false
-    sameSite: 'lax',  // 개발환경에서는 lax
+    secure:   isProd,
+    sameSite: isProd ? 'strict' : 'lax',
     path:     "/",
-    // domain 옵션을 제거하여 현재 도메인에만 쿠키 설정
     maxAge:   7 * 24 * 60 * 60 * 1000,
 };
 
 // 쿠키 삭제용 옵션 (maxAge 없이, 설정 시와 동일한 옵션 사용)
 const clearCookieOptions = {
     httpOnly: true,
-    secure:   false,  // 설정할 때와 동일하게
-    sameSite: 'lax',  // 설정할 때와 동일하게
+    secure:   isProd,
+    sameSite: isProd ? 'strict' : 'lax',
     path:     "/",
     // domain 옵션 제거
 };
 
 export const naverCallback = async (req, res, next) => {
     try {
-        console.log('네이버 콜백 요청 수신:', req.query);
+        console.log('네이버 콜백 요청 수신');
         const { error, value } = naverAuthSchema.validate(req.query);
         if (error) {
             console.error('네이버 DTO 검증 오류:', error.details[0].message);
             return res.status(400).json({ message: error.details[0].message });
         }
-        console.log('네이버 DTO 검증 성공:', value);
+        console.log('네이버 DTO 검증 성공');
         const { code, state } = value;
 
         // 네이버 로그인 서비스 호출
         const naverUserData = await naverLogin(code, state);
-        console.log('네이버 로그인 서비스 반환:', naverUserData);
+        console.log('네이버 로그인 서비스 반환 완료');
 
         // DB에서 네이버 사용자를 조회
         const result = await findUserByNaver(naverUserData);
@@ -89,6 +90,14 @@ export const naverCallback = async (req, res, next) => {
             });
         } else if (result.status === 'reactivation_possible') {
             console.log('탈퇴한 사용자, 재활성화 필요');
+
+            // 세션에 reactivation 컨텍스트 저장 (C-06 보안 조치)
+            req.session.reactivationContext = {
+                userId: result.user._id.toString(),
+                provider: 'naver',
+                expiresAt: Date.now() + 10 * 60 * 1000 // 10분 유효
+            };
+
             return res.status(200).json({
                 message: "계정 재활성화 필요",
                 status: "reactivation_possible",
@@ -97,7 +106,7 @@ export const naverCallback = async (req, res, next) => {
             });
         }
         const user = result;
-        console.log('DB에서 네이버 사용자 처리 결과:', user);
+        console.log('DB에서 네이버 사용자 처리 완료');
 
         const clientUser = {
             // ✅ 필수 필드 (인증 및 기본 정보)
@@ -144,7 +153,7 @@ export const naverCallback = async (req, res, next) => {
 
 
         // 5) 토큰 발급
-        const accessToken  = jwt.sign(payload, JWT_SECRET,     { expiresIn: "15m" });
+        const accessToken  = jwt.sign(payload, JWT_SECRET,     { expiresIn: "2h" });
         const refreshToken = jwt.sign(payload, REFRESH_SECRET, { expiresIn: "7d" });
 
         // ✅ 🆕 추가: 네이버 로그인 로그 기록
@@ -159,7 +168,7 @@ export const naverCallback = async (req, res, next) => {
 
         // 6) Refresh 토큰은 HttpOnly 쿠키로, Access 토큰은 JSON으로 응답
         res
-            .cookie("accessToken",  accessToken,  { ...cookieOptions, maxAge: 15*60*1000 })
+            .cookie("accessToken",  accessToken,  { ...cookieOptions, maxAge: 2*60*60*1000 })
             .cookie("refreshToken", refreshToken, { ...cookieOptions, maxAge: 7*24*60*60*1000 })
             .status(200)
             .json({
@@ -168,7 +177,7 @@ export const naverCallback = async (req, res, next) => {
                 user:        clientUser,
             });
     } catch (err) {
-        console.error('네이버 콜백 처리 중 오류:', err);
+        console.error('네이버 콜백 처리 중 오류:', err.message);
         
         // ✅ 🆕 추가: 로그인 실패 로그 기록
         checkAndLogAccess(
@@ -197,6 +206,13 @@ export const naverRefreshToken = async (req, res) => {
             return res.status(401).json({ message: '리프레시 토큰이 없습니다.' });
         }
 
+        // 블랙리스트 체크 (로그아웃된 리프레시 토큰 거부)
+        if (await isBlacklisted(rToken)) {
+            res.clearCookie('refreshToken', clearCookieOptions);
+            res.clearCookie('accessToken', clearCookieOptions);
+            return res.status(401).json({ message: '로그아웃된 토큰입니다.' });
+        }
+
         const payload = jwt.verify(rToken, REFRESH_SECRET);
         const user = await getUserForAuth(payload.userId);
         if (!user) {
@@ -220,10 +236,10 @@ export const naverRefreshToken = async (req, res) => {
                 name: payload.name,
             },
             JWT_SECRET,
-            { expiresIn: '15m' }
+            { expiresIn: '2h' }
         );
         return res
-            .cookie("accessToken", newAccessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 })
+            .cookie("accessToken", newAccessToken, { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000 })
             .status(200)
             .json({ message: "Access token refreshed" });
     } catch (err) {
@@ -239,8 +255,13 @@ export const naverRefreshToken = async (req, res) => {
 export const logout = async (req, res) => {
     try {
         console.log('네이버 로그아웃 요청 - 연동해제 및 쿠키 삭제 시작');
-        console.log('현재 쿠키들:', req.cookies);
-        
+
+        // JWT 토큰 블랙리스트 등록 (로그아웃 후 토큰 재사용 방지)
+        await Promise.all([
+            blacklistToken(req.cookies.accessToken),
+            blacklistToken(req.cookies.refreshToken),
+        ]);
+
         // JWT 토큰에서 사용자 ID 추출
         const token = req.cookies.accessToken || req.cookies.refreshToken;
         if (token) {
@@ -248,7 +269,7 @@ export const logout = async (req, res) => {
                 // 토큰 디코딩해서 사용자 ID 획득
                 const decoded = jwt.decode(token);
                 if (decoded && decoded.userId) {
-                    console.log('사용자 ID 추출 성공:', decoded.userId);
+                    console.log('사용자 ID 추출 성공');
                     
                     // ✅ 🆕 추가: 로그아웃 로그 기록 (네이버 연동해제 전에)
                     await checkAndLogAccess(
@@ -313,8 +334,13 @@ export const logout = async (req, res) => {
 export const logoutRedirect = async (req, res) => {
     try {
         console.log('네이버 로그아웃 리다이렉트 - 연동해제 및 쿠키 삭제 시작');
-        console.log('현재 쿠키들:', req.cookies);
-        
+
+        // JWT 토큰 블랙리스트 등록
+        await Promise.all([
+            blacklistToken(req.cookies.accessToken),
+            blacklistToken(req.cookies.refreshToken),
+        ]);
+
         // logout 함수와 동일한 로직으로 연동해제 처리
         const token = req.cookies.accessToken || req.cookies.refreshToken;
         if (token) {
