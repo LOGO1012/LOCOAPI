@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import * as chatService from '../services/chatService.js';
 import {leaveChatRoomService} from "../services/chatService.js";
 import {ChatRoomExit, ChatMessage, ChatRoom} from "../models/chat.js";
@@ -93,9 +94,15 @@ export const getRoomById = async (req, res) => {
         const exited = await ChatRoomExit.distinct('user', { chatRoom: room._id });
 
         // 2) 현재 남아 있는 유저만 필터링
-        const activeUsers = room.chatUsers.filter(u =>
-            !exited.some(id => id.toString() === u._id.toString())
-        );
+        // L-03 보안 조치: 타이밍 공격 방지 (crypto.timingSafeEqual)
+        const activeUsers = room.chatUsers.filter(u => {
+            const uIdStr = u._id.toString();
+            return !exited.some(id => {
+                const a = Buffer.from(id.toString());
+                const b = Buffer.from(uIdStr);
+                return a.length === b.length && crypto.timingSafeEqual(a, b);
+            });
+        });
 
         const responseDTO = ChatRoomResponseDTO.from(room, activeUsers);
 
