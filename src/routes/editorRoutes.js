@@ -2,11 +2,11 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { User } from '../models/UserProfile.js';
-import jwt from 'jsonwebtoken';
+import { v4 as uuid } from 'uuid';
+import { authenticate } from '../middlewares/authMiddleware.js';
+import { validateImageMagicBytes } from '../utils/upload.js';
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
 // uploads/news/editor 디렉토리 자동 생성
 const editorUploadDir = 'uploads/news/editor';
@@ -21,8 +21,9 @@ const editorStorage = multer.diskStorage({
         cb(null, 'uploads/news/editor/');
     },
     filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'editor-' + uniqueSuffix + path.extname(file.originalname));
+        // M-17 보안 조치: originalname 대신 UUID 사용 (경로 탐색 방지)
+        const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '') || '.tmp';
+        cb(null, `editor-${uuid()}${ext}`);
     }
 });
 
@@ -46,28 +47,9 @@ import sharp from 'sharp';
 
 // ... (multer setup)
 
-// 에디터 이미지 업로드 (글 작성 중 이미지 삽입용)
-router.post('/upload-image', editorUpload.single('image'), async (req, res) => {
+// M-17 보안 조치: authenticate 미들웨어로 인증 통일 (인라인 JWT 파싱 제거)
+router.post('/upload-image', authenticate, editorUpload.single('image'), validateImageMagicBytes, async (req, res) => {
     try {
-        // 인증 확인
-        const token = req.cookies.accessToken;
-        if (!token) {
-            return res.status(401).json({
-                success: false,
-                message: '인증이 필요합니다.'
-            });
-        }
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const user = await User.findById(decoded.userId);
-        
-        if (!user) {
-            return res.status(403).json({
-                success: false,
-                message: '사용자를 찾을 수 없습니다.'
-            });
-        }
-
         if (!req.file) {
             return res.status(400).json({
                 success: false,
