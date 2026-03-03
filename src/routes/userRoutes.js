@@ -24,7 +24,7 @@ import {
     archiveAndPrepareNewController,
     updateWordFilter, getFriendRequestCountController
 } from "../controllers/userController.js";
-// ❌ getSummonerRecord 제거됨 → /api/riot/lol/:gameName/:tagLine 로 이동
+
 import { authenticate } from '../middlewares/authMiddleware.js';
 // ✅ 신규 추가
 import {
@@ -112,8 +112,6 @@ router.post('/:userId/friend-request/decline', authenticate, declineFriendReques
 router.delete("/:userId/friends/:friendId", authenticate, deleteFriendController);
 
 // 차단 기능
-// router.post   ('/:userId/block/:targetUserId',   blockUserController);
-// router.delete ('/:userId/block/:targetUserId',   unblockUserController);
 router.get    ('/:userId/blocked', authenticate, getBlockedUsersController);
 
 // ❌ 라이엇 전적 조회 → /api/riot/lol/:gameName/:tagLine 로 이동

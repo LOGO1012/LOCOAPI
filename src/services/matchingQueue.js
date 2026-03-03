@@ -3,8 +3,6 @@
 import redis from '../config/redis.js';  // ✅ 기존 Redis 재사용
 import { ChatRoom } from '../models/chat.js';
 import { User } from '../models/UserProfile.js';
-import IntelligentCache from '../utils/cache/intelligentCache.js';
-import mongoose from 'mongoose';
 
 /**
  * Redis 기반 매칭 대기열 시스템

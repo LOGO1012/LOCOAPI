@@ -131,32 +131,6 @@ class ChatEncryption {
         }
     }
 
-    // /**
-    //  * 채팅 전용 암호화 키 유도
-    //  * 기존 ComprehensiveEncryption의 키를 활용
-    //  */
-    // static deriveChatKey() {
-    //     try {
-    //         // 기존 시스템의 마스터 키 활용
-    //         const masterKey = process.env.ENCRYPTION_KEY || 'loco_fallback_key_2024';
-    //         const chatSalt = process.env.CHAT_SALT || 'loco_chat_salt_2024_secure_key_v2';
-    //
-    //         // PBKDF2로 채팅 전용 키 유도
-    //         const derivedKey = crypto.pbkdf2Sync(
-    //             masterKey,
-    //             chatSalt,
-    //             310000, // 31만회 반복
-    //             32,     // 32바이트 (256비트)
-    //             'sha256'
-    //         );
-    //
-    //         return derivedKey;
-    //     } catch (error) {
-    //         console.error('키유도 실패:', error);
-    //         throw new Error('채팅 키 생성 실패');
-    //     }
-    // }
-
 
     /**
      * 암호화/복호화 테스트

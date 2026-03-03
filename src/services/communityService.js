@@ -196,6 +196,13 @@ export const deleteCommunity = async (id) => {
     ).select('_id isDeleted deletedAt');
 };
 
+// 조회수 증가 없이 커뮤니티 조회
+export const getCommunityById = async (id) => {
+    return await Community.findOne({_id: id, isDeleted: false})
+    .select('_id userId isAnonymous communityTitle communityContents communityCategory communityImages recommended recommendedUsers communityViews commentCount createdAt polls')
+    .populate('userId', 'nickname');
+};
+
 // 조회수 증가 (커뮤니티 조회 시)
 // ✅ 조회수 증가 (삭제되지 않은 게시글만)
 export const incrementViews = async (id) => {

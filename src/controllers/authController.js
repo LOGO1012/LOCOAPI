@@ -36,11 +36,10 @@ const clearCookieOptions = {
  * 카카오 OAuth 콜백 컨트롤러 함수
  * 1. 카카오에서 전달받은 인가코드를 Joi 스키마로 검증합니다.
  * 2. 인가코드를 바탕으로 카카오 API와 통신해 액세스 토큰과 사용자 정보를 받아옵니다.
- * 3. DB에 카카오 정보가 존재하면 로그인(토큰 발급) 처리, 없으면 회원가입 페이지로 리다이렉트합니다.
- *
- * @param {import('express').Request} req - Express 요청 객체 (쿼리 파라미터에 인가코드 포함)
- * @param {import('express').Response} res - Express 응답 객체
- * @param {Function} next - 에러 핸들링 미들웨어 호출 함수
+ * 3. DB에 카카오 정보가 존재하면 로그인(토큰 발급) 처리합니다.
+ *    - 이 과정에서 탈퇴 후 기간이 지난 계정은 자동 보관(archiveUserData) 처리되거나,
+ *    - 재활성화 가능 기간 내인 경우 재활성화(reactivateUserService) 안내 상태를 반환합니다.
+ * 4. 정보가 없으면 회원가입 페이지로 리다이렉트합니다.
  */
 export const kakaoCallback = async (req, res, next) => {
     try {
@@ -209,31 +208,6 @@ export const kakaoCallback = async (req, res, next) => {
     }
 };                                                    // 원본 소셜 로그인 부분 참조 :contentReference[oaicite:0]{index=0}
 //---------------------카카오 콜백
-
-/**
- * Refresh 토큰으로 새 Access 토큰 발급
- */
-// export const refreshToken = (req, res) => {
-//     const token = req.cookies.refreshToken;
-//     if (!token) {
-//         return res.status(401).json({ message: "No refresh token" });
-//     }
-//     try {
-//         const payload = jwt.verify(token, REFRESH_SECRET);
-//         const newAccess = jwt.sign(
-//             {
-//                 userId:  payload.userId,
-//                 kakaoId: payload.kakaoId,
-//                 name:    payload.name,
-//             },
-//             JWT_SECRET,
-//             { expiresIn: "15m" }
-//         );
-//         return res.json({ accessToken: newAccess });
-//     } catch {
-//         return res.status(401).json({ message: "Invalid refresh token" });
-//     }
-// };
 
 /**
  * 리프레시 토큰으로 새 액세스 토큰 발급

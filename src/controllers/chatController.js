@@ -285,19 +285,6 @@ export const leaveChatRoom = async (req, res) => {
     }
 };
 
-// /**
-//  * 사용자 종료한 채팅방 ID 목록 조회 컨트롤러
-//  */
-// export const getLeftRooms = async (req, res) => {
-//     try {
-//         const { userId } = req.params;
-//         const leftRooms = await chatService.getUserLeftRooms(userId);
-//         res.status(200).json({ leftRooms });
-//     } catch (error) {
-//         res.status(500).json({ error: error.message });
-//     }
-// };
-
 export const updateRoomActive = async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -721,15 +708,24 @@ export const findOrCreateRoom = async (req, res) => {
                 roomType: 'random',
                 chatUsers: userId,
                 status: { $in: ['waiting', 'active'] }
-            }).select('_id').lean();
+            }).select('_id chatUsers status').lean();
 
             if (existingRoom) {
-                console.log(`🔄 [방찾기/생성] 기존 활성 방 발견, 재접속: ${existingRoom._id}`);
-                return res.status(200).json({
-                    success: true,
-                    action: 'rejoined',
-                    room: { _id: existingRoom._id }
-                });
+                // ⭐ 유효성 검사: 나 말고 다른 사람도 방에 있는지 확인
+                const otherUsersCount = existingRoom.chatUsers.filter(u => u.toString() !== userId.toString()).length;
+
+                // 만약 'active' 상태이거나, 'waiting'인데 다른 사람이 한 명이라도 있다면 재접속 허용
+                if (existingRoom.status === 'active' || otherUsersCount > 0) {
+                    console.log(`🔄 [방찾기/생성] 기존 활성 방 발견, 재접속: ${existingRoom._id}`);
+                    return res.status(200).json({
+                        success: true,
+                        action: 'rejoined',
+                        room: { _id: existingRoom._id }
+                    });
+                } else {
+                    // 나 혼자 남은 'waiting' 방이면 유령 방으로 간주하고 계속 진행 (새 방 찾기/생성)
+                    console.log(`👻 [방찾기/생성] 혼자 남은 유령 방 발견 (${existingRoom._id}), 무시하고 새로 시작`);
+                }
             }
         }
 

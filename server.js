@@ -304,9 +304,3 @@ process.on('SIGINT', async () => {
         process.exit(0);
     });
 });
-
-//
-// mongoose.connection.once('open', () => {
-//     console.log('MongoDB connected – starting schedulers');
-//     startResetStarScheduler();
-// });

@@ -412,19 +412,8 @@ export const acceptFriendRequestController = async (req, res) => {
 
         const result = await acceptFriendRequestService(requestId);
         res.status(200).json(result.friend);
-        // res.status(200).json({
-        //     success: true,
-        //     message: "친구 요청을 수락하였으며, 친구 목록에 추가되었습니다.",
-        //     data: {
-        //         friend: result.friend  // ✅ populate된 친구 정보
-        //     }
-        // });
     } catch (error) {
         res.status(400).json({ error: error.message });
-        // res.status(400).json({
-        //     success: false,
-        //     message: error.message
-        // });
     }
 };
 
@@ -445,11 +434,6 @@ export const sendFriendRequestController = async (req, res) => {
     try {
         // 친구 요청 생성
         const { request, senderNickname } = await sendFriendRequest(senderId, receiverId);
-        // 보낸 유저의 정보를 가져와 닉네임을 조회
-        // const senderUser = await getUserById(senderId);
-
-
-        // await invalidateFriendRequestCaches(IntelligentCache, receiverId);//(서비스에서 사용중)
 
         // 보낸 유저의 닉네임을 포함하여 알림 전송
         io.to(receiverId).emit('friendRequestNotification', {
@@ -660,42 +644,6 @@ export const deleteFriendController = async (req, res) => {
     }
 };
 
-// /**
-//  * 사용자 차단
-//  */
-// export const blockUserController = async (req, res) => {
-//     const { userId, targetUserId } = req.params;
-//     try {
-//         const updated = await blockUserService(userId, targetUserId);
-//         // 📌 추가: 차단 관련 캐시 무효화
-//         await IntelligentCache.deleteCache(`user_blocks_${userId}`);
-//         await IntelligentCache.deleteCache(`users_blocked_me_${targetUserId}`);
-//         console.log(`🗑️ [캐시 무효화] 차단: ${userId} -> ${targetUserId}`);
-//
-//         res.status(200).json({ success: true, data: updated.blockedUsers });
-//     } catch (err) {
-//         res.status(400).json({ success: false, message: err.message });
-//     }
-// };
-//
-// /**
-//  * 차단 해제
-//  */
-// export const unblockUserController = async (req, res) => {
-//     const { userId, targetUserId } = req.params;
-//     try {
-//         const updated = await unblockUserService(userId, targetUserId);
-//         // 📌 추가: 차단 해제 관련 캐시 무효화
-//         await IntelligentCache.deleteCache(`user_blocks_${userId}`);
-//         await IntelligentCache.deleteCache(`users_blocked_me_${targetUserId}`);
-//         console.log(`🗑️ [캐시 무효화] 차단 해제: ${userId} -> ${targetUserId}`);
-//
-//         res.status(200).json({ success: true, data: updated.blockedUsers });
-//     } catch (err) {
-//         res.status(400).json({ success: false, message: err.message });
-//     }
-// };
-
 /**
  * 차단 목록 조회
  */
@@ -724,10 +672,6 @@ export const getBlockedUsersController = async (req, res) => {
         res.status(400).json({ success: false, message: err.message });
     }
 };
-
-// ⚠️ getSummonerRecord는 riotController.js로 이동됨
-// 엔드포인트: GET /api/riot/lol/:gameName/:tagLine
-
 
 export const getPaginatedFriendsController = async (req, res) => {
     const { userId } = req.params;
@@ -1056,6 +1000,11 @@ export const checkChangeAvailabilityController = async (req, res) => {
     }
 };
 
+/**
+ * @function deactivateUser
+ * @description 회원 탈퇴 요청을 처리합니다. 마지막 접속 로그를 기록하고,
+ *              userService를 통해 계정을 비활성화하며 클라이언트의 쿠키를 삭제합니다.
+ */
 export const deactivateUser = async (req, res) => {
     try {
         const userId = req.user._id;
@@ -1079,6 +1028,11 @@ export const deactivateUser = async (req, res) => {
     }
 };
 
+/**
+ * @function reactivateUser
+ * @description 비활성화(탈퇴)된 계정을 재활성화합니다.
+ *              userService를 통해 상태를 변경하고 새로운 인증 토큰(JWT)을 발급하여 로그인 처리합니다.
+ */
 export const reactivateUser = async (req, res) => {
     try {
         const { userId } = req.body;
@@ -1133,6 +1087,11 @@ export const reactivateUser = async (req, res) => {
     }
 };
 
+/**
+ * @function archiveAndPrepareNewController
+ * @description 기존 계정 정보를 보관하고, 새로운 계정 생성을 위해 준비합니다.
+ *              userService를 통해 데이터를 UserHistory로 이동시키고 원본 사용자를 삭제합니다.
+ */
 export const archiveAndPrepareNewController = async (req, res) => {
     try {
         const { userId } = req.body;

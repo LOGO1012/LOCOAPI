@@ -46,9 +46,6 @@ router.put('/messages/:messageId', authenticate, chatController.deleteMessage);
 // 채팅방에서 사용자 제거
 router.delete('/rooms/:roomId/:userId', authenticate, chatController.leaveChatRoom);
 
-// 사용자 종료한 채팅방 ID 목록 조회
-//router.get('/leftRooms/:userId', chatController.getLeftRooms);
-
 router.patch('/rooms/:roomId/active', authenticate, chatController.updateRoomActive);
 
 router.get('/search/chat-room-history', authenticate, chatController.getChatRoomHistory);

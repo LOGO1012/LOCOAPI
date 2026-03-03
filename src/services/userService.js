@@ -152,6 +152,11 @@ export const findUserOrNoUser = async (kakaoUserData) => {
                     // Fall through to Step 2, where the user will be found in the archived collection.
                 }
             } else { // User is active
+                // ✅ 마지막 로그인 시간 업데이트
+                existingUser.lastLogin = new Date();
+                await existingUser.save();
+                console.log(`🕒 [로그인] 마지막 접속일 갱신: ${existingUser.nickname}`);
+
                 return await _attachCalculatedAge(existingUser);
             }
         }
@@ -228,6 +233,11 @@ export const findUserByNaver = async (naverUserData) => {
                     // Fall through to Step 2, where the user will be found in the archived collection.
                 }
             } else { // User is active
+                // ✅ 마지막 로그인 시간 업데이트
+                existingUser.lastLogin = new Date();
+                await existingUser.save();
+                console.log(`🕒 [로그인] 마지막 접속일 갱신: ${existingUser.nickname}`);
+
                 return await _attachCalculatedAge(existingUser);
             }
         }
@@ -974,20 +984,6 @@ export const rateUser = async (userId, rating) => {
     // };
 };
 
-// // 사용자 별점 평가
-// //매너 평가 시스템 (별점 누적)
-// export const rateUser = async (userId, rating) => {
-//     if (typeof rating !== "number" || rating < 0 || rating > 5) {
-//         throw new Error("Rating must be a number between 0 and 5.");
-//     }
-//     const user = await User.findById(userId);
-//     if (!user) throw new Error("User not found.");
-//     user.star += rating;
-//     await user.save();
-//     await IntelligentCache.invalidateUserCache(userId);
-//     return user;
-// };
-
 // ============================================================================
 //    채팅 관련 함수
 // ============================================================================
@@ -1199,15 +1195,6 @@ export const acceptFriendRequestService = async (requestId) => {
     ]);
 
     console.log(`✅ [친구수락] 양방향 친구 관계 생성 완료`);
-
-    // // 양쪽 사용자의 친구 배열에 서로의 ID추가
-    // await User.findByIdAndUpdate(friendRequest.sender, {
-    //     $push: { friends: friendRequest.receiver } });
-    // await User.findByIdAndUpdate(friendRequest.receiver, {
-    //     $push: { friends: friendRequest.sender._id } });
-
-    // 친구 요청 문서를 DB에서 삭제
-    //await FriendRequest.findByIdAndDelete(requestId);
 
     await Promise.all([
         IntelligentCache.invalidateUserFriends(senderId),
@@ -1697,102 +1684,6 @@ async function invalidateFriendCache(userId) {
 //    차단 관리 함수
 // ============================================================================
 
-
-
-// /**
-//  * 사용자 차단 (개선: 캐시 무효화 양방향)
-//  * @param {string} userId - 차단하는 사용자 ID
-//  * @param {string} targetId - 차단당하는 사용자 ID
-//  */
-// export const blockUserService = async (userId, targetId) => {
-//     try {
-//         console.log(`🔒 [blockUserService] ${userId}가 ${targetId}를 차단`);
-//
-//         // 1. DB 업데이트 ($addToSet: 중복 방지)
-//         const user = await User.findByIdAndUpdate(
-//             userId,
-//             { $addToSet: { blockedUsers: targetId } },
-//             { new: true }
-//         );
-//
-//         if (!user) {
-//             throw new Error('사용자를 찾을 수 없습니다.');
-//         }
-//
-//         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//         // 2️⃣ 캐시 무효화 (양방향 + 기존 캐시)
-//         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//
-//         // ✅ 기존 사용자 캐시 무효화 (기존 로직 유지)
-//         await IntelligentCache.invalidateUserCache(userId);
-//
-//         // ✅ 차단하는 사람의 "내가 차단한 목록" 캐시 무효화
-//         const myBlocksCacheKey = `user_blocks_${userId}`;
-//         await IntelligentCache.deleteCache(myBlocksCacheKey);
-//         console.log(`🗑️ [blockUserService] 캐시 무효화: ${myBlocksCacheKey}`);
-//
-//         // ✅ 차단당하는 사람의 "나를 차단한 목록" 캐시 무효화
-//         const blockedMeCacheKey = `users_blocked_me_${targetId}`;
-//         await IntelligentCache.deleteCache(blockedMeCacheKey);
-//         console.log(`🗑️ [blockUserService] 캐시 무효화: ${blockedMeCacheKey}`);
-//
-//         console.log(`✅ [blockUserService] 차단 완료 및 캐시 무효화 성공`);
-//
-//         return user;
-//
-//     } catch (error) {
-//         console.error('❌ [blockUserService] 오류:', error);
-//         throw new Error(`차단 처리 실패: ${error.message}`);
-//     }
-// };
-//
-// /**
-//  * 차단 해제 (개선: 캐시 무효화 양방향)
-//  * @param {string} userId - 차단 해제하는 사용자 ID
-//  * @param {string} targetId - 차단 해제당하는 사용자 ID
-//  */
-// export const unblockUserService = async (userId, targetId) => {
-//     try {
-//         console.log(`🔓 [unblockUserService] ${userId}가 ${targetId} 차단 해제`);
-//
-//         // 1. DB 업데이트 ($pull: 배열에서 제거)
-//         const user = await User.findByIdAndUpdate(
-//             userId,
-//             { $pull: { blockedUsers: targetId } },
-//             { new: true }
-//         );
-//
-//         if (!user) {
-//             throw new Error('사용자를 찾을 수 없습니다.');
-//         }
-//
-//         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//         // 2️⃣ 캐시 무효화 (양방향 + 기존 캐시)
-//         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//
-//         // ✅ 기존 사용자 캐시 무효화 (기존 로직 유지)
-//         await IntelligentCache.invalidateUserCache(userId);
-//
-//         // ✅ 차단 해제하는 사람의 "내가 차단한 목록" 캐시 무효화
-//         const myBlocksCacheKey = `user_blocks_${userId}`;
-//         await IntelligentCache.deleteCache(myBlocksCacheKey);
-//         console.log(`🗑️ [unblockUserService] 캐시 무효화: ${myBlocksCacheKey}`);
-//
-//         // ✅ 차단 해제당하는 사람의 "나를 차단한 목록" 캐시 무효화
-//         const blockedMeCacheKey = `users_blocked_me_${targetId}`;
-//         await IntelligentCache.deleteCache(blockedMeCacheKey);
-//         console.log(`🗑️ [unblockUserService] 캐시 무효화: ${blockedMeCacheKey}`);
-//
-//         console.log(`✅ [unblockUserService] 차단 해제 완료 및 캐시 무효화 성공`);
-//
-//         return user;
-//
-//     } catch (error) {
-//         console.error('❌ [unblockUserService] 오류:', error);
-//         throw new Error(`차단 해제 실패: ${error.message}`);
-//     }
-// };
-
 // 차단 목록 조회
 export const getBlockedUsersService = async (userId) => {
     const cacheKey = `user_blocks_${userId}`;
@@ -2240,6 +2131,14 @@ export const updateUser = async (userId, updateData) => {
 
 
 
+/**
+ * @function reactivateUserService
+ * @description 탈퇴 상태의 사용자를 'active' 상태로 변경하여 계정을 재활성화합니다.
+ *              관련 캐시를 무효화합니다.
+ * @param {string} userId - 재활성화할 사용자 ID
+ * @returns {Promise<User>} 재활성화된 사용자 문서
+ * @throws {Error} 사용자를 찾을 수 없거나 이미 활성화된 계정인 경우
+ */
 export const reactivateUserService = async (userId) => {
     const user = await User.findById(userId);
     if (!user) {
@@ -2258,6 +2157,14 @@ export const reactivateUserService = async (userId) => {
     return user;
 };
 
+/**
+ * @function deactivateUserService
+ * @description 사용자를 'deactivated' 상태로 변경하고, 관련 데이터를 정리(친구 관계 해제, 채팅방 비활성화, 게시글/댓글 삭제)합니다.
+ *              사용자의 탈퇴 횟수를 증가시키고 관련 캐시를 무효화합니다.
+ * @param {string} userId - 비활성화할 사용자 ID
+ * @returns {Promise<Object>} 탈퇴 처리된 사용자의 상태 및 탈퇴 시각 정보
+ * @throws {Error} 사용자를 찾을 수 없거나 이미 탈퇴한 계정인 경우
+ */
 export const deactivateUserService = async (userId) => {
     const user = await User.findById(userId);
     if (!user) {
@@ -2320,6 +2227,14 @@ export const deactivateUserService = async (userId) => {
     };
 };
 
+/**
+ * @function archiveUserData
+ * @description 사용자 데이터를 `ArchivedUser` 컬렉션에 보관하고, 기존 `User` 컬렉션에서 삭제합니다.
+ *              주로 재가입 기간이 만료된 사용자의 데이터를 영구 보관할 때 사용됩니다.
+ *              관련 캐시를 무효화합니다.
+ * @param {string} userId - 보관할 사용자 ID
+ * @returns {Promise<void>}
+ */
 export const archiveUserData = async (userId) => {
     try {
         console.log(`🗄️ [사용자 보관] 시작: ${userId}`);
@@ -2353,6 +2268,15 @@ export const archiveUserData = async (userId) => {
     }
 };
 
+/**
+ * @function archiveAndPrepareNew
+ * @description 기존 사용자 데이터를 `UserHistory`에 보관하고, `User` 컬렉션에서 해당 사용자를 삭제합니다.
+ *              새로운 계정 생성을 위해 기존 데이터를 정리하는 용도로 사용됩니다.
+ *              관련 캐시를 무효화합니다.
+ * @param {string} userId - 보관 및 삭제할 사용자 ID
+ * @returns {Promise<Object>} 성공 여부, 메시지 및 탈퇴 횟수 정보
+ * @throws {Error} 사용자를 찾을 수 없는 경우
+ */
 export const archiveAndPrepareNew = async (userId) => {
     const user = await User.findById(userId);
     if (!user) {
@@ -2412,29 +2336,5 @@ const _attachCalculatedAge = async (user) => {
         return typeof user.toObject === 'function' ? user.toObject() : { ...user };
     }
 };
-
-// // 나이 정보만 빠르게 조회
-// // 캐시 우선 나이 정보 조회, 매칭 시스템에서 성능 최적화, 실시간 만나이 계산
-// export const getUserAgeInfo = async (userId) => {
-//     try {
-//         let ageInfo = await IntelligentCache.getCachedUserAge(userId);
-//         if (!ageInfo) {
-//             const user = await User.findById(userId).select('birthdate').lean();
-//             if (!user || !user.birthdate) return null;
-//             const decryptedBirthdate = ComprehensiveEncryption.decryptPersonalInfo(user.birthdate);
-//             if (!decryptedBirthdate) return null;
-//
-//             // 🔧 birthdate 기반 만나이 계산
-//             const age = ComprehensiveEncryption.calculateAge(decryptedBirthdate);
-//             const ageGroup = ComprehensiveEncryption.getAgeGroup(decryptedBirthdate);
-//             const isMinor = ComprehensiveEncryption.isMinor(decryptedBirthdate);
-//             ageInfo = { age, ageGroup, isMinor };
-//             await IntelligentCache.cacheUserAge(userId, age, ageGroup, isMinor);
-//         }
-//         return ageInfo;
-//     } catch (error) {
-//         throw error;
-//     }
-// };
 
 export { calculateRechargeRealtime };
