@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
+import { v4 as uuid } from 'uuid';
 import {
     getNewsList,
     getNewsDetail,
@@ -10,6 +11,7 @@ import {
 } from '../controllers/newsController.js';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
+import { validateImageMagicBytes } from '../utils/upload.js';
 
 const router = express.Router();
 
@@ -19,8 +21,9 @@ const storage = multer.diskStorage({
         cb(null, 'uploads/news/');
     },
     filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'news-' + uniqueSuffix + path.extname(file.originalname));
+        // H-13 보안 조치: originalname 대신 UUID 사용 (경로 탐색 방지)
+        const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+        cb(null, `news-${uuid()}${ext}`);
     }
 });
 
@@ -47,8 +50,8 @@ router.get('/', getNewsList);           // 뉴스 목록 조회
 router.get('/:id', getNewsDetail);      // 뉴스 상세 조회
 
 // 개발자 전용 라우트 (lv3 이상)
-router.post('/', authenticate, requireLevel(3), upload.array('images', 10), createNews);     // 뉴스 작성
-router.put('/:id', authenticate, requireLevel(3), upload.array('images', 10), updateNews);   // 뉴스 수정
+router.post('/', authenticate, requireLevel(3), upload.array('images', 10), validateImageMagicBytes, createNews);     // 뉴스 작성
+router.put('/:id', authenticate, requireLevel(3), upload.array('images', 10), validateImageMagicBytes, updateNews);   // 뉴스 수정
 router.delete('/:id', authenticate, requireLevel(3), deleteNews);                            // 뉴스 삭제
 
 export default router;
