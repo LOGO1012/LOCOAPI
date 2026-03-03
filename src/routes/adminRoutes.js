@@ -3,6 +3,7 @@
 import express from 'express';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
+import adminAccessLogger from '../middlewares/adminAccessLogger.js';
 import ReportedMessageBackup from '../models/reportedMessageBackup.js';
 
 const router = express.Router();
@@ -10,6 +11,7 @@ const router = express.Router();
 // 권한 검증: JWT 인증 + userLv >= 2 (관리자 이상)
 router.use(authenticate);
 router.use(requireLevel(2));
+router.use(adminAccessLogger);
 
 // ============================================================================
 //   🚨 관리자 전용 - 신고된 메시지 목록 조회 (최적화 버전)
