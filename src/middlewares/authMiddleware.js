@@ -1,6 +1,7 @@
 // src/middlewares/authMiddleware.js
 import jwt from 'jsonwebtoken';
 import {getUserForAuth} from "../services/userService.js";
+import {isBlacklisted} from "../utils/tokenBlacklist.js";
 
 export const authenticate = async (req, res, next) => {
     try {
@@ -21,6 +22,11 @@ export const authenticate = async (req, res, next) => {
 
         // 3) 액세스 토큰 검증 시도
         try {
+            // 블랙리스트 체크 (로그아웃된 토큰 거부)
+            if (await isBlacklisted(accessToken)) {
+                return res.status(401).json({message: "로그아웃된 토큰입니다."});
+            }
+
             // JWT 토큰 검증
             const payload = jwt.verify(accessToken, process.env.JWT_SECRET);
             // ✅ 최적화: getUserForAuth 사용
@@ -41,25 +47,9 @@ export const authenticate = async (req, res, next) => {
             req.user = user;
             return next();
         } catch {
-            // 액세스 토큰이 만료되었거나 위조된 경우, 리프레시 단계로 넘어갑니다.
-        }
-
-        // 4) refreshToken 쿠키로 재발급 및 검증
-        // 4) refreshToken 쿠키로 재발급 및 검증
-        const refreshToken = req.cookies.refreshToken;
-        if (!refreshToken) {
-            return res.status(401).json({message: "리프레시 토큰이 제공되지 않았습니다."});
-        }
-        try {
-            const payload = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
-            const user = await getUserForAuth(payload.userId);
-            if (!user) {
-                return res.status(401).json({message: "유효하지 않은 사용자입니다."});
-            }
-            req.user = user;
-            return next();
-        } catch {
-            return res.status(401).json({message: "리프레시 토큰 검증에 실패했습니다."});
+            // H-02 보안 조치: accessToken 실패 시 바로 401 반환
+            // refreshToken은 /api/auth/refresh 전용 (프론트 인터셉터가 자동 재발급 처리)
+            return res.status(401).json({message: "액세스 토큰이 만료되었거나 유효하지 않습니다."});
         }
     } catch (err) {
         console.error("authenticate 미들웨어 에러:", err);
