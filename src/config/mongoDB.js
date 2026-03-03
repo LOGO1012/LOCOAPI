@@ -1,9 +1,15 @@
 import mongoose from 'mongoose';
 
+// NoSQL Injection 추가 방어: 스키마에 정의되지 않은 필드로의 쿼리 차단
+mongoose.set('strictQuery', true);
+
 // MongoDB 연결
 const connectMongoDB = async () => {
     try {
-        const mongoURI = 'mongodb://loco:loco98@192.168.219.103/locodb';
+        const mongoURI = process.env.MONGO_URI;
+        if (!mongoURI) {
+            throw new Error('MONGO_URI 환경변수가 설정되지 않았습니다.');
+        }
 
         console.log('MongoDB 연결 시도...');
 
