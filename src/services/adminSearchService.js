@@ -39,7 +39,7 @@ class AdminSearchService {
                     let decryptedText;
                     try {
                         decryptedText = await AdminChatService.decryptMessageForAdmin(
-                            msg._id, adminUser, 'search_operation'
+                            msg._id, adminUser, 'data_verification'
                         );
                     } catch (error) {
                         decryptedText = '[복호화 권한 없음]';
@@ -110,7 +110,7 @@ class AdminSearchService {
                     let decryptedText;
                     try {
                         decryptedText = await AdminChatService.decryptMessageForAdmin(
-                            msg._id, adminUser, 'user_history_review'
+                            msg._id, adminUser, 'user_support'
                         );
                     } catch (error) {
                         decryptedText = '[복호화 권한 없음]';
@@ -221,7 +221,7 @@ class AdminSearchService {
                     let decryptedText;
                     try {
                         decryptedText = await AdminChatService.decryptMessageForAdmin(
-                            msg._id, adminUser, 'advanced_search'
+                            msg._id, adminUser, 'data_verification'
                         );
                     } catch (error) {
                         decryptedText = '[복호화 권한 없음]';
@@ -349,7 +349,7 @@ class AdminSearchService {
                 action: 'search_operation',
                 targetType: 'ChatMessage',
                 targetId: null,
-                purpose: 'advanced_search',
+                purpose: 'data_verification',
                 metadata: {
                     searchOptions: JSON.stringify(searchOptions),
                     resultCount: resultCount,
