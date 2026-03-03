@@ -1,4 +1,5 @@
 // controllers/userController.js
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import {
     acceptFriendRequestService,
@@ -132,7 +133,16 @@ export const updateUserProfile = async (req, res) => {
     }
 
     try {
-
+        // C-10 보안 조치: 허용 필드 화이트리스트 (userLv, status, coinLeft 등 주입 차단)
+        const ALLOWED_FIELDS = ['nickname', 'info', 'gender', 'lolNickname', 'profilePhoto', 'photo', 'isPublicPR'];
+        const forbiddenFields = Object.keys(updateData).filter(key => !ALLOWED_FIELDS.includes(key));
+        if (forbiddenFields.length > 0) {
+            console.warn(`⚠️ [C-10] 비허용 필드 수정 시도 - userId: ${userId}, fields: ${forbiddenFields.join(', ')}`);
+            return res.status(400).json({
+                success: false,
+                message: '수정할 수 없는 필드가 포함되어 있습니다.'
+            });
+        }
 
         if (updateData.info && containsProfanity(updateData.info)) {
             return res.status(400).json({ message: '자기소개에 비속어를 사용할 수 없습니다.' });
@@ -184,7 +194,7 @@ export const updateUserProfile = async (req, res) => {
             {
                 new: true,
                 runValidators: true,
-                select: '_id nickname info gender lolNickname suddenNickname battleNickname profilePhoto photo coinLeft star'
+                select: '_id nickname info gender lolNickname profilePhoto photo coinLeft star'
             }
         );
 
@@ -195,8 +205,6 @@ export const updateUserProfile = async (req, res) => {
             info: updatedUser.info,
             gender: updatedUser.gender,
             lolNickname: updatedUser.lolNickname,
-            suddenNickname: updatedUser.suddenNickname,
-            battleNickname: updatedUser.battleNickname,
             profilePhoto: updatedUser.profilePhoto,
             photo: updatedUser.photo,
             coinLeft: updatedUser.coinLeft,
@@ -806,7 +814,8 @@ export const updateUserPrefsController = async (req, res) => {
 // 닉네임 중복 체크 컨트롤러
 export const checkNicknameController = async (req, res) => {
     try {
-        const { nickname } = req.params;
+        // L-02 보안 조치: Unicode 정규화 (NFC) — 조합형/분해형 문자 통일
+        const nickname = req.params.nickname ? req.params.nickname.normalize('NFC') : req.params.nickname;
         const { userId } = req.query; // 수정 시 자신의 ID는 제외하기 위함
 
         // 욕설 필터링 추가
@@ -883,7 +892,12 @@ export const checkNicknameController = async (req, res) => {
         //  결과 처리 및 캐싱
         if (existingUser) {
             // 수정 시 자신의 닉네임인 경우는 사용 가능
-            if (userId && existingUser._id.toString() === userId) {
+            // L-03 보안 조치: 타이밍 공격 방지 (crypto.timingSafeEqual)
+            if (userId && (() => {
+                const a = Buffer.from(existingUser._id.toString());
+                const b = Buffer.from(userId.toString());
+                return a.length === b.length && crypto.timingSafeEqual(a, b);
+            })()) {
                 return res.json({
                     available: true,
                     message: '현재 사용 중인 닉네임입니다.'
@@ -1067,7 +1081,21 @@ export const deactivateUser = async (req, res) => {
 
 export const reactivateUser = async (req, res) => {
     try {
-        const { userId } = req.body; // The user ID to reactivate
+        const { userId } = req.body;
+
+        // C-06 보안 조치: 세션 기반 reactivation 컨텍스트 검증
+        const ctx = req.session.reactivationContext;
+        if (!ctx) {
+            return res.status(403).json({ success: false, message: '유효하지 않은 재활성화 요청입니다.' });
+        }
+        if (ctx.userId !== userId) {
+            return res.status(403).json({ success: false, message: '요청한 계정과 인증된 계정이 일치하지 않습니다.' });
+        }
+        if (Date.now() > ctx.expiresAt) {
+            delete req.session.reactivationContext;
+            return res.status(403).json({ success: false, message: '재활성화 요청이 만료되었습니다. 다시 로그인해 주세요.' });
+        }
+
         const user = await reactivateUserService(userId);
         
         // After reactivation, log the user in by issuing tokens
@@ -1087,6 +1115,9 @@ export const reactivateUser = async (req, res) => {
             path:     "/",
         };
 
+        // 성공 후 세션 컨텍스트 삭제
+        delete req.session.reactivationContext;
+
         res
             .cookie('accessToken',  accessToken,  { ...cookieOptions, maxAge: 2 * 60 * 60 * 1000}) // 2 hours
             .cookie('refreshToken', refreshToken, { ...cookieOptions , maxAge: 7*24*60*60*1000 })
@@ -1105,7 +1136,22 @@ export const reactivateUser = async (req, res) => {
 export const archiveAndPrepareNewController = async (req, res) => {
     try {
         const { userId } = req.body;
+
+        // C-06 보안 조치: 세션 기반 reactivation 컨텍스트 검증
+        const ctx = req.session.reactivationContext;
+        if (!ctx) {
+            return res.status(403).json({ success: false, message: '유효하지 않은 아카이브 요청입니다.' });
+        }
+        if (ctx.userId !== userId) {
+            return res.status(403).json({ success: false, message: '요청한 계정과 인증된 계정이 일치하지 않습니다.' });
+        }
+        if (Date.now() > ctx.expiresAt) {
+            delete req.session.reactivationContext;
+            return res.status(403).json({ success: false, message: '요청이 만료되었습니다. 다시 로그인해 주세요.' });
+        }
+
         const result = await archiveAndPrepareNew(userId);
+        // archive 후에는 컨텍스트 유지 (set-social-session에서 사용 후 삭제)
         res.status(200).json(result);
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
