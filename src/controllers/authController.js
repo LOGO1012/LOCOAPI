@@ -4,29 +4,30 @@ import { kakaoAuthSchema } from '../dto/authValidator.js';
 import { kakaoLogin } from '../services/authService.js';
 import {findUserOrNoUser, getUserForAuth} from '../services/userService.js';
 import jwt from 'jsonwebtoken';
+import {blacklistToken, isBlacklisted} from '../utils/tokenBlacklist.js';
 import dotenv from 'dotenv';
 dotenv.config(); // .env 파일에 정의된 환경변수 로드
 
-// JWT 서명에 사용할 비밀키를 환경변수에서 가져오거나 기본값 사용
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
-const REFRESH_SECRET = process.env.REFRESH_SECRET || "your_refresh_secret";
+// JWT 서명에 사용할 비밀키를 환경변수에서 가져옴
+const JWT_SECRET = process.env.JWT_SECRET;
+const REFRESH_SECRET = process.env.REFRESH_SECRET;
 const BASE_URL_FRONT = process.env.BASE_URL_FRONT
 const isProd = process.env.NODE_ENV === 'production';
 
+// H-01 보안 조치: isProd 변수 활용하여 프로덕션에서 secure/strict 적용
 const cookieOptions = {
     httpOnly: true,
-    secure:   false,  // 개발환경에서는 false
-    sameSite: 'lax',  // 개발환경에서는 lax
+    secure:   isProd,
+    sameSite: isProd ? 'strict' : 'lax',
     path:     "/",
-    // domain 옵션을 제거하여 현재 도메인에만 쿠키 설정
     maxAge:   7 * 24 * 60 * 60 * 1000,
 };
 
 // 쿠키 삭제용 옵션 (maxAge 없이, 설정 시와 동일한 옵션 사용)
 const clearCookieOptions = {
     httpOnly: true,
-    secure:   false,  // 설정할 때와 동일하게
-    sameSite: 'lax',  // 설정할 때와 동일하게
+    secure:   isProd,
+    sameSite: isProd ? 'strict' : 'lax',
     path:     "/",
     // domain 옵션 제거
 };
@@ -44,7 +45,7 @@ const clearCookieOptions = {
 export const kakaoCallback = async (req, res, next) => {
     try {
         // 인가코드가 포함된 쿼리 파라미터를 로그에 출력
-        console.log('카카오 콜백 요청 수신:', req.query);
+        console.log('카카오 콜백 요청 수신');
 
         // Joi 스키마를 통해 쿼리 파라미터를 검증 (code가 반드시 필요)
         const { error, value } = kakaoAuthSchema.validate(req.query);
@@ -54,14 +55,14 @@ export const kakaoCallback = async (req, res, next) => {
             return res.status(400).json({ message: error.details[0].message });
         }
         // 검증 성공 시 로그 출력
-        console.log('DTO 검증 성공:', value);
+        console.log('DTO 검증 성공');
 
         // 검증된 값에서 인가코드를 추출
         const { code } = value;
 
         // 인가코드를 사용해 카카오 API와 통신, 액세스 토큰 및 사용자 정보 획득
         const kakaoUserData = await kakaoLogin(code);
-        console.log('카카오 로그인 서비스 반환:', kakaoUserData);
+        console.log('카카오 로그인 서비스 반환 완료');
 
         // DB에서 해당 카카오 사용자가 이미 존재하는지 확인
         const result = await findUserOrNoUser(kakaoUserData);
@@ -108,6 +109,14 @@ export const kakaoCallback = async (req, res, next) => {
             });
         } else if (result.status === 'reactivation_possible') {
             console.log('탈퇴한 사용자, 재활성화 필요');
+
+            // 세션에 reactivation 컨텍스트 저장 (C-06 보안 조치)
+            req.session.reactivationContext = {
+                userId: result.user._id.toString(),
+                provider: 'kakao',
+                expiresAt: Date.now() + 10 * 60 * 1000 // 10분 유효
+            };
+
             return res.status(200).json({
                 message: "계정 재활성화 필요",
                 status: "reactivation_possible",
@@ -118,7 +127,7 @@ export const kakaoCallback = async (req, res, next) => {
 
         // 이미 등록된 사용자라면, DB에서 해당 사용자 정보를 변수에 저장
         const user = result;
-        console.log('DB에서 사용자 처리 결과:', user);
+        console.log('DB에서 사용자 처리 완료');
 
 
         const clientUser = {
@@ -180,7 +189,7 @@ export const kakaoCallback = async (req, res, next) => {
                 user: clientUser,
             });
     } catch (err) {
-        console.error('카카오 콜백 처리 중 오류:', err);
+        console.error('카카오 콜백 처리 중 오류:', err.message);
 
         // ✅ 🆕 추가: 로그인 실패 로그 기록
         // userId는 특정할 수 없으므로 null 전달
@@ -240,6 +249,13 @@ export const refreshToken = async (req, res) => {
             return res.status(401).json({ message: '리프레시 토큰이 없습니다.' });
         }
 
+        // 블랙리스트 체크 (로그아웃된 리프레시 토큰 거부)
+        if (await isBlacklisted(rToken)) {
+            res.clearCookie('refreshToken', clearCookieOptions);
+            res.clearCookie('accessToken', clearCookieOptions);
+            return res.status(401).json({ message: '로그아웃된 토큰입니다.' });
+        }
+
         const payload = jwt.verify(rToken, REFRESH_SECRET);
         // DB에 실제 userId 존재 여부 확인
         const user = await getUserForAuth(payload.userId);
@@ -291,6 +307,10 @@ export const getCurrentUser = async (req, res) => {
         if (authHeader && authHeader.startsWith('Bearer ')) {
             const token = authHeader.split(' ')[1];
             try {
+                if (await isBlacklisted(token)) {
+                    // 블랙리스트된 액세스 토큰 → 쿠키 단계로 이동
+                    throw new Error('blacklisted');
+                }
                 const payload = jwt.verify(token, JWT_SECRET);
                 const user = await getUserForAuth(payload.userId);
                 if (!user) {
@@ -307,6 +327,12 @@ export const getCurrentUser = async (req, res) => {
         if (!rToken) {
             res.clearCookie('accessToken', clearCookieOptions);
             return res.status(401).json({ message: '리프레시 토큰이 없습니다.' });
+        }
+        // 블랙리스트 체크
+        if (await isBlacklisted(rToken)) {
+            res.clearCookie('refreshToken', clearCookieOptions);
+            res.clearCookie('accessToken', clearCookieOptions);
+            return res.status(401).json({ message: '로그아웃된 토큰입니다.' });
         }
         let payload;
         try {
@@ -348,9 +374,15 @@ export const getCurrentUser = async (req, res) => {
 /**
  * 로그아웃: Refresh 토큰 쿠키 삭제
  */
-export const logout = (req, res) => {
+export const logout = async (req, res) => {
     console.log('로그아웃 요청 - 쿠키 삭제 시작');
-    
+
+    // JWT 토큰 블랙리스트 등록 (로그아웃 후 토큰 재사용 방지)
+    await Promise.all([
+        blacklistToken(req.cookies.accessToken),
+        blacklistToken(req.cookies.refreshToken),
+    ]);
+
     // ✅ 🆕 추가: 로그아웃 로그 기록
     if (req.user && req.user._id) {
         import('../utils/logUtils.js').then(({ checkAndLogAccess }) => {
@@ -364,10 +396,10 @@ export const logout = (req, res) => {
             });
         });
     }
-    
+
     res.clearCookie('refreshToken', clearCookieOptions);
     res.clearCookie('accessToken', clearCookieOptions);
-    
+
     console.log('쿠키 삭제 완료');
     return res.status(200).json({ message: "Logged out" });
 };
@@ -376,19 +408,34 @@ export const logout = (req, res) => {
 /**
  * 로그아웃 후 프론트 리다이렉트 (카카오 로그아웃용)
  */
-export const logoutRedirect = (req, res) => {
+export const logoutRedirect = async (req, res) => {
     console.log('로그아웃 리다이렉트 - 쿠키 삭제 시작');
-    console.log('현재 쿠키들:', req.cookies);
-    
+
+    // JWT 토큰 블랙리스트 등록
+    await Promise.all([
+        blacklistToken(req.cookies.accessToken),
+        blacklistToken(req.cookies.refreshToken),
+    ]);
+
     // 쿠키 삭제 - 설정할 때와 동일한 옵션 사용
     res.clearCookie('refreshToken', clearCookieOptions);
     res.clearCookie('accessToken', clearCookieOptions);
-    
+
     console.log('쿠키 삭제 후 프론트로 리다이렉트');
     return res.redirect(BASE_URL_FRONT);
 };
 
 export const setSocialSession = (req, res) => {
+    // C-09 보안 조치: reactivation 컨텍스트가 유효한 경우에만 세션 주입 허용
+    const ctx = req.session.reactivationContext;
+    if (!ctx) {
+        return res.status(403).json({ success: false, message: '유효하지 않은 세션 요청입니다.' });
+    }
+    if (Date.now() > ctx.expiresAt) {
+        delete req.session.reactivationContext;
+        return res.status(403).json({ success: false, message: '요청이 만료되었습니다. 다시 로그인해 주세요.' });
+    }
+
     const { socialData, provider, deactivationCount } = req.body;
     if (provider === 'kakao') {
         req.session.kakaoUserData = socialData;
@@ -398,5 +445,9 @@ export const setSocialSession = (req, res) => {
     if (deactivationCount !== undefined) {
         req.session.deactivationCount = deactivationCount;
     }
+
+    // 사용 완료 후 컨텍스트 삭제
+    delete req.session.reactivationContext;
+
     res.status(200).json({ success: true });
 };
