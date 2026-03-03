@@ -4,3 +4,8 @@ node_modules/
 uploads/
 seed.js
 explain.js
+
+# Backup files
+*.backup
+*.BACKUP
+*.bak

@@ -2,6 +2,7 @@
 import express from 'express';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
+import adminAccessLogger from '../middlewares/adminAccessLogger.js';
 import { getDeveloperUsers,
     updateDeveloperUser,
     getDeveloperUserDetail,
@@ -20,6 +21,7 @@ const router = express.Router();
 // 권한 검증: JWT 인증 + userLv >= 3 (개발자만)
 router.use(authenticate);
 router.use(requireLevel(3));
+router.use(adminAccessLogger);
 
 // === 기존 개발자 도구들 ===
 router.get('/users', getDeveloperUsers);

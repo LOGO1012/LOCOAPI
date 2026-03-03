@@ -24,9 +24,18 @@ export const verifyIdentity = async (req, res) => {
             });
         }
 
+        // H-16 보안 조치: 경로 탐색 방지를 위한 ID 형식 검증
+        if (!/^[a-zA-Z0-9_-]+$/.test(identityVerificationId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'identityVerificationId 형식이 유효하지 않습니다.',
+                error: 'INVALID_VERIFICATION_ID'
+            });
+        }
+
         // 포트원 API로 본인인증 결과 조회
         const response = await axios.get(
-            `${PORTONE_API_URL}/identity-verifications/${encodeURIComponent(identityVerificationId)}`,
+            `${PORTONE_API_URL}/identity-verifications/${identityVerificationId}`,
             {
                 headers: {
                     Authorization: `PortOne ${PORTONE_API_SECRET}`
@@ -92,15 +101,22 @@ export const verifyIdentity = async (req, res) => {
             }
         }
 
-        // 세션에 본인인증 결과 평문 저장 (서버 메모리 - 암호화는 DB 저장 시 1번만)
+        // M-14 보안 조치: 세션에 민감 정보 암호화하여 저장 (CI, 실명, 전화번호, 생년월일)
+        const [encryptedCi, encryptedName, encryptedPhone, encryptedBirth] = await Promise.all([
+            ComprehensiveEncryption.encryptPersonalInfo(ci),
+            name ? ComprehensiveEncryption.encryptPersonalInfo(name) : '',
+            phoneNumber ? ComprehensiveEncryption.encryptPersonalInfo(phoneNumber) : '',
+            birthDate ? ComprehensiveEncryption.encryptPersonalInfo(birthDate) : ''
+        ]);
+
         req.session.identityVerification = {
             verified: true,
-            ci,
+            ci: encryptedCi,
             ci_hash: ciHash,
-            name: name || '',
+            name: encryptedName,
             gender: gender || '',
-            birthDate: birthDate || '',
-            phoneNumber: phoneNumber || '',
+            birthDate: encryptedBirth,
+            phoneNumber: encryptedPhone,
             verifiedAt: new Date().toISOString(),
             identityVerificationId
         };
@@ -167,14 +183,31 @@ export const getIdentityStatus = async (req, res) => {
             });
         }
 
+        // M-14 보안 조치: 암호화된 세션 데이터 복호화 후 마스킹
+        const [decryptedName, decryptedPhone, decryptedBirth] = await Promise.all([
+            identity.name ? ComprehensiveEncryption.decryptPersonalInfo(identity.name) : '',
+            identity.phoneNumber ? ComprehensiveEncryption.decryptPersonalInfo(identity.phoneNumber) : '',
+            identity.birthDate ? ComprehensiveEncryption.decryptPersonalInfo(identity.birthDate) : ''
+        ]);
+
+        const maskedName = decryptedName
+            ? decryptedName[0] + '*'.repeat(decryptedName.length - 2) + decryptedName[decryptedName.length - 1]
+            : '';
+        const maskedPhone = decryptedPhone
+            ? decryptedPhone.replace(/(\d{3})(\d{4})(\d{4})/, '$1-****-$3')
+            : '';
+        const maskedBirth = decryptedBirth
+            ? decryptedBirth.substring(0, 4) + '-**-**'
+            : '';
+
         return res.status(200).json({
             success: true,
             verified: true,
             data: {
-                name: identity.name,
+                name: maskedName,
                 gender: identity.gender,
-                birthDate: identity.birthDate,
-                phoneNumber: identity.phoneNumber,
+                birthDate: maskedBirth,
+                phoneNumber: maskedPhone,
                 verifiedAt: identity.verifiedAt
             }
         });

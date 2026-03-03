@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // 사용자 인증 및 권한 확인 헬퍼 함수 (관리자 권한 lv2 이상)
 const authenticateAndAuthorize = async (req, requiredLevel = 2) => {
@@ -173,11 +173,21 @@ export const createBanner = async (req, res) => {
             size: fs.statSync(processedImagePath).size
         };
 
+        // A-09 보안 조치: linkUrl 허용목록 검증
+        let sanitizedLinkUrl = '';
+        if (linkUrl) {
+            if (linkUrl.startsWith('https://') || linkUrl.startsWith('http://') || linkUrl.startsWith('/')) {
+                sanitizedLinkUrl = linkUrl;
+            } else {
+                return res.status(400).json({ success: false, message: '허용되지 않는 URL 형식입니다. (http://, https://, / 만 허용)' });
+            }
+        }
+
         const banner = new Banner({
             title,
             description,
             image,
-            linkUrl: linkUrl || '',
+            linkUrl: sanitizedLinkUrl,
             order: parseInt(order) || 0,
             author: user._id
         });
@@ -227,6 +237,13 @@ export const updateBanner = async (req, res) => {
                 success: false,
                 message: '배너를 찾을 수 없습니다.'
             });
+        }
+
+        // A-09 보안 조치: linkUrl 허용목록 검증
+        if (linkUrl !== undefined && linkUrl !== '') {
+            if (!linkUrl.startsWith('https://') && !linkUrl.startsWith('http://') && !linkUrl.startsWith('/')) {
+                return res.status(400).json({ success: false, message: '허용되지 않는 URL 형식입니다. (http://, https://, / 만 허용)' });
+            }
         }
 
         // 업데이트 데이터

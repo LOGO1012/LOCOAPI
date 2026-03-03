@@ -6,6 +6,7 @@ import { normalizePhoneNumber } from '../utils/normalizePhoneNumber.js';
 import { saveNicknameHistory, saveGenderHistory } from '../services/historyService.js';
 import { createUser } from '../services/userService.js';
 import IntelligentCache from '../utils/cache/intelligentCache.js';
+import ComprehensiveEncryption from '../utils/encryption/comprehensiveEncryption.js';
 import { invalidateNicknameCaches } from '../utils/cache/cacheKeys.js';
 
 /**
@@ -121,19 +122,27 @@ export const registerUserProfile = async (req, res, next) => {
             });
         }
 
+        // M-14 보안 조치: 암호화된 세션 데이터 복호화
+        const [decryptedName, decryptedPhone, decryptedBirth, decryptedCi] = await Promise.all([
+            identityData.name ? ComprehensiveEncryption.decryptPersonalInfo(identityData.name) : '',
+            identityData.phoneNumber ? ComprehensiveEncryption.decryptPersonalInfo(identityData.phoneNumber) : '',
+            identityData.birthDate ? ComprehensiveEncryption.decryptPersonalInfo(identityData.birthDate) : '',
+            identityData.ci ? ComprehensiveEncryption.decryptPersonalInfo(identityData.ci) : ''
+        ]);
+
         // 🔥 사용자 데이터 준비 (본인인증 데이터 우선 사용)
         const userData = {
             // 본인인증 값 우선, 없으면 소셜 로그인 값 사용
-            name: identityData.name || name?.trim() || '',
+            name: decryptedName || name?.trim() || '',
             nickname: nickname.trim(),
             gender: formGender?.trim() || 'select',
-            phone: normalizePhoneNumber(identityData.phoneNumber || phoneNumber || ''),
-            birthdate: identityData.birthDate || birthdate || '',
+            phone: normalizePhoneNumber(decryptedPhone || phoneNumber || ''),
+            birthdate: decryptedBirth || birthdate || '',
             info: info?.trim() || '',
             numOfChat: process.env.numOfChat,
             deactivationCount: deactivationCount || 0,
-            // 🔐 본인인증 정보 (평문 - encryptUserData에서 한 번에 암호화)
-            ci: identityData.ci,
+            // 🔐 본인인증 정보 (복호화된 평문 → encryptUserData에서 재암호화)
+            ci: decryptedCi,
             ci_hash: identityData.ci_hash,
             identityVerified: true,
             identityVerifiedAt: new Date(identityData.verifiedAt),

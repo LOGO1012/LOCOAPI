@@ -8,10 +8,11 @@ dotenv.config({ path: './.env' });
 import express from 'express';
 import cors from 'cors';
 import session from 'express-session';
+import { RedisStore } from 'connect-redis';
 import http from 'http';
 import path from 'path';
-import fs from 'fs';
 import cookieParser from "cookie-parser";
+import redisClient from './src/config/redis.js';
 
 // 환경변수 로드 후 모듈 import
 import developerRoutes from './src/routes/developerRoutes.js';
@@ -36,6 +37,7 @@ import termRoutes from './src/routes/termRoutes.js'; // 약관 관리 라우트 
 import riotRoutes from './src/routes/riotRoutes.js'; // 라이엇 전적 조회 라우트 추가
 import identityRoutes from './src/routes/identityRoutes.js'; // 포트원 본인인증 라우트 추가
 import compression from "compression";
+import { globalErrorHandler } from './src/utils/errors/errorHandler.js';
 import mongoose from "mongoose";
 import {startResetStarScheduler} from "./src/scheduler/resetStarScheduler.js";
 import {startUserArchiveScheduler} from "./src/scheduler/userArchiveScheduler.js";
@@ -46,15 +48,28 @@ import { initMatchCleanupScheduler } from './src/scheduler/matchCleanupScheduler
 // ✅ 서버 시작 시 초기화
 ChatEncryption.initializeKey();
 
-// 환경변수 로딩 확인
-console.log('🔧 환경변수 로딩 상태:');
-console.log('ENABLE_KMS:', process.env.ENABLE_KMS || 'undefined');
-console.log('ENABLE_ENCRYPTION:', process.env.ENABLE_ENCRYPTION || 'undefined');
-console.log('AWS_REGION:', process.env.AWS_REGION || 'undefined');
-console.log('KMS_KEY_ID:', process.env.KMS_KEY_ID || 'undefined');
-console.log('AWS_ACCESS_KEY_ID:', process.env.AWS_ACCESS_KEY_ID ? 'AKIA...' + process.env.AWS_ACCESS_KEY_ID.slice(-4) : 'undefined');
-console.log('NODE_ENV:', process.env.NODE_ENV || 'undefined');
-console.log('');
+// 필수 환경변수 시작 시 검증
+const REQUIRED_ENV = ['JWT_SECRET', 'REFRESH_SECRET', 'SESSION_SECRET', 'MONGO_URI'];
+const missingEnv = REQUIRED_ENV.filter(key => !process.env[key]);
+
+if (missingEnv.length > 0) {
+    console.error(`❌ 필수 환경변수 누락: ${missingEnv.join(', ')}`);
+    console.error('서버를 시작할 수 없습니다. .env 파일을 확인하세요.');
+    process.exit(1);
+}
+
+// KMS 활성화 시 AWS 환경변수 추가 검증
+if (process.env.ENABLE_KMS === 'true') {
+    const KMS_REQUIRED_ENV = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'KMS_KEY_ID'];
+    const missingKms = KMS_REQUIRED_ENV.filter(key => !process.env[key]);
+    if (missingKms.length > 0) {
+        console.error(`❌ KMS 환경변수 누락: ${missingKms.join(', ')}`);
+        console.error('ENABLE_KMS=true 설정 시 AWS 인증 정보가 필요합니다.');
+        process.exit(1);
+    }
+}
+
+console.log('✅ 환경변수 검증 완료 (NODE_ENV:', process.env.NODE_ENV || 'development', ')');
 
 
 
@@ -76,115 +91,37 @@ const initializeIntelligentCache = async () => {
 
 const app = express();
 
+// M-16 보안 조치: Cloudflare/프록시 뒤에서 실제 클라이언트 IP 파악
+app.set('trust proxy', 1);
+
 // 미들웨어 설정
 app.use(compression()); // gzip 응답 압축
 app.use(cors({
-    origin: [process.env.FRONTEND_URL || "http://localhost:5173",
-        "http://192.168.219.104:5173"],
+    origin: [
+        process.env.FRONTEND_URL || "http://localhost:5173",
+        process.env.FRONTEND_URL_ALT
+    ].filter(Boolean),
     credentials: true,
 }));
 app.use(cookieParser()); // 쿠키 파서를 추가
 
-// 미들웨어 추가: res.cookie() 호출 시 로그 출력
-app.use((req, res, next) => {
-    const originalCookie = res.cookie;
-    const originalClearCookie = res.clearCookie;
-    
-    res.cookie = function(name, value, options) {
-        console.log(`Setting cookie: ${name}`, value, options);
-        return originalCookie.call(this, name, value, options);
-    }
-    
-    res.clearCookie = function(name, options) {
-        console.log(`Clearing cookie: ${name}`, options);
-        return originalClearCookie.call(this, name, options);
-    }
-    
-    next();
-});
-
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'your_session_secret',
+    store: new RedisStore({ client: redisClient }),
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
         secure: process.env.NODE_ENV === 'production',
-        httpOnly: true
+        httpOnly: true,
+        maxAge: 30 * 60 * 1000  // 30분
     }
 }));
 
 // 정적 파일 제공 (예: uploads 폴더)
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-
-// 디버깅용: 업로드된 파일 목록 확인 라우트
-app.get('/api/debug/uploads', (req, res) => {
-    try {
-        const uploadPath = path.join(process.cwd(), 'uploads', 'banners');
-        
-        if (!fs.existsSync(uploadPath)) {
-            return res.json({ 
-                success: false, 
-                message: 'uploads/banners 폴더가 존재하지 않습니다',
-                path: uploadPath 
-            });
-        }
-        
-        const files = fs.readdirSync(uploadPath);
-        res.json({
-            success: true,
-            uploadPath: uploadPath,
-            files: files,
-            fileCount: files.length
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
-    }
-});
-
-// 디버깅용: 에디터 이미지 파일 목록 확인
-app.get('/api/debug/editor-uploads', (req, res) => {
-    try {
-        const editorPath = path.join(process.cwd(), 'uploads', 'news', 'editor');
-        
-        if (!fs.existsSync(editorPath)) {
-            return res.json({ 
-                success: false, 
-                message: 'uploads/news/editor 폴더가 존재하지 않습니다',
-                path: editorPath 
-            });
-        }
-        
-        const files = fs.readdirSync(editorPath);
-        const fileDetails = files.map(file => {
-            const filePath = path.join(editorPath, file);
-            const stats = fs.statSync(filePath);
-            return {
-                name: file,
-                size: stats.size,
-                created: stats.birthtime,
-                url: `/uploads/news/editor/${file}`
-            };
-        });
-        
-        res.json({
-            success: true,
-            editorPath: editorPath,
-            files: fileDetails,
-            fileCount: files.length
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
-    }
-});
 
 // 라우터 등록
 app.use('/api/auth', authRoutes);
@@ -218,6 +155,9 @@ app.get('/api/product/names', (req, res) => {
         { _id: 'plan_vip', productName: 'VIP Plan' }
     ]);
 });
+
+// H-14 보안 조치: 전역 에러 핸들러 등록 (모든 라우트 뒤에 위치해야 함)
+app.use(globalErrorHandler);
 
 // HTTP 서버 생성 및 Socket.IO 초기화
 const server = http.createServer(app);

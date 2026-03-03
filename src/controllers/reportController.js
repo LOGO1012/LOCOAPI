@@ -1,4 +1,5 @@
 // 서비스 함수들을 불러옵니다.
+import crypto from 'crypto';
 import * as reportService from '../services/reportService.js';
 import { Report } from '../models/report.js';
 import PageRequestDTO from "../dto/common/PageRequestDTO.js";
@@ -257,7 +258,12 @@ export const getReportedMessagePlaintext = async (req, res) => {
                 plaintextContent: plaintextContent,
                 createdAt: backup.messageCreatedAt,
                 reportersCount: backup.reportedBy?.length || 0,
-                isCurrentReport: backup.originalMessageId.toString() === reportedMessageId.toString(),
+                // L-03 보안 조치: 타이밍 공격 방지
+                isCurrentReport: (() => {
+                    const a = Buffer.from(backup.originalMessageId.toString());
+                    const b = Buffer.from(reportedMessageId.toString());
+                    return a.length === b.length && crypto.timingSafeEqual(a, b);
+                })(),
                 reportedAt: backup.createdAt,
                 retentionUntil: backup.retentionUntil,
                 messageType: backup.messageType,
@@ -266,7 +272,13 @@ export const getReportedMessagePlaintext = async (req, res) => {
         });
 
         // 5. 접근 로그 기록 (현재 신고 메시지 백업에만)
-        const currentBackup = allBackups.find(b => b.originalMessageId.toString() === reportedMessageId.toString());
+        // L-03 보안 조치: 타이밍 공격 방지
+        const reportedMsgIdStr = reportedMessageId.toString();
+        const currentBackup = allBackups.find(b => {
+            const a = Buffer.from(b.originalMessageId.toString());
+            const bBuf = Buffer.from(reportedMsgIdStr);
+            return a.length === bBuf.length && crypto.timingSafeEqual(a, bBuf);
+        });
         if (currentBackup) {
             const adminId = req.user?._id;
             if (adminId) {

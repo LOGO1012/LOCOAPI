@@ -2,6 +2,43 @@
 import { KMSClient, GenerateDataKeyCommand, DecryptCommand } from '@aws-sdk/client-kms';
 import crypto from 'crypto';
 import CryptoJS from 'crypto-js';
+import axios from 'axios';
+
+/**
+ * M-22 보안 조치: 암호화 폴백 발생 시 디스코드 웹훅으로 관리자 알림
+ * 환경변수: DISCORD_WEBHOOK_URL (디스코드 채널 웹훅 URL)
+ */
+const notifyFallbackToAdmin = (() => {
+    let lastNotified = 0;
+    const COOLDOWN = 5 * 60 * 1000; // 5분 쿨다운 (알림 폭주 방지)
+
+    return async (errorMessage, stats) => {
+        const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+        if (!webhookUrl) return;
+
+        const now = Date.now();
+        if (now - lastNotified < COOLDOWN) return;
+        lastNotified = now;
+
+        try {
+            await axios.post(webhookUrl, {
+                embeds: [{
+                    title: 'KMS 암호화 폴백 발생',
+                    color: 0xff9900,
+                    fields: [
+                        { name: '오류 내용', value: errorMessage || '알 수 없음', inline: false },
+                        { name: '폴백 누적 횟수', value: `${stats.fallbackUsage}회`, inline: true },
+                        { name: '총 오류 횟수', value: `${stats.errors}회`, inline: true },
+                        { name: '서버 가동 시간', value: `${Math.floor((now - stats.startTime) / 1000)}초`, inline: true }
+                    ],
+                    timestamp: new Date().toISOString()
+                }]
+            });
+        } catch {
+            // 알림 실패가 암호화 흐름을 중단시키지 않음
+        }
+    };
+})();
 
 /**
  * 🔐 최적화된 KMS 암호화 시스템 - 완전 재작성
@@ -47,11 +84,7 @@ class OptimalKMSEncryption {
         // 🔧 환경변수 강제 리로드
         this.kmsEnabled = process.env.ENABLE_KMS === 'true';
         
-        console.log('🔧 KMS 설정 디버깅:', {
-            ENABLE_KMS_RAW: process.env.ENABLE_KMS,
-            ENABLE_KMS_BOOLEAN: this.kmsEnabled,
-            KMS_KEY_ID: process.env.KMS_KEY_ID
-        });
+        console.log(`🔧 KMS 설정: ENABLE_KMS=${this.kmsEnabled}`);
         
         this.awsConfig = {
             region: process.env.AWS_REGION || 'ap-northeast-2',
@@ -67,8 +100,7 @@ class OptimalKMSEncryption {
             ttl: parseInt(process.env.KMS_CACHE_EXPIRY) || 1800000
         };
         
-        console.log(`🔧 환경 설정: KMS=${this.kmsEnabled}, Region=${this.awsConfig.region}`);
-        console.log(`🔑 KMS 키 설정: ${this.kmsKeyId}`);
+        console.log(`🔧 환경 설정: KMS=${this.kmsEnabled}`);
     }
 
     /**
@@ -119,9 +151,7 @@ class OptimalKMSEncryption {
                 console.log('🔧 KMS 클라이언트 생성 시도:', {
                     region: currentAwsConfig.region,
                     hasAccessKey: !!currentAwsConfig.credentials.accessKeyId,
-                    hasSecretKey: !!currentAwsConfig.credentials.secretAccessKey,
-                    accessKeyPreview: currentAwsConfig.credentials.accessKeyId ? 
-                        currentAwsConfig.credentials.accessKeyId.substring(0, 4) + '...' + currentAwsConfig.credentials.accessKeyId.slice(-4) : 'None'
+                    hasSecretKey: !!currentAwsConfig.credentials.secretAccessKey
                 });
                 
                 this._kmsClient = new KMSClient(currentAwsConfig);
@@ -158,6 +188,8 @@ class OptimalKMSEncryption {
             if (this.kmsEnabled) {
                 console.log('🔄 KMS 실패, AES 폴백 시도...');
                 this.stats.fallbackUsage++;
+                // M-22 보안 조치: 관리자 디스코드 알림 (fire-and-forget)
+                notifyFallbackToAdmin(error.message, this.stats);
                 return await this.encryptWithAES(plaintext);
             }
             
@@ -410,7 +442,7 @@ class OptimalKMSEncryption {
 
         // 새 데이터 키 생성
         try {
-            console.log(`🌐 AWS KMS 연결 시도... (키: ${this.kmsKeyId})`);
+            console.log('🌐 AWS KMS 연결 시도...');
             
             const command = new GenerateDataKeyCommand({
                 KeyId: this.kmsKeyId,
@@ -666,10 +698,8 @@ class OptimalKMSEncryption {
         
         console.log('🏗️ KMS 테스트 시작 - 환경 설정 확인...');
         console.log('🔧 환경변수 실시간 확인:', {
-            ENABLE_KMS_ENV: process.env.ENABLE_KMS,
             ENABLE_KMS_BOOLEAN: currentKMSState,
-            INSTANCE_KMS_STATE: this.kmsEnabled,
-            KMS_KEY_ID_ENV: process.env.KMS_KEY_ID
+            INSTANCE_KMS_STATE: this.kmsEnabled
         });
         
         // 환경변수와 인스턴스 상태가 다르면 업데이트
@@ -690,17 +720,12 @@ class OptimalKMSEncryption {
             
             console.log('✅ KMS 설정 업데이트 완료:', {
                 newKMSState: this.kmsEnabled,
-                newKeyId: this.kmsKeyId,
                 hasAccessKey: !!this.awsConfig.accessKeyId,
-                hasSecretKey: !!this.awsConfig.secretAccessKey,
-                region: this.awsConfig.region
+                hasSecretKey: !!this.awsConfig.secretAccessKey
             });
         }
         
         console.log(`🔧 KMS 활성화: ${this.kmsEnabled}`);
-        console.log(`🌏 AWS 리전: ${this.awsConfig.region}`);
-        console.log(`🔑 KMS 키 ID: ${this.kmsKeyId}`);
-        console.log(`🔐 Access Key: ${this.awsConfig.accessKeyId ? this.awsConfig.accessKeyId.substring(0, 4) + '...' + this.awsConfig.accessKeyId.slice(-4) : 'None'}`);
         
         if (!this.kmsEnabled) {
             console.log('⚠️ KMS가 비활성화되어 있습니다. AES 모드로 테스트합니다.');
@@ -711,7 +736,7 @@ class OptimalKMSEncryption {
         try {
             const testData = '🧪 KMS 연결 테스트 데이터';
             console.log('🧪 암호화/복호화 테스트 시작...');
-            console.log(`📝 테스트 데이터: ${testData}`);
+            console.log('📝 테스트 데이터 준비 완료');
             
             console.log('🔐 암호화 시도 중...');
             
@@ -735,7 +760,7 @@ class OptimalKMSEncryption {
             console.log('🔓 복호화 시도 중...');
             const decrypted = await this.decryptPersonalInfo(encrypted);
             console.log('✅ 복호화 테스트 성공');
-            console.log(`📝 복호화된 데이터: ${decrypted}`);
+            console.log('📝 복호화 검증 완료');
             
             if (decrypted === testData) {
                 console.log('🎉 KMS 암호화 시스템 테스트 완전 성공!');
@@ -743,8 +768,7 @@ class OptimalKMSEncryption {
                 return true;
             } else {
                 console.error('❌ 복호화된 데이터가 원본과 다릅니다');
-                console.error(`원본: ${testData}`);
-                console.error(`복호화: ${decrypted}`);
+                console.error('원본과 복호화 결과 불일치');
                 return false;
             }
         } catch (error) {

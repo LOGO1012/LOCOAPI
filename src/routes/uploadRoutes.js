@@ -4,7 +4,9 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { v4 as uuid } from 'uuid';
 import {getMyUploads, getUploadsByUser, uploadFile} from '../controllers/uploadController.js';
+import { validateImageMagicBytes } from '../utils/upload.js';
 import {authenticate} from "../middlewares/authMiddleware.js";
 import * as fs from "node:fs";
 import {requireLevel} from "../middlewares/requireLevel.js";
@@ -23,11 +25,17 @@ const storage = multer.diskStorage({
         cb(null, dir);
     },
     filename: (req, file, cb) => {
-        cb(null, `${req.user._id}-${Date.now()}-${file.originalname}`);
+        // H-13 보안 조치: originalname 대신 UUID 사용 (경로 탐색 방지)
+        const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+        cb(null, `${uuid()}${ext}`);
     }
 });
 
-const upload = multer({ storage });
+// H-13 보안 조치: 파일 크기 10MB 제한
+const upload = multer({
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 }
+});
 
 // 파일 업로드
 router.post(
@@ -35,6 +43,7 @@ router.post(
     authenticate,
 
     upload.single('file'),
+    validateImageMagicBytes,
     (req, res, next) => {
         // 클라이언트가 명시한 sourcePage 우선, 없으면 Referer 헤더 활용
         req.sourcePage = req.body.sourcePage || req.get('Referer') || null;

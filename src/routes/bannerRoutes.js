@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { v4 as uuid } from 'uuid';
 import {
     getActiveBanners,
     getAllBanners,
@@ -13,6 +14,7 @@ import {
 } from '../controllers/bannerController.js';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
+import { validateImageMagicBytes } from '../utils/upload.js';
 
 const router = express.Router();
 
@@ -29,8 +31,9 @@ const storage = multer.diskStorage({
         cb(null, 'uploads/banners/');
     },
     filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'banner-' + uniqueSuffix + path.extname(file.originalname));
+        // H-13 보안 조치: originalname 대신 UUID 사용 (경로 탐색 방지)
+        const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '');
+        cb(null, `banner-${uuid()}${ext}`);
     }
 });
 
@@ -59,8 +62,8 @@ router.post('/:id/view', incrementBannerViews);    // 배너 클릭 수 증가
 // 관리자 라우트 (lv3 이상)
 router.get('/', authenticate, requireLevel(3), getAllBanners);                    // 모든 배너 목록 (관리자용)
 router.get('/:id', authenticate, requireLevel(3), getBannerDetail);               // 배너 상세 조회
-router.post('/', authenticate, requireLevel(3), upload.single('image'), createBanner);     // 배너 생성
-router.put('/:id', authenticate, requireLevel(3), upload.single('image'), updateBanner);   // 배너 수정
+router.post('/', authenticate, requireLevel(3), upload.single('image'), validateImageMagicBytes, createBanner);     // 배너 생성
+router.put('/:id', authenticate, requireLevel(3), upload.single('image'), validateImageMagicBytes, updateBanner);   // 배너 수정
 router.delete('/:id', authenticate, requireLevel(3), deleteBanner);               // 배너 삭제
 
 export default router;

@@ -89,6 +89,12 @@ export const getMyUploads = async (req, res) => {
 export const getUploadsByUser = async (req, res) => {
     try {
         const { userId } = req.params;
+
+        // H-17 보안 조치: 본인 업로드만 조회 가능
+        if (req.user._id.toString() !== userId) {
+            return res.status(403).json({ success: false, message: '본인의 업로드만 조회할 수 있습니다.' });
+        }
+
         const uploads = await Upload.find({ user: userId })
             .select('url createdAt sourcePage') // 필요한 필드만 선택
             .sort({ createdAt: -1 })

@@ -3,6 +3,7 @@
 import express from 'express';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
+import adminAccessLogger from '../middlewares/adminAccessLogger.js';
 import ReportedMessageBackup from '../models/reportedMessageBackup.js';
 import * as adminRewardController from '../controllers/adminRewardController.js';
 
@@ -11,6 +12,7 @@ const router = express.Router();
 // 권한 검증: JWT 인증 + userLv >= 2 (관리자 이상)
 router.use(authenticate);
 router.use(requireLevel(2));
+router.use(adminAccessLogger);
 
 // ============================================================================
 //   🎁 관리자 전용 - 채팅 횟수 보상 관리
