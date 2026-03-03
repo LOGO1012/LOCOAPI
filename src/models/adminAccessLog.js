@@ -25,7 +25,11 @@ const AdminAccessLogSchema = new Schema({
             'search_operation',      // 메시지 검색
             'context_investigation', // 신고 맥락 조회
             'report_review',         // 신고 검토
-            'admin_panel_access'     // 관리자 패널 접근
+            'admin_panel_access',    // 관리자 패널 접근
+            'user_data_modification', // 사용자 정보 수정
+            'user_statistics_access', // 사용자 통계 조회
+            'report_management',      // 신고 관리
+            'user_block_management'   // 사용자 차단 관리
         ],
         required: true
     },
@@ -33,12 +37,12 @@ const AdminAccessLogSchema = new Schema({
     // 대상 정보
     targetType: {
         type: String,
-        enum: ['ChatMessage', 'User', 'Report', 'ChatRoom'],
+        enum: ['ChatMessage', 'User', 'Report', 'ChatRoom', 'Statistics'],
         required: true
     },
-    targetId: { 
+    targetId: {
         type: Schema.Types.ObjectId,
-        required: true 
+        required: false
     },
     
     // 작업 목적
@@ -50,7 +54,8 @@ const AdminAccessLogSchema = new Schema({
             'system_maintenance',    // 시스템 관리
             'legal_compliance',      // 법적 대응
             'security_review',       // 보안 검토
-            'data_verification'      // 데이터 검증
+            'data_verification',     // 데이터 검증
+            'admin_management'       // 관리자 업무
         ],
         required: true
     },
