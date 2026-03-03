@@ -4,6 +4,12 @@ import IntelligentCache from '../utils/cache/intelligentCache.js';
 // 사용자의 미확인 알림 조회
 export const getNotifications = async (req, res) => {
     const { userId } = req.params;
+
+    // 본인 확인: 요청자와 대상 userId가 일치하는지 검증
+    if (req.user._id.toString() !== userId) {
+        return res.status(403).json({ success: false, message: '본인의 알림만 조회할 수 있습니다.' });
+    }
+
     const cacheKey = `notifications:${userId}`;
 
     try {
@@ -31,6 +37,15 @@ export const getNotifications = async (req, res) => {
 export const markNotificationAsRead = async (req, res) => {
     const { notificationId } = req.params;
     try {
+        const notification = await ReportNotification.findById(notificationId);
+        if (!notification) {
+            return res.status(404).json({ success: false, message: 'Notification not found' });
+        }
+        // 본인 확인
+        const requestUserId = req.user._id.toString();
+        if (notification.receiver.toString() !== requestUserId) {
+            return res.status(403).json({ success: false, message: '본인의 알림만 처리할 수 있습니다.' });
+        }
         await ReportNotification.findByIdAndUpdate(notificationId, { isRead: true });
         res.status(200).json({ success: true, message: 'Notification marked as read' });
     } catch (error) {
@@ -42,7 +57,17 @@ export const markNotificationAsRead = async (req, res) => {
 export const markNotificationAsReadAndDelete = async (req, res) => {
     const { notificationId } = req.params;
     try {
-        // 1. 삭제와 조회를 한번에 실행
+        // 0. 삭제 전 본인 확인
+        const notification = await ReportNotification.findById(notificationId);
+        if (!notification) {
+            return res.status(404).json({ success: false, message: 'Notification not found' });
+        }
+        const requestUserId = req.user._id.toString();
+        if (notification.receiver.toString() !== requestUserId) {
+            return res.status(403).json({ success: false, message: '본인의 알림만 삭제할 수 있습니다.' });
+        }
+
+        // 1. 삭제 실행
         const deletedNotification = await ReportNotification.findByIdAndDelete(notificationId);
 
         // 2. 삭제된 알림이 없으면 404 반환
