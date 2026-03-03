@@ -1,4 +1,5 @@
 // src/services/userService.js (암호화 및 캐시 통합 버전) - 최종 완성
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { normalizeBirthdate } from "../utils/normalizeBirthdate.js";
 import { normalizePhoneNumber } from "../utils/normalizePhoneNumber.js";
@@ -994,11 +995,12 @@ export const rateUser = async (userId, rating) => {
 // 채팅 횟수 차감
 // 채팅 사용 시 남은 횟수 -1
 // 최대 횟수에서 처음 차감 시 타이머 시작
+// H-19 보안 조치: $inc 원자적 연산으로 Race Condition 방지
 export const decrementChatCount = async (userId) => {
     try {
         console.log(`🔽 [decrementChatCount] 시작: ${userId}`);
 
-        // 1️⃣ 필요한 필드만 조회
+        // 1️⃣ 현재 상태 조회 (타이머 설정 판단용)
         const user = await User.findById(userId)
             .select('numOfChat chatTimer plan.planType')
             .lean();
@@ -1007,50 +1009,63 @@ export const decrementChatCount = async (userId) => {
             throw new Error("User not found.");
         }
 
-        // 2️⃣ 현재 상태 계산 (✅ getMax 사용 가능)
         const max = getMax(user.plan?.planType);
         const before = user.numOfChat ?? 0;
-        const newNumOfChat = Math.max(0, before - 1);
 
-        console.log(`   현재: ${before}, 차감 후: ${newNumOfChat}, 최대: ${max}`);
-
-        // 3️⃣ 타이머 설정 여부 판단
-        const needsTimerReset = before === max;
-        const newChatTimer = needsTimerReset ? new Date() : user.chatTimer;
-
-        // 4️⃣ DB 업데이트
-        const updateData = {
-            numOfChat: newNumOfChat
-        };
-
-        if (needsTimerReset) {
-            updateData.chatTimer = newChatTimer;
-            console.log(`   🕐 타이머 리셋: ${newChatTimer}`);
+        if (before <= 0) {
+            return {
+                success: true,
+                numOfChat: 0,
+                maxChatCount: max,
+                nextRefillAt: user.chatTimer ? new Date(new Date(user.chatTimer).getTime() + REFILL_MS) : null
+            };
         }
 
-        await User.findByIdAndUpdate(
-            userId,
-            { $set: updateData },
-            { lean: true }
+        console.log(`   현재: ${before}, 최대: ${max}`);
+
+        // 2️⃣ 원자적 차감 + 조건부 타이머 설정
+        const needsTimerReset = before === max;
+        const updateOp = { $inc: { numOfChat: -1 } };
+        if (needsTimerReset) {
+            updateOp.$set = { chatTimer: new Date() };
+            console.log(`   🕐 타이머 리셋`);
+        }
+
+        // 원자적 업데이트: numOfChat이 현재 값과 같을 때만 차감 (동시 요청 방어)
+        const updated = await User.findOneAndUpdate(
+            { _id: userId, numOfChat: { $gt: 0 } },
+            updateOp,
+            { new: true, lean: true, select: 'numOfChat chatTimer' }
         );
 
-        // 5️⃣ 캐시 무효화
+        if (!updated) {
+            console.log(`   ⚠️ 동시 요청 감지 또는 이미 0 - 차감 건너뜀`);
+            return {
+                success: true,
+                numOfChat: 0,
+                maxChatCount: max,
+                nextRefillAt: user.chatTimer ? new Date(new Date(user.chatTimer).getTime() + REFILL_MS) : null
+            };
+        }
+
+        const newNumOfChat = updated.numOfChat;
+        const newChatTimer = updated.chatTimer;
+
+        // 3️⃣ 캐시 무효화
         await IntelligentCache.invalidateUserField(userId, 'numOfChat');
         await IntelligentCache.cacheUserField(userId, 'numOfChat', newNumOfChat, 60);
-        // chat-status, user_static 캐시도 무효화 (프론트 표시 정합성)
         await IntelligentCache.deleteCache(`user_chat_status_${userId}`);
         await IntelligentCache.invalidateUserStaticInfo(userId);
         console.log(`   🗑️ 캐시 무효화 완료`);
 
-        // 6️⃣ 다음 충전 시각 계산 (✅ REFILL_MS 사용 가능)
+        // 4️⃣ 다음 충전 시각 계산
         const timerDate = newChatTimer ? new Date(newChatTimer) : null;
         const nextRefillAt = timerDate
             ? new Date(timerDate.getTime() + REFILL_MS)
             : null;
 
-        console.log(`✅ [decrementChatCount] 완료: ${userId}`);
+        console.log(`✅ [decrementChatCount] 완료: ${before} → ${newNumOfChat}`);
 
-        // 7️⃣ 필요한 필드만 반환
         return {
             success: true,
             numOfChat: newNumOfChat,
@@ -1284,9 +1299,15 @@ export const sendFriendRequest = async (senderId, receiverId) => {
     if (!receiverUser.friendReqEnabled) throw new Error('상대가 친구 요청을 차단했습니다.');
 
     // ⭐ 2. 수신자가 나를 차단했는지 확인 (새로 추가!)
+    // L-03 보안 조치: 타이밍 공격 방지 (crypto.timingSafeEqual)
+    const senderIdStr = senderId.toString();
     const isBlockedByReceiver = receiverUser.blockedUsers &&
         receiverUser.blockedUsers.some(
-            blockedId => blockedId.toString() === senderId.toString()
+            blockedId => {
+                const a = Buffer.from(blockedId.toString());
+                const b = Buffer.from(senderIdStr);
+                return a.length === b.length && crypto.timingSafeEqual(a, b);
+            }
         );
     if (isBlockedByReceiver) {
         throw new Error('상대방에게 친구 요청을 보낼 수 없습니다.');
@@ -1303,16 +1324,27 @@ export const sendFriendRequest = async (senderId, receiverId) => {
     if (!senderUser) throw new Error("보낸 사용자 정보를 찾을 수 없습니다.");
 
     // ⭐ 5. 내가 상대를 차단했는지 확인
+    // L-03 보안 조치: 타이밍 공격 방지 (crypto.timingSafeEqual)
+    const receiverIdStr = receiverId.toString();
     const isBlockedBySender = senderUser.blockedUsers?.some(
-        blockedId => blockedId.toString() === receiverId.toString()
+        blockedId => {
+            const a = Buffer.from(blockedId.toString());
+            const b = Buffer.from(receiverIdStr);
+            return a.length === b.length && crypto.timingSafeEqual(a, b);
+        }
     );
     if (isBlockedBySender) {
         throw new Error('차단한 사용자에게 친구 요청을 보낼 수 없습니다.');
     }
 
     // 이미 친구인지 확인
+    // L-03 보안 조치: 타이밍 공격 방지 (crypto.timingSafeEqual)
     const alreadyFriends = senderUser.friends.some(
-        friendId => friendId.toString() === receiverId.toString()
+        friendId => {
+            const a = Buffer.from(friendId.toString());
+            const b = Buffer.from(receiverIdStr);
+            return a.length === b.length && crypto.timingSafeEqual(a, b);
+        }
     );
     if (alreadyFriends) throw new Error("이미 친구입니다.");
 
@@ -1483,7 +1515,12 @@ export const deleteFriend = async (userId, friendId, io) => {
     }
 
     // ✅ 친구 관계 확인
-    const isFriend = user.friends.some(id => id.toString() === friendId);
+    // L-03 보안 조치: 타이밍 공격 방지 (crypto.timingSafeEqual)
+    const isFriend = user.friends.some(id => {
+        const a = Buffer.from(id.toString());
+        const b = Buffer.from(friendId.toString());
+        return a.length === b.length && crypto.timingSafeEqual(a, b);
+    });
     if (!isFriend) {
         throw new Error("해당 사용자는 친구 목록에 존재하지 않습니다.");
     }
