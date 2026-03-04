@@ -20,13 +20,13 @@ router.post("/friend/rooms/find-or-create", authenticate, chatController.findOrC
 router.post("/friend/rooms", authenticate, chatController.createFriendRoom);
 
 // 특정 채팅방 조회
-router.get('/rooms/:roomId', chatController.getRoomById);
+router.get('/rooms/:roomId', authenticate, chatController.getRoomById);
 
 // 모든 채팅방 조회
-router.get('/rooms', chatController.getAllRooms);
+router.get('/rooms', authenticate, chatController.getAllRooms);
 
 // 채팅방에 사용자 추가
-router.post('/rooms/:roomId/join', chatController.addUserToRoom);
+router.post('/rooms/:roomId/join', authenticate, chatController.addUserToRoom);
 
 // 메시지 저장
 router.post('/messages', authenticate, chatController.sendMessage);
@@ -35,20 +35,20 @@ router.post('/messages', authenticate, chatController.sendMessage);
 router.get('/messages/:roomId/new', authenticate, getNewMessages);
 
 // 특정 채팅방의 메시지 가져오기
-router.get('/messages/:roomId', chatController.getMessages);
+router.get('/messages/:roomId', authenticate, chatController.getMessages);
 
 // 여러 채팅방의 마지막 메시지 일괄 조회
-router.post('/messages/batch-last', chatController.getLastMessagesBatch);
+router.post('/messages/batch-last', authenticate, chatController.getLastMessagesBatch);
 
 // 메시지 삭제
-router.put('/messages/:messageId', chatController.deleteMessage);
+router.put('/messages/:messageId', authenticate, chatController.deleteMessage);
 
 // 채팅방에서 사용자 제거
-router.delete('/rooms/:roomId/:userId', chatController.leaveChatRoom);
+router.delete('/rooms/:roomId/:userId', authenticate, chatController.leaveChatRoom);
 
-router.patch('/rooms/:roomId/active', chatController.updateRoomActive);
+router.patch('/rooms/:roomId/active', authenticate, chatController.updateRoomActive);
 
-router.get('/search/chat-room-history', chatController.getChatRoomHistory);
+router.get('/search/chat-room-history', authenticate, chatController.getChatRoomHistory);
 
 // 메시지 읽음 처리
 router.patch('/rooms/:roomId/read', authenticate, chatController.markMessagesAsRead);

@@ -1,7 +1,7 @@
 // src/routes/communityRoutes.js
 import express from 'express';
 import * as communityController from '../controllers/communityController.js';
-import upload from "../utils/upload.js";
+import upload, { validateImageMagicBytes } from "../utils/upload.js";
 import { authenticate } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
@@ -11,7 +11,7 @@ router.get('', communityController.getCommunities);
 
 // 커뮤니티 생성 (이미지 업로드 처리 미들웨어 추가)
 // 클라이언트는 'communityImage' 필드명으로 파일을 전송합니다.
-router.post('', authenticate, upload.array('communityImages', 5), communityController.createCommunity); // 최대 5장
+router.post('', authenticate, upload.array('communityImages', 5), validateImageMagicBytes, communityController.createCommunity); // 최대 5장
 
 // 최다 조회 및 최다 댓글 엔드포인트 추가
 router.get('/top-viewed', communityController.getTopViewed);
@@ -24,16 +24,16 @@ router.get('/:id', communityController.getCommunity);
 router.get('/:id/edit', communityController.getCommunityForEdit);
 
 // 커뮤니티 수정
-router.put('/:id', authenticate, upload.array('communityImages', 5), communityController.updateCommunity);
+router.put('/:id', authenticate, upload.array('communityImages', 5), validateImageMagicBytes, communityController.updateCommunity);
 
 // 커뮤니티 삭제
 router.delete('/:id', authenticate, communityController.deleteCommunity);
 
 // 추천 처리 엔드포인트 (POST /api/communities/:id/recommend)
-router.post('/:id/recommend', communityController.recommendCommunity);
+router.post('/:id/recommend', authenticate, communityController.recommendCommunity);
 
 // 추천 취소 엔드포인트 추가
-router.delete('/:id/recommend', communityController.cancelRecommendCommunity);
+router.delete('/:id/recommend', authenticate, communityController.cancelRecommendCommunity);
 
 router.get('/:id/comments', communityController.getComments);
 
@@ -42,31 +42,31 @@ router.get('/comments/:commentId/replies', communityController.getReplies);
 router.get('/replies/:replyId/subreplies', communityController.getSubReplies);
 
 // 댓글 추가 엔드포인트 (commentImage 파일 업로드 처리)
-router.post('/:id/comments', upload.single('commentImage'), communityController.addComment);
+router.post('/:id/comments', authenticate, upload.single('commentImage'), validateImageMagicBytes, communityController.addComment);
 
 // 댓글 수정 엔드포인트
-router.put('/comments/:commentId', communityController.updateComment);
+router.put('/comments/:commentId', authenticate, communityController.updateComment);
 
 // 대댓글 추가 엔드포인트 (reply 사진 업로드를 위해 'replyImage' 필드 사용)
-router.post('/:id/comments/:commentId/replies', upload.single('replyImage'), communityController.addReply);
+router.post('/:id/comments/:commentId/replies', authenticate, upload.single('replyImage'), validateImageMagicBytes, communityController.addReply);
 
 // 답글 수정 엔드포인트
-router.put('/replies/:replyId', communityController.updateReply);
+router.put('/replies/:replyId', authenticate, communityController.updateReply);
 
 // **대대댓글 추가 엔드포인트 (subReply 사진 업로드 처리)**
-router.post('/:id/comments/:commentId/replies/:replyId/subreplies', upload.single('subReplyImage'), communityController.addSubReply);
+router.post('/:id/comments/:commentId/replies/:replyId/subreplies', authenticate, upload.single('subReplyImage'), validateImageMagicBytes, communityController.addSubReply);
 
 // 대대댓글 수정 엔드포인트
-router.put('/subreplies/:subReplyId', communityController.updateSubReply);
+router.put('/subreplies/:subReplyId', authenticate, communityController.updateSubReply);
 
 // 댓글 삭제: DELETE /api/communities/:id/comments/:commentId
-router.delete('/:id/comments/:commentId', communityController.deleteComment);
+router.delete('/:id/comments/:commentId', authenticate, communityController.deleteComment);
 
 // 대댓글 삭제: DELETE /api/communities/:id/comments/:commentId/replies/:replyId
-router.delete('/:id/comments/:commentId/replies/:replyId', communityController.deleteReply);
+router.delete('/:id/comments/:commentId/replies/:replyId', authenticate, communityController.deleteReply);
 
 // 대대댓글 삭제: DELETE /api/communities/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId
-router.delete('/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId', communityController.deleteSubReply);
+router.delete('/:id/comments/:commentId/replies/:replyId/subreplies/:subReplyId', authenticate, communityController.deleteSubReply);
 
 // 투표 생성
 router.post('/:id/polls', authenticate, communityController.createPoll);

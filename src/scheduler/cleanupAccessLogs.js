@@ -9,8 +9,9 @@ import ReportedMessageBackup from "../models/reportedMessageBackup.js";
 /**
  * 접속 로그 자동 정리 스케줄러
  * - 매일 새벽 3시에 실행
- * - 90일 이상 지난 로그 중 신고가 없는 것만 삭제
+ * - 2년(730일) 이상 지난 로그 중 신고가 없는 것만 삭제
  * - 신고가 있는 유저의 로그는 3년 보관
+ * - 법적 근거: 개인정보보호법 — 민감정보 접속기록 최소 2년 보관
  */
 export const startAccessLogCleanup = () => {
     // 매일 새벽 3시에 실행 (0 3 * * *)
@@ -19,7 +20,7 @@ export const startAccessLogCleanup = () => {
         
         try {
             const now = new Date();
-            const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+            const twoYearsAgo = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000);
             const threeYearsAgo = new Date(now.getTime() - 3 * 365 * 24 * 60 * 60 * 1000);
             
             // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -42,14 +43,14 @@ export const startAccessLogCleanup = () => {
             console.log(`📊 [스케줄러] 3년 이내 신고된 유저: ${allReportedUsers.length}명`);
             
             // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            // 2단계: 90일 지난 로그 중 신고 없는 것만 삭제
+            // 2단계: 2년 지난 로그 중 신고 없는 것만 삭제
             // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             const result = await AccessLog.deleteMany({
-                createdAt: { $lt: ninetyDaysAgo },
+                createdAt: { $lt: twoYearsAgo },
                 user: { $nin: allReportedUsers }
             });
-            
-            console.log(`✅ [스케줄러] 삭제된 로그 (90일 경과, 미신고): ${result.deletedCount}개`);
+
+            console.log(`✅ [스케줄러] 삭제된 로그 (2년 경과, 미신고): ${result.deletedCount}개`);
             
             // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             // 3단계: 신고된 유저의 로그도 3년 지났으면 삭제

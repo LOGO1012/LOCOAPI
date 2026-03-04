@@ -13,6 +13,7 @@ import MessageBuffer from '../utils/messageBuffer.js';
 import ChatEncryption from '../utils/encryption/chatEncryption.js';
 import jwt from 'jsonwebtoken';
 import { getUserForAuth } from '../services/userService.js';
+import { isBlacklisted } from '../utils/tokenBlacklist.js';
 
 export let io;
 
@@ -37,8 +38,8 @@ export const initializeSocket = async (server) => {
         cors: {
             origin: [
                 process.env.FRONTEND_URL || "http://localhost:5173",
-                "http://192.168.219.104:5173"
-            ],
+                process.env.FRONTEND_URL_ALT
+            ].filter(Boolean),
             credentials: true
         },
         pingInterval: 25000,
@@ -72,6 +73,8 @@ export const initializeSocket = async (server) => {
             // 1) accessToken 검증 시도
             if (accessToken) {
                 try {
+                    // 블랙리스트 체크
+                    if (await isBlacklisted(accessToken)) throw new Error('blacklisted');
                     const payload = jwt.verify(accessToken, process.env.JWT_SECRET);
                     const user = await getUserForAuth(payload.userId);
                     if (user) {
@@ -79,13 +82,15 @@ export const initializeSocket = async (server) => {
                         return next();
                     }
                 } catch {
-                    // accessToken 만료 → refreshToken으로 시도
+                    // accessToken 만료/블랙리스트 → refreshToken으로 시도
                 }
             }
 
             // 2) refreshToken 검증 시도
             if (refreshToken) {
                 try {
+                    // 블랙리스트 체크
+                    if (await isBlacklisted(refreshToken)) throw new Error('blacklisted');
                     const payload = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
                     const user = await getUserForAuth(payload.userId);
                     if (user) {
@@ -93,7 +98,7 @@ export const initializeSocket = async (server) => {
                         return next();
                     }
                 } catch {
-                    // refreshToken도 실패
+                    // refreshToken도 실패/블랙리스트
                 }
             }
 
@@ -150,10 +155,18 @@ export const initializeSocket = async (server) => {
 
         // ━━━ 채팅방 참가 ━━━
         socket.on('joinRoom', async (roomId, roomType = 'random') => {
-            socket.join(roomId);
-            console.log(`📌 클라이언트 ${socket.id}가 방 ${roomId}에 참가 (타입: ${roomType})`);
+            // H-04 보안 조치: 입력 검증
+            if (!roomId || !mongoose.Types.ObjectId.isValid(roomId)) {
+                console.warn(`⚠️ [H-04] joinRoom 잘못된 roomId: ${roomId}`);
+                return;
+            }
+            if (!['random', 'friend'].includes(roomType)) {
+                console.warn(`⚠️ [H-04] joinRoom 잘못된 roomType: ${roomType}`);
+                return;
+            }
 
             try {
+                // H-11 보안 조치: socket.join 전에 멤버 검증 (기존 DB 조회를 앞으로 이동)
                 const chatRoom = await ChatRoom.findById(roomId)
                     .populate('chatUsers', '_id nickname profilePhoto gender')
                     .lean();
@@ -162,6 +175,21 @@ export const initializeSocket = async (server) => {
                     console.log("채팅방을 찾을 수 없습니다.");
                     return;
                 }
+
+                const userId = socket.user._id.toString();
+                const isMember = chatRoom.chatUsers.some(u => {
+                    const uid = u._id ? u._id.toString() : u.toString();
+                    return uid === userId;
+                });
+
+                if (!isMember) {
+                    console.warn(`⚠️ [H-11] joinRoom 비멤버 접근 차단 - userId: ${userId}, roomId: ${roomId}`);
+                    return;
+                }
+
+                // 멤버 검증 통과 후 참가
+                socket.join(roomId);
+                console.log(`📌 클라이언트 ${socket.id}가 방 ${roomId}에 참가 (타입: ${roomType})`);
 
                 const exited = await ChatRoomExit.distinct('user', { chatRoom: roomId });
 
@@ -197,6 +225,11 @@ export const initializeSocket = async (server) => {
         // ━━━ 메시지 읽음 처리 (Last-Read Pointer) ━━━
         socket.on('markAsRead', async ({ roomId }, callback) => {
             try {
+                // H-04 보안 조치: roomId 검증
+                if (!roomId || !mongoose.Types.ObjectId.isValid(roomId)) {
+                    return callback({ success: false, error: '잘못된 채팅방 ID입니다.' });
+                }
+
                 const userId = socket.user._id;
                 const result = await chatService.markMessagesAsRead(roomId, userId);
 
@@ -217,12 +250,28 @@ export const initializeSocket = async (server) => {
         // ━━━ 채팅방 입장 + 읽음 처리 통합 (Last-Read Pointer) ━━━
         socket.on('enterRoom', async ({ roomId }, callback) => {
             try {
+                // H-04 보안 조치: roomId 검증
+                if (!roomId || !mongoose.Types.ObjectId.isValid(roomId)) {
+                    return callback({ success: false, error: '잘못된 채팅방 ID입니다.' });
+                }
+
                 const userId = socket.user._id;
+
+                // H-11 보안 조치: 멤버 검증
+                const room = await ChatRoom.findById(roomId).select('chatUsers').lean();
+                if (!room) {
+                    return callback({ success: false, error: '채팅방을 찾을 수 없습니다.' });
+                }
+                const isMember = room.chatUsers.some(u => u.toString() === userId.toString());
+                if (!isMember) {
+                    console.warn(`⚠️ [H-11] enterRoom 비멤버 접근 차단 - userId: ${userId}, roomId: ${roomId}`);
+                    return callback({ success: false, error: '접근 권한이 없습니다.' });
+                }
 
                 // 1. lastReadAt 갱신 (읽음 처리 + 입장 기록 통합)
                 const result = await chatService.markMessagesAsRead(roomId, userId);
 
-                // 2. 소켓 룸 참가
+                // 2. 소켓 룸 참가 (멤버 검증 통과 후)
                 socket.join(roomId);
 
                 // 3. 본인에게 안읽은 개수 리셋
@@ -263,7 +312,22 @@ export const initializeSocket = async (server) => {
         // ━━━ 메시지 전송 ━━━
         socket.on("sendMessage", async ({ chatRoom, sender, text, roomType = 'random' }, callback) => {
             try {
-                const senderId = typeof sender === "object" ? sender._id : sender;
+                // H-04 보안 조치: 입력 검증
+                if (!chatRoom || !mongoose.Types.ObjectId.isValid(chatRoom)) {
+                    return callback({ success: false, error: '잘못된 채팅방 ID입니다.' });
+                }
+                if (!text || typeof text !== 'string' || !text.trim()) {
+                    return callback({ success: false, error: '메시지 내용이 비어있습니다.' });
+                }
+                if (text.length > 100) {
+                    return callback({ success: false, error: '메시지가 너무 깁니다. (최대 100자)' });
+                }
+                if (!['random', 'friend'].includes(roomType)) {
+                    return callback({ success: false, error: '잘못된 채팅 유형입니다.' });
+                }
+
+                // H-12 보안 조치: 클라이언트 sender 무시, 인증된 socket.user._id 사용
+                const senderId = socket.user._id.toString();
                 const senderObjId = new mongoose.Types.ObjectId(senderId);
 
                 console.log(`📤 [메시지전송] 시작: "${text.substring(0, 20)}..." (roomType: ${roomType})`);
@@ -410,12 +474,26 @@ export const initializeSocket = async (server) => {
 
 
         socket.on("deleteMessage", ({ messageId, roomId }) => {
+            // H-04 보안 조치: 입력 검증
+            if (!messageId || !mongoose.Types.ObjectId.isValid(messageId)) return;
+            if (!roomId || !mongoose.Types.ObjectId.isValid(roomId)) return;
+
             socket.to(roomId).emit("messageDeleted", { messageId });
         });
 
         // ━━━ 방 나가기 (socket.leave를 try 안으로 이동) ━━━
-        socket.on('leaveRoom', async ({ roomId, userId, roomType = 'random', status }) => {
+        socket.on('leaveRoom', async ({ roomId, userId: _clientUserId, roomType = 'random', status }) => {
             try {
+                // H-04 보안 조치: 입력 검증
+                if (!roomId || !mongoose.Types.ObjectId.isValid(roomId)) {
+                    console.warn(`⚠️ [H-04] leaveRoom 잘못된 roomId: ${roomId}`);
+                    return;
+                }
+                if (!['random', 'friend'].includes(roomType)) return;
+                if (status && !['waiting', 'active'].includes(status)) return;
+
+                // H-12 보안 조치: 클라이언트 userId 무시, 인증된 socket.user._id 사용
+                const userId = socket.user._id.toString();
                 await socket.leave(roomId);
 
                 const isWaiting = status === 'waiting';

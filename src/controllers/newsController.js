@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 
 // 사용자 인증 및 권한 확인 헬퍼 함수 (쿠키 기반)

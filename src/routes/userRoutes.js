@@ -44,53 +44,13 @@ import {
     getUserFriendIdsController
 } from '../controllers/userProfileLightController.js';
 import {requireLevel} from "../middlewares/requireLevel.js";
+import adminAccessLogger from '../middlewares/adminAccessLogger.js';
 
 
 const router = express.Router();
 
 // 회원가입
 router.post('/register', registerUserProfile);
-
-// 🔧 디버깅용 임시 엔드포인트 (서버 상태 확인)
-router.get('/debug/server-status', async (req, res) => {
-    try {
-        const mongoose = await import('mongoose');
-        const { User } = await import('../models/UserProfile.js');
-        
-        const serverStatus = {
-            mongodb: {
-                connected: mongoose.default.connection.readyState === 1,
-                state: mongoose.default.connection.readyState,
-                host: mongoose.default.connection.host,
-                name: mongoose.default.connection.name
-            },
-            environment: {
-                ENABLE_KMS: process.env.ENABLE_KMS,
-                NODE_ENV: process.env.NODE_ENV,
-                hasAWSKeys: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
-            },
-            userModel: {
-                available: !!User,
-                modelName: User?.modelName
-            },
-            timestamp: new Date().toISOString()
-        };
-        
-        console.log('📋 서버 상태 디버깅 요청:', serverStatus);
-        
-        res.json({
-            success: true,
-            status: serverStatus
-        });
-    } catch (error) {
-        console.error('❌ 서버 상태 확인 실패:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
 
 router.get("/:userId/basic", getUserBasicController);
 router.get("/:userId/riot-info", getUserRiotInfoController);
@@ -109,13 +69,13 @@ router.post('/:userId/block/:targetUserId/minimal', authenticate, blockUserMinim
 router.delete('/:userId/block/:targetUserId/minimal', authenticate, unblockUserMinimalController);
 
 //유저 수 가져오기
-router.get("/user-count", authenticate, requireLevel(3), getUserCountController);
+router.get("/user-count", authenticate, requireLevel(3), adminAccessLogger, getUserCountController);
 
 // 성별 유저 수
-router.get("/gender-count", authenticate, requireLevel(3), getGenderCountController);
+router.get("/gender-count", authenticate, requireLevel(3), adminAccessLogger, getGenderCountController);
 
 // 소셜 성별 유저 수
-router.get("/social-gender-count", authenticate, requireLevel(3), getSocialGenderCountController);
+router.get("/social-gender-count", authenticate, requireLevel(3), adminAccessLogger, getSocialGenderCountController);
 
 // 사용자 정보 가져오기
 router.get("/:userId", getUserInfo);
@@ -163,10 +123,10 @@ router.patch('/:userId/prefs', authenticate, updateUserPrefsController);
 
 router.get("/check-nickname/:nickname", checkNicknameController);
 
-router.get("/:userId/nickname-history", authenticate, requireLevel(3), getNicknameHistoryController);
+router.get("/:userId/nickname-history", authenticate, requireLevel(3), adminAccessLogger, getNicknameHistoryController);
 
 // 성별 히스토리 조회
-router.get("/:userId/gender-history", authenticate, requireLevel(3), getGenderHistoryController);
+router.get("/:userId/gender-history", authenticate, requireLevel(3), adminAccessLogger, getGenderHistoryController);
 
 // 변경 가능 여부 확인
 router.get("/:userId/change-availability", authenticate, checkChangeAvailabilityController);

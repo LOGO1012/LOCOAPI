@@ -4,6 +4,7 @@ import * as reportController from '../controllers/reportController.js';
 //접근제한
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
+import adminAccessLogger from '../middlewares/adminAccessLogger.js';
 
 const router = Router();
 
@@ -15,6 +16,7 @@ router.use(
     authenticate,       // JWT 인증 검사
     requireLevel(2)     // userLv ≥ 2 (관리자 이상)
 );
+router.use(adminAccessLogger);
 
 // 전체 신고 목록 조회
 router.get('/reports', reportController.getReports);

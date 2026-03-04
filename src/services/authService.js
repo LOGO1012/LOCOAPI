@@ -24,17 +24,6 @@ const CLIENT_SECRET = process.env.KAKAO_CLIENT_SECRET || '';
  */
 export const kakaoLogin = async (code) => {
     try {
-        // (추가)(설명): 테스트 환경에서 "test-code"가 전달되면 미리 정의된 데이터를 반환하여 실제 API 호출을 건너뜁니다.
-        if (code === 'test-code') {
-            console.log('테스트 코드 감지 - 미리 정의된 사용자 정보 반환');
-            return {
-                kakaoId: 1234567890,
-                nickname: '테스트닉네임',
-                profileImage: 'http://example.com/profile.jpg',
-                email: 'test@example.com'
-            };
-        }
-
         console.log('카카오 토큰 발급 요청 시작...');
         // 1. 카카오 토큰 발급 요청: authorization code를 이용하여 access token 요청
         const tokenResponse = await axios.post(
@@ -59,7 +48,7 @@ export const kakaoLogin = async (code) => {
             console.error('카카오 토큰 발급 실패: access_token 없음');
             throw new Error('카카오 access token 발급 실패');
         }
-        console.log('카카오 토큰 발급 성공, access_token:', access_token);
+        console.log('카카오 토큰 발급 성공');
 
         console.log('카카오 사용자 정보 요청 시작...');
         // 3. access token을 사용하여 카카오 사용자 정보 요청
@@ -72,7 +61,7 @@ export const kakaoLogin = async (code) => {
         });
 
         const kakaoUser = userResponse.data; // 카카오가 반환한 사용자 데이터
-        console.log('카카오 사용자 정보 조회 성공:', kakaoUser);
+        console.log('카카오 사용자 정보 조회 성공');
 
 
 
@@ -94,7 +83,7 @@ export const kakaoLogin = async (code) => {
 
     } catch (error) {
         // 에러 발생 시, error.response?.data 또는 error.message를 출력하고 에러를 던집니다.
-        console.error('카카오 로그인 서비스 에러:', error.response?.data || error.message);
+        console.error('카카오 로그인 서비스 에러:', error.message);
         throw error;
     }
 };

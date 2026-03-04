@@ -6,17 +6,6 @@ dotenv.config();
 
 export const naverLogin = async (code, state) => {
     try {
-        // 테스트용 코드 처리
-        if (code === 'test-code') {
-            console.log('테스트 코드 감지 - 미리 정의된 네이버 사용자 정보 반환');
-            return {
-                naverId: 'test_naver_id',
-                name: '테스트네이버',
-                email: 'naver_test@example.com',
-                accessToken: 'test_access_token' // ✅ 테스트용 토큰 추가
-            };
-        }
-
         console.log('네이버 토큰 발급 요청 시작...');
         // 네이버 토큰 발급 요청 (GET 방식)
         const tokenResponse = await axios.get('https://nid.naver.com/oauth2.0/token', {
@@ -34,7 +23,7 @@ export const naverLogin = async (code, state) => {
             console.error('네이버 토큰 발급 실패: access_token 없음');
             throw new Error('네이버 access token 발급 실패');
         }
-        console.log('네이버 토큰 발급 성공, access_token:', access_token);
+        console.log('네이버 토큰 발급 성공');
 
         console.log('네이버 사용자 정보 요청 시작...');
         // 네이버 사용자 정보 요청
@@ -44,7 +33,7 @@ export const naverLogin = async (code, state) => {
             }
         });
         const naverUser = userResponse.data.response;
-        console.log('네이버 사용자 정보 조회 성공:', naverUser);
+        console.log('네이버 사용자 정보 조회 성공');
 
         // ✅ access_token도 함께 반환하여 백엔드에서 저장할 수 있도록 함
         return {
@@ -57,7 +46,7 @@ export const naverLogin = async (code, state) => {
             accessToken: access_token // ✅ 네이버 연동해제를 위해 access_token 반환
         };
     } catch (error) {
-        console.error('네이버 로그인 서비스 에러:', error.response?.data || error.message);
+        console.error('네이버 로그인 서비스 에러:', error.message);
         throw error;
     }
 };
@@ -75,10 +64,10 @@ export const revokeNaverToken = async (accessToken) => {
 
         const response = await axios.get(`https://nid.naver.com/oauth2.0/token?${params.toString()}`);
         
-        console.log('네이버 연동해제 성공:', response.data);
+        console.log('네이버 연동해제 성공');
         return response.data;
     } catch (error) {
-        console.error('네이버 연동해제 실패:', error.response?.data || error.message);
+        console.error('네이버 연동해제 실패:', error.message);
         throw error;
     }
 };

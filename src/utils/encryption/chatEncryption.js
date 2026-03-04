@@ -1,4 +1,5 @@
 // src/utils/encryption/chatEncryption.js
+import ComprehensiveEncryption from './comprehensiveEncryption.js';
 import crypto from 'crypto';
 
 /**
@@ -28,7 +29,7 @@ class ChatEncryption {
         this.#cachedKey = crypto.pbkdf2Sync(
             masterKey,
             chatSalt,
-            100000,
+            310000, // 31만회 반복
             32,
             'sha256'
         );

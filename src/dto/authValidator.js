@@ -8,7 +8,11 @@ import Joi from 'joi'; // Joi 라이브러리를 사용하여 입력값 검증
 export const kakaoAuthSchema = Joi.object({
     code: Joi.string()            // 'code' 필드는 문자열이어야 하며,
         .required()                // 반드시 제공되어야 합니다.
-        .label('Authorization Code') // 에러 메시지에서 사용할 라벨 이름
+        .label('Authorization Code'), // 에러 메시지에서 사용할 라벨 이름
+    // H-08 보안 조치: OAuth state 파라미터 수신 허용
+    state: Joi.string()
+        .optional()
+        .label('OAuth State')
 });
 
 // (추가)(설명): 입력값 검증 결과를 콘솔에 출력하는 선택적 검증 함수

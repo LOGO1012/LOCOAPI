@@ -1,4 +1,3 @@
-//PASS 받아오는거 어디넣을지
 import mongoose from "mongoose";
 import ComprehensiveEncryption from '../utils/encryption/comprehensiveEncryption.js';
 
@@ -38,10 +37,6 @@ const userSchema = new Schema({
     phone_hash: {
         type: String,           // 전화번호 검색용 해시
         index: true
-    },
-    pass: {
-        type: String,
-        required: false
     },
     // 본인인증 관련 필드
     ci: {
