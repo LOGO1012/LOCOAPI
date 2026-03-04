@@ -388,14 +388,16 @@ class IntelligentCache {
   async getCacheStats() {
     try {
       if (this.client) {
-        const info = await this.client.info("stats");
+        const statsInfo = await this.client.info("stats");
+        const memoryInfo = await this.client.info("memory");
         const keyspace = await this.client.info("keyspace");
 
         return {
           type: 'Redis',
-          hitRate: this.extractHitRate(info),
+          isConnected: this.isConnected,
+          hitRate: this.extractHitRate(statsInfo),
           totalKeys: this.extractKeyCount(keyspace),
-          memoryUsage: this.extractMemoryUsage(info),
+          memoryUsage: this.extractMemoryUsage(memoryInfo),
           ageCache: {
             totalAgeEntries: await this.getKeyCount('user_age:*'),
             chatUserEntries: await this.getKeyCount('chat_user:*'),
@@ -404,6 +406,7 @@ class IntelligentCache {
       } else if (this.memoryCache) {
         return {
           type: 'Memory',
+          isConnected: true, // 메모리 캐시는 항상 연결된 것으로 간주
           totalKeys: this.memoryCache.size,
           ageCache: {
             totalAgeEntries: this.getMemoryKeyCount('user_age:'),
@@ -411,10 +414,10 @@ class IntelligentCache {
           }
         };
       }
-      return { type: 'None', totalKeys: 0 };
+      return { type: 'None', isConnected: false, totalKeys: 0 };
     } catch (error) {
       console.error('캐시 통계 조회 실패:', error);
-      return { type: 'Error', totalKeys: 0 };
+      return { type: 'Error', isConnected: false, totalKeys: 0 };
     }
   }
 
