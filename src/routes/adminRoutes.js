@@ -5,12 +5,42 @@ import { authenticate } from '../middlewares/authMiddleware.js';
 import { requireLevel } from '../middlewares/requireLevel.js';
 import ReportedMessageBackup from '../models/reportedMessageBackup.js';
 import * as adminRewardController from '../controllers/adminRewardController.js';
+import * as adminMonitoringController from '../controllers/adminMonitoringController.js';
 
 const router = express.Router();
 
 // 권한 검증: JWT 인증 + userLv >= 2 (관리자 이상)
 router.use(authenticate);
 router.use(requireLevel(2));
+
+// ============================================================================
+//   📊 관리자 전용 - 시스템 모니터링 (캐싱 & 보안)
+// ============================================================================
+
+/**
+ * GET /api/admin/monitoring/status
+ * 시스템 전체 상태 조회 (캐시, 보안, DB)
+ */
+router.get('/monitoring/status', adminMonitoringController.getSystemStatus);
+
+/**
+ * GET /api/admin/monitoring/users
+ * 유저 전체 통계 및 상태 조회
+ */
+router.get('/monitoring/users', adminMonitoringController.getUserStatistics);
+
+/**
+ * POST /api/admin/monitoring/cache/flush
+ * 캐시 강제 비우기
+ */
+router.post('/monitoring/cache/flush', adminMonitoringController.flushCache);
+
+/**
+ * POST /api/admin/monitoring/cache/reconnect
+ * Redis 강제 재연결 시도
+ */
+router.post('/monitoring/cache/reconnect', adminMonitoringController.reconnectRedis);
+
 
 // ============================================================================
 //   🎁 관리자 전용 - 채팅 횟수 보상 관리
